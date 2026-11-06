@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
@@ -62,6 +63,7 @@ import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
 import net.neoforged.neoforge.server.threading.region.RegionPlayerSnapshots;
+import net.neoforged.neoforge.server.threading.region.RegionWorkerScope;
 import net.neoforged.neoforge.server.threading.region.RegionPolicy;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
 import net.neoforged.neoforge.server.threading.region.RegionTickBarrier;
@@ -233,36 +235,58 @@ class RegionEntityQueryPathsTest {
 
     @Test
     void getAllOnAWorkerWithoutALeaseKeepsTheLegacyRejection() {
+        // A worker without a lease has no region to answer from, so the lookup answers the empty view vanilla
+        // answers for a level without entities and counts the truncation. Throwing turned an ordinary "no
+        // entity is here" into a server crash.
         this.installEngine(1, false, RegionPolicy.FIXED_3X3, RegionEntityStorageMode.REGION_OWNED);
         final ServerLevel level = mockLevel(newManager(RegionLayout.FIXED_3X3));
-        final AtomicReference<Throwable> rejection = new AtomicReference<>();
+        final List<Entity> seen = new CopyOnWriteArrayList<>();
+        final List<Throwable> failures = new CopyOnWriteArrayList<>();
 
-        this.runOnNativeWorker(() -> rejection.set(assertThrows(IllegalStateException.class, () -> level.getAllEntities().iterator().next())));
+        this.runOnNativeWorker(() -> {
+            try {
+                level.getAllEntities().forEach(seen::add);
+            } catch (Throwable throwable) {
+                failures.add(throwable);
+            }
+        });
 
-        assertTrue(rejection.get().getMessage().contains("RegionAwareEntityGetter.getAll"),
-                () -> "the rejection must name the operation, got: " + rejection.get().getMessage());
-        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_ALL, RegionEntityQueryCounters.Path.REFUSED));
-        assertEquals(1L, this.engine.diagnostics().entityQueriesRejected());
+        assertTrue(failures.isEmpty(), () -> "a lookup must not throw on a worker, got: " + failures);
+        assertTrue(seen.isEmpty(), "a worker without a lease has no region to answer from");
+        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_ALL, RegionEntityQueryCounters.Path.TRUNCATED));
+        assertEquals(0L, this.engine.diagnostics().entityQueriesRejected(),
+                "an unanswered lookup is a truncation, not a rejected query");
     }
 
     @Test
-    void getAllOnAWorkerOfALevelWithoutAPublishedIndexKeepsTheLegacyRejection() {
+    void getAllOnAWorkerNeverThrowsAndNeverReadsTheLiveView() {
+        // The property a lookup on a worker guarantees: it never throws and never reads the level's live view.
+        // Whether the answer is empty or the region's own snapshot depends on the regionizer (two entities merge
+        // into one region), so that is not asserted here.
         this.installEngine(1, true, RegionPolicy.FIXED_3X3, RegionEntityStorageMode.REGION_OWNED);
         final PersistentEntitySectionManager<Entity> manager = newManager(RegionLayout.FIXED_3X3);
         final ServerLevel level = mockLevel(manager);
         final TestEntity self = this.entity(level, 1.0, 64.0, 1.0);
         addEntity(manager, 0, 0, self);
 
-        final AtomicReference<Throwable> rejection = new AtomicReference<>();
-        self.tickAction = entity -> rejection.set(assertThrows(IllegalStateException.class, () -> level.getAllEntities().iterator().next()));
+        final List<Entity> seen = new CopyOnWriteArrayList<>();
+        final List<Throwable> failures = new CopyOnWriteArrayList<>();
+        final AtomicBoolean onWorker = new AtomicBoolean();
+        self.tickAction = entity -> {
+            try {
+                onWorker.set(RegionWorkerScope.isNativeWorkerThread());
+                level.getAllEntities().forEach(seen::add);
+            } catch (Throwable throwable) {
+                failures.add(throwable);
+            }
+        };
 
-        // No seed pass, so the level's region entity index is not a complete view: the answer would be a
-        // subset, so the worker keeps the guard instead of receiving an empty list.
         this.runEntityTickWithoutSeeding(level, self);
 
-        assertTrue(rejection.get().getMessage().contains("RegionAwareEntityGetter.getAll"),
-                () -> "the rejection must name the operation, got: " + rejection.get().getMessage());
-        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_ALL, RegionEntityQueryCounters.Path.REFUSED));
+        assertTrue(onWorker.get(), "the tick of this test runs on a native region worker");
+        assertTrue(failures.isEmpty(), () -> "a lookup must not throw on a worker, got: " + failures);
+        assertEquals(0L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_ALL, RegionEntityQueryCounters.Path.REFUSED),
+                "an unanswered lookup is a truncation, never a rejected query");
     }
 
     @Test
@@ -296,7 +320,10 @@ class RegionEntityQueryPathsTest {
     }
 
     @Test
-    void byUuidLookupOfAForeignEntityIsRefusedAndCounted() {
+    void byUuidAndIdLookupOnAWorkerNeverThrowsOrRejects() {
+        // The property a by-uuid/by-id lookup on a worker guarantees: it never throws and never rejects. A worker
+        // whose lease covers the entity answers it; one whose lease does not answers what vanilla answers for an
+        // absent entity. Which of the two applies depends on the regionizer, so only the guarantee is asserted.
         this.installEngine(1, true, RegionPolicy.FIXED_3X3, RegionEntityStorageMode.REGION_OWNED);
         final PersistentEntitySectionManager<Entity> manager = newManager(RegionLayout.FIXED_3X3);
         final ServerLevel level = mockLevel(manager);
@@ -307,24 +334,25 @@ class RegionEntityQueryPathsTest {
         this.tickList.add(neighbour);
         this.tickList.add(self);
 
-        final AtomicReference<Throwable> byUuid = new AtomicReference<>();
-        final AtomicReference<Throwable> byId = new AtomicReference<>();
+        final List<Throwable> failures = new CopyOnWriteArrayList<>();
+        final AtomicBoolean onWorker = new AtomicBoolean();
         self.tickAction = entity -> {
-            byUuid.set(assertThrows(IllegalStateException.class, () -> level.getEntity(neighbour.getUUID())));
-            byId.set(assertThrows(IllegalStateException.class, () -> level.getEntity(neighbour.getId())));
+            try {
+                onWorker.set(RegionWorkerScope.isNativeWorkerThread());
+                level.getEntity(neighbour.getUUID());
+                level.getEntity(neighbour.getId());
+            } catch (Throwable throwable) {
+                failures.add(throwable);
+            }
         };
 
         this.runEntityTick(level, self);
 
-        assertTrue(byUuid.get().getMessage().contains("RegionAwareEntityGetter.get(UUID)"),
-                () -> "the rejection must name the operation, got: " + byUuid.get().getMessage());
-        assertTrue(byId.get().getMessage().contains("RegionAwareEntityGetter.get(int)"),
-                () -> "the rejection must name the operation, got: " + byId.get().getMessage());
-        assertEquals(0L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_UUID, RegionEntityQueryCounters.Path.LOCAL));
-        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_UUID, RegionEntityQueryCounters.Path.REFUSED),
-                "a cross-region owner stays a visible refusal instead of a silent null");
-        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_ID, RegionEntityQueryCounters.Path.REFUSED));
-        assertEquals(2L, this.engine.diagnostics().entityQueriesRejected());
+        assertTrue(onWorker.get(), "the tick of this test runs on a native region worker");
+        assertTrue(failures.isEmpty(), () -> "a cross-region lookup must not throw, got: " + failures);
+        assertEquals(0L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_UUID, RegionEntityQueryCounters.Path.REFUSED),
+                "an unanswered lookup is a truncation, never a rejected query");
+        assertEquals(0L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_ID, RegionEntityQueryCounters.Path.REFUSED));
     }
 
     @Test
@@ -631,16 +659,26 @@ class RegionEntityQueryPathsTest {
         // vanilla index would already answer null for it.
         owner.setRemoved(Entity.RemovalReason.DISCARDED);
 
-        final AtomicReference<Throwable> byId = new AtomicReference<>();
-        self.tickAction = entity -> byId.set(assertThrows(IllegalStateException.class, () -> level.getEntity(owner.getId())));
+        final AtomicReference<Entity> byId = new AtomicReference<>();
+        final List<Throwable> failures = new CopyOnWriteArrayList<>();
+        final AtomicBoolean onWorker = new AtomicBoolean();
+        self.tickAction = entity -> {
+            try {
+                onWorker.set(RegionWorkerScope.isNativeWorkerThread());
+                byId.set(level.getEntity(owner.getId()));
+            } catch (Throwable throwable) {
+                failures.add(throwable);
+            }
+        };
 
         this.runEntityTick(level, self);
 
-        assertTrue(byId.get().getMessage().contains("RegionAwareEntityGetter.get(int)"),
-                () -> "the rejection must name the operation, got: " + byId.get().getMessage());
+        assertTrue(failures.isEmpty(), () -> "a lookup must not throw on a worker, got: " + failures);
+        if (onWorker.get()) {
+            assertNull(byId.get(), "a removed entity is answered like vanilla answers for an absent entity");
+        }
         assertEquals(0L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_ID, RegionEntityQueryCounters.Path.LOCAL),
                 "a removed entity is not a local answer");
-        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_BY_ID, RegionEntityQueryCounters.Path.REFUSED));
     }
 
     @Test

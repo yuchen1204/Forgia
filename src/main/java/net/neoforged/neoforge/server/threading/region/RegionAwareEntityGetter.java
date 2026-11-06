@@ -51,6 +51,9 @@ import org.jetbrains.annotations.Nullable;
  */
 @ApiStatus.Internal
 public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("RegionAwareEntityGetter");
+    /** One log line per operation whose worker-side lookup could not be answered. */
+    private static final java.util.Set<String> UNANSWERED_OPERATIONS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ServerLevel level;
     private final LevelEntityGetter<Entity> delegate;
 
@@ -66,9 +69,11 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         if (scoped != null) {
             return scoped;
         }
-        rejectOnNativeWorker("RegionAwareEntityGetter.get(int)", RegionEntityQueryCounters.Operation.GET_BY_ID);
         if (RegionThreadingHooks.shouldHandOffEntityQuery()) {
             return RegionThreadingHooks.runEntityQueryOnServerThread(this.level, () -> this.delegate.get(id));
+        }
+        if (RegionWorkerScope.isNativeWorkerThread()) {
+            return unansweredOnWorker("RegionAwareEntityGetter.get(int)", RegionEntityQueryCounters.Operation.GET_BY_ID);
         }
         return this.delegate.get(id);
     }
@@ -80,9 +85,11 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         if (scoped != null) {
             return scoped;
         }
-        rejectOnNativeWorker("RegionAwareEntityGetter.get(UUID)", RegionEntityQueryCounters.Operation.GET_BY_UUID);
         if (RegionThreadingHooks.shouldHandOffEntityQuery()) {
             return RegionThreadingHooks.runEntityQueryOnServerThread(this.level, () -> this.delegate.get(uuid));
+        }
+        if (RegionWorkerScope.isNativeWorkerThread()) {
+            return unansweredOnWorker("RegionAwareEntityGetter.get(UUID)", RegionEntityQueryCounters.Operation.GET_BY_UUID);
         }
         return this.delegate.get(uuid);
     }
@@ -93,8 +100,11 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         if (scoped != null) {
             return scoped;
         }
-        rejectOnNativeWorker("RegionAwareEntityGetter.getAll", RegionEntityQueryCounters.Operation.GET_ALL);
         if (!RegionThreadingHooks.shouldHandOffEntityQuery()) {
+            if (RegionWorkerScope.isNativeWorkerThread()) {
+                unansweredOnWorker("RegionAwareEntityGetter.getAll", RegionEntityQueryCounters.Operation.GET_ALL);
+                return List.of();
+            }
             return this.delegate.getAll();
         }
         final List<Entity> snapshot = new ArrayList<>();
@@ -112,13 +122,14 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         if (RegionScopedEntityQuery.tryGetByType(this.level, typeTest, consumer)) {
             return;
         }
-        rejectOnNativeWorker("RegionAwareEntityGetter.get(EntityTypeTest, AbortableIterationConsumer)",
-                RegionEntityQueryCounters.Operation.GET_BY_TYPE);
         if (RegionThreadingHooks.shouldHandOffEntityQuery()) {
             RegionThreadingHooks.runEntityQueryOnServerThread(this.level, () -> {
                 this.delegate.get(typeTest, consumer);
                 return null;
             });
+        } else if (RegionWorkerScope.isNativeWorkerThread()) {
+            unansweredOnWorker("RegionAwareEntityGetter.get(EntityTypeTest, AbortableIterationConsumer)",
+                    RegionEntityQueryCounters.Operation.GET_BY_TYPE);
         } else {
             this.delegate.get(typeTest, consumer);
         }
@@ -129,12 +140,13 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         if (RegionScopedEntityQuery.tryGetInBox(this.level, boundingBox, consumer)) {
             return;
         }
-        rejectOnNativeWorker("RegionAwareEntityGetter.get(AABB, Consumer)", RegionEntityQueryCounters.Operation.GET_IN_BOX);
         if (RegionThreadingHooks.shouldHandOffEntityQuery()) {
             RegionThreadingHooks.runEntityQueryOnServerThread(this.level, () -> {
                 this.delegate.get(boundingBox, consumer);
                 return null;
             });
+        } else if (RegionWorkerScope.isNativeWorkerThread()) {
+            unansweredOnWorker("RegionAwareEntityGetter.get(AABB, Consumer)", RegionEntityQueryCounters.Operation.GET_IN_BOX);
         } else {
             this.delegate.get(boundingBox, consumer);
         }
@@ -145,13 +157,14 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         if (RegionScopedEntityQuery.tryGetByTypeInBox(this.level, typeTest, boundingBox, consumer)) {
             return;
         }
-        rejectOnNativeWorker("RegionAwareEntityGetter.get(EntityTypeTest, AABB, AbortableIterationConsumer)",
-                RegionEntityQueryCounters.Operation.GET_BY_TYPE_IN_BOX);
         if (RegionThreadingHooks.shouldHandOffEntityQuery()) {
             RegionThreadingHooks.runEntityQueryOnServerThread(this.level, () -> {
                 this.delegate.get(typeTest, boundingBox, consumer);
                 return null;
             });
+        } else if (RegionWorkerScope.isNativeWorkerThread()) {
+            unansweredOnWorker("RegionAwareEntityGetter.get(EntityTypeTest, AABB, AbortableIterationConsumer)",
+                    RegionEntityQueryCounters.Operation.GET_BY_TYPE_IN_BOX);
         } else {
             this.delegate.get(typeTest, boundingBox, consumer);
         }
@@ -197,6 +210,31 @@ public final class RegionAwareEntityGetter implements LevelEntityGetter<Entity> 
         RegionEntityQueryCounters.record(uuid != null ? RegionEntityQueryCounters.Operation.GET_BY_UUID : RegionEntityQueryCounters.Operation.GET_BY_ID,
                 RegionEntityQueryCounters.Path.LOCAL);
         return entity;
+    }
+
+    /**
+     * {@return {@code null}, after counting that a worker's lookup could not be answered}
+     * <p>
+     * A vanilla entity lookup answers {@code null} for an entity the level does not hold, and every vanilla
+     * caller null-checks the result: {@code NeutralMob.updatePersistentAnger} forgets an anger target that is
+     * gone, a projectile loses an owner that unloaded, a leash drops a knot whose holder left. Throwing out of
+     * the lookup instead turns "the entity is not here" - a normal answer - into a server crash, which is what a
+     * region worker asked for the anger target of a polar bear standing across a border did.
+     * <p>
+     * A worker therefore answers a lookup it cannot serve with the value vanilla produces for an absent entity,
+     * and records it: the per-operation counter keeps the rate visible, and one log line per operation names the
+     * case once, so a missing answer stays discoverable without flooding the log.
+     */
+    @Nullable
+    private static Entity unansweredOnWorker(String operation, RegionEntityQueryCounters.Operation path) {
+        RegionEntityQueryCounters.record(path, RegionEntityQueryCounters.Path.TRUNCATED);
+        if (UNANSWERED_OPERATIONS.add(operation)) {
+            LOGGER.warn("A native region worker asked for {} and the answer is not in its leased region: the lookup "
+                    + "answers what vanilla answers for an absent entity, and is counted as truncated. This is "
+                    + "expected for an owner, an anger target or a passenger of another region.",
+                    operation);
+        }
+        return null;
     }
 
     private static void rejectOnNativeWorker(String operation, RegionEntityQueryCounters.Operation path) {

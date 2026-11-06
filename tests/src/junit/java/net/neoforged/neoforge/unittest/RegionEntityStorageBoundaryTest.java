@@ -694,16 +694,20 @@ class RegionEntityStorageBoundaryTest {
         final AtomicBoolean predicateRan = new AtomicBoolean();
         final Consumer<Entity> consumer = candidate -> predicateRan.set(true);
 
-        assertRejected("RegionAwareEntityGetter.get(int)", () -> getter.get(42));
-        assertRejected("RegionAwareEntityGetter.get(UUID)", () -> getter.get(UUID.randomUUID()));
-        assertRejected("RegionAwareEntityGetter.getAll", getter::getAll);
-        assertRejected("RegionAwareEntityGetter.get(AABB, Consumer)", () -> getter.get(new AABB(0, 0, 0, 1, 1, 1), consumer));
-        assertRejected("RegionAwareEntityGetter.get(EntityTypeTest, AbortableIterationConsumer)", () -> getter.get(EntityTypeTest.forClass(Entity.class), ignored -> net.minecraft.util.AbortableIterationConsumer.Continuation.CONTINUE));
-        assertRejected("RegionAwareEntityGetter.get(EntityTypeTest, AABB, AbortableIterationConsumer)",
-                () -> getter.get(EntityTypeTest.forClass(Entity.class), new AABB(0, 0, 0, 1, 1, 1),
-                        ignored -> net.minecraft.util.AbortableIterationConsumer.Continuation.CONTINUE));
+        // A worker's lookup answers the value vanilla answers for an absent entity instead of throwing: an
+        // answer it cannot serve is a normal "no entity here", and throwing out of it crashed live servers
+        // (a polar bear's persistent anger target, a projectile owner) whenever the entity was across a border.
+        this.runOnNativeWorker(() -> {
+            assertNull(getter.get(42));
+            assertNull(getter.get(UUID.randomUUID()));
+            assertFalse(getter.getAll().iterator().hasNext());
+            getter.get(new AABB(0, 0, 0, 1, 1, 1), consumer);
+            getter.get(EntityTypeTest.forClass(Entity.class), ignored -> net.minecraft.util.AbortableIterationConsumer.Continuation.CONTINUE);
+            getter.get(EntityTypeTest.forClass(Entity.class), new AABB(0, 0, 0, 1, 1, 1),
+                    ignored -> net.minecraft.util.AbortableIterationConsumer.Continuation.CONTINUE);
+        });
 
-        assertFalse(predicateRan.get(), "a rejected query must not run its consumer");
+        assertFalse(predicateRan.get(), "an unanswered query must not run its consumer");
         verifyNoInteractions(delegate);
     }
 
