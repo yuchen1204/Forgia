@@ -372,7 +372,7 @@
          Entity entity = this.getEntities().get(p_8854_.getUUID());
          if (entity != null) {
              LOGGER.warn("Force-added player with duplicate UUID {}", p_8854_.getUUID());
-@@ -903,19 +_,36 @@
+@@ -903,19 +_,40 @@
              this.removePlayerImmediately((ServerPlayer)entity, Entity.RemovalReason.DISCARDED);
          }
  
@@ -389,6 +389,10 @@
 +        // and a worker whose entity is outside the lease or cannot be deferred, keeps the storage refusal
 +        // below.
 +        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.deferEntityAddition(this, p_8873_)) return true;
++        // A spawn can land outside the lease of the region that is ticking - a mob at the border drops its loot
++        // across it - and the batch cannot record that admission. The worker hands it to the server thread
++        // instead of failing the tick, and still answers the vanilla "accepted for this tick".
++        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.handOffEntityAddition(this, p_8873_)) return true;
 +        net.neoforged.neoforge.server.threading.RegionThreadingHooks.assertServerEntityAdditionAccess("ServerLevel.addEntity");
          if (p_8873_.isRemoved()) {
              LOGGER.warn("Tried to add entity {} but it was marked as removed already", EntityType.getKey(p_8873_.getType()));

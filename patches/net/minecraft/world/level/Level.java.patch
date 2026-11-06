@@ -424,7 +424,7 @@
      }
  
      public boolean isLoaded(BlockPos p_46750_) {
-@@ -796,6 +_,32 @@
+@@ -796,6 +_,36 @@
  
      @Override
      public List<Entity> getEntities(@Nullable Entity p_46536_, AABB p_46537_, Predicate<? super Entity> p_46538_) {
@@ -437,18 +437,22 @@
 +                return leased;
 +            }
 +        }
-+        if (this instanceof net.minecraft.server.level.ServerLevel
-+                && net.neoforged.neoforge.server.threading.RegionThreadingHooks.shouldRejectLegacyEntityQuery()) {
-+            // Neo: production region workers never receive live entity storage or run the caller predicate.
-+            net.neoforged.neoforge.server.threading.RegionThreadingHooks.rejectLegacyEntityQuery("Level.getEntities(Entity, AABB, Predicate)",
-+                    net.neoforged.neoforge.server.threading.region.RegionEntityQueryCounters.Operation.GET_IN_BOX);
-+        }
 +        if (this instanceof net.minecraft.server.level.ServerLevel serverLevel
 +                && net.neoforged.neoforge.server.threading.RegionThreadingHooks.shouldHandOffEntityQuery()) {
 +            // Neo: a region worker must not iterate the live section storage. The complete query runs on
 +            // the server thread, which is waiting for the batch and services this handoff.
 +            return net.neoforged.neoforge.server.threading.RegionThreadingHooks.runEntityQueryOnServerThread(serverLevel,
 +                    () -> this.getEntitiesVanilla(p_46536_, p_46537_, p_46538_));
++        }
++        if (this instanceof net.minecraft.server.level.ServerLevel
++                && net.neoforged.neoforge.server.threading.RegionThreadingHooks.shouldRejectLegacyEntityQuery()) {
++            // Neo: collision, explosions and every getEntitiesOfClass of a tick reach this method, so a worker
++            // that cannot serve the query answers the empty result vanilla answers for an empty area instead of
++            // failing the tick. The predicate is never run on storage the worker may not read, and the answer
++            // is counted and logged once.
++            net.neoforged.neoforge.server.threading.RegionThreadingHooks.recordUnservedRangeQuery("Level.getEntities(Entity, AABB, Predicate)",
++                    net.neoforged.neoforge.server.threading.region.RegionEntityQueryCounters.Operation.GET_IN_BOX);
++            return java.util.List.of();
 +        }
 +        return this.getEntitiesVanilla(p_46536_, p_46537_, p_46538_);
 +    }
@@ -477,7 +481,7 @@
          return list;
      }
  
-@@ -828,6 +_,35 @@
+@@ -828,6 +_,37 @@
      public <T extends Entity> void getEntities(
          EntityTypeTest<Entity, T> p_261885_, AABB p_262086_, Predicate<? super T> p_261688_, List<? super T> p_262071_, int p_261858_
      ) {
@@ -488,12 +492,6 @@
 +            // entities of the leased region only, with the same predicate/abort semantics.
 +            return;
 +        }
-+        if (this instanceof net.minecraft.server.level.ServerLevel
-+                && net.neoforged.neoforge.server.threading.RegionThreadingHooks.shouldRejectLegacyEntityQuery()) {
-+            // Neo: production region workers never receive live entity storage or run the caller predicate.
-+            net.neoforged.neoforge.server.threading.RegionThreadingHooks.rejectLegacyEntityQuery("Level.getEntities(EntityTypeTest, AABB, Predicate, List, int)",
-+                    net.neoforged.neoforge.server.threading.region.RegionEntityQueryCounters.Operation.GET_BY_TYPE_IN_BOX);
-+        }
 +        if (this instanceof net.minecraft.server.level.ServerLevel serverLevel
 +                && net.neoforged.neoforge.server.threading.RegionThreadingHooks.shouldHandOffEntityQuery()) {
 +            // Neo: see getEntities(Entity, AABB, Predicate). The query and the consumer that fills the
@@ -502,6 +500,14 @@
 +                this.getEntitiesVanilla(p_261885_, p_262086_, p_261688_, p_262071_, p_261858_);
 +                return null;
 +            });
++            return;
++        }
++        if (this instanceof net.minecraft.server.level.ServerLevel
++                && net.neoforged.neoforge.server.threading.RegionThreadingHooks.shouldRejectLegacyEntityQuery()) {
++            // Neo: see getEntities(Entity, AABB, Predicate). A worker answers an unserved typed query with the
++            // empty result and leaves the caller's list untouched; the predicate never runs on foreign storage.
++            net.neoforged.neoforge.server.threading.RegionThreadingHooks.recordUnservedRangeQuery("Level.getEntities(EntityTypeTest, AABB, Predicate, List, int)",
++                    net.neoforged.neoforge.server.threading.region.RegionEntityQueryCounters.Operation.GET_BY_TYPE_IN_BOX);
 +            return;
 +        }
 +        this.getEntitiesVanilla(p_261885_, p_262086_, p_261688_, p_262071_, p_261858_);

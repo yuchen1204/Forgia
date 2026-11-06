@@ -2456,6 +2456,27 @@ public final class RegionThreadingEngine implements RegionThreading {
     }
 
     /**
+     * Queues {@code task} on the server thread after the batch of the current worker task finished.
+     * <p>
+     * A worker that cannot perform a server-owned effect itself - an entity admission of a spawn outside its
+     * lease, a query the lease cannot answer - hands the effect to the server thread instead of failing the
+     * tick. The task runs once the batch's workers are done and before the next slice, which is the same point
+     * the batch's own deferred work is applied.
+     *
+     * @return {@code true} when the task was queued, {@code false} when the current thread is not a worker task
+     *         of a live batch, so the caller has to keep its own behaviour
+     */
+    @ApiStatus.Internal
+    public boolean queueServerTaskInCurrentBatch(Runnable task) {
+        final RegionEntityTickBatch.Group group = this.currentEntityTickGroup();
+        if (group == null) {
+            return false;
+        }
+        group.batch().queueServerTask(task);
+        return true;
+    }
+
+    /**
      * {@return the batch group that owns the current worker task, or {@code null} outside an entity batch}
      */
     @Nullable

@@ -225,7 +225,7 @@ class RegionEntityAdmissionDeferralTest {
     }
 
     @Test
-    void anAdditionOutsideTheLeasedRegionKeepsTheStorageRefusalAndIsCounted() {
+    void anAdditionOutsideTheLeasedRegionIsHandedToTheServerThread() {
         this.installEngine(1, true);
         final TrackingRecorder recorder = new TrackingRecorder();
         final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
@@ -246,17 +246,14 @@ class RegionEntityAdmissionDeferralTest {
         plan.executeAndAwait();
 
         assertEquals(1, attempts.size());
-        assertTrue(attempts.get(0).contains("ServerLevel.addEntity"),
-                () -> "an admission outside the lease must name the operation, got: " + attempts.get(0));
+        assertEquals("granted", attempts.get(0),
+                () -> "the worker answers the vanilla acceptance and hands the spawn to the server thread, got: " + attempts.get(0));
         final Entity loot = refused.get(0);
-        assertFalse(loot.isAddedToLevel(), "a refused admission must not mark the entity as added");
-        assertFalse(manager.isLoaded(loot.getUUID()), "a refused admission must not touch the storage");
-        assertEquals(List.of(), recorder.eventsOf(loot));
-        assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsRecorded());
-        assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsApplied());
-        assertEquals(1L, this.engine.diagnostics().entityAddRejectedOnWorker(),
-                "a spawn the lease cannot contain is a rejected spawn");
-        assertEquals(1L, this.engine.diagnostics().ownershipViolationCount());
+        assertTrue(loot.isAddedToLevel(), "the handed-off admission runs on the server thread after the batch");
+        assertTrue(manager.isLoaded(loot.getUUID()), "the handed-off admission reaches the storage");
+        assertEquals(0L, this.engine.diagnostics().entityAddRejectedOnWorker(),
+                "a spawn outside the lease is handed off, not rejected");
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
     }
 
     @Test

@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -25,6 +24,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
@@ -46,9 +46,11 @@ import net.minecraft.world.level.entity.LevelCallback;
 import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 import net.minecraft.world.level.entity.Visibility;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
 import net.neoforged.neoforge.server.threading.region.FixedEntitySectionPartitions;
 import net.neoforged.neoforge.server.threading.region.RegionAwareEntityGetter;
+import net.neoforged.neoforge.server.threading.region.RegionEntityQueryCounters;
 import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
@@ -166,34 +168,35 @@ class RegionScopedEntityQueryTest {
     }
 
     @Test
-    void workerWithoutLeaseIsStillRejectedWithTheOperationName() {
+    void workerWithoutLeaseAnswersEmptyAndCountsTheTruncation() {
         this.installEngine(1, false, RegionPolicy.FIXED_3X3, RegionEntityStorageMode.REGION_OWNED);
-        final ServerLevel level = mockLevel(newManager(RegionLayout.FIXED_3X3));
-        final AtomicReference<Throwable> rejection = new AtomicReference<>();
+        final AtomicReference<Boolean> guard = new AtomicReference<>();
 
-        runOnNativeWorker(() -> rejection.set(assertThrows(IllegalStateException.class,
-                () -> level.getEntities((Entity) null, INSIDE_BOX, candidate -> true))));
+        runOnNativeWorker(() -> {
+            guard.set(RegionThreadingHooks.shouldRejectLegacyEntityQuery());
+            RegionThreadingHooks.recordUnservedRangeQuery("Level.getEntities(Entity, AABB, Predicate)",
+                    RegionEntityQueryCounters.Operation.GET_IN_BOX);
+        });
 
-        assertNotNull(rejection.get());
-        assertTrue(rejection.get().getMessage().contains("Level.getEntities(Entity, AABB, Predicate)"),
-                () -> "the rejection must name the operation, got: " + rejection.get().getMessage());
+        assertTrue(guard.get(), "a native worker keeps the guard, it just stops being fatal");
+        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_IN_BOX,
+                RegionEntityQueryCounters.Path.TRUNCATED),
+                "an unserved query is counted as truncated");
         assertEquals(0L, this.engine.diagnostics().entityQueriesAllowedByLease());
-        assertEquals(0L, this.engine.diagnostics().entityQueriesTruncatedByLease());
-        assertEquals(1L, this.engine.diagnostics().entityQueriesRejected());
+        assertEquals(0L, this.engine.diagnostics().entityQueriesRejected(),
+                "an unserved query is never a rejected query");
     }
 
     @Test
-    void leaseOnDynamicStorageKeepsTheLegacyRejection() {
+    void leaseOnDynamicStorageAnswersEmptyAndCountsTheTruncation() {
         this.installEngine(1, true, RegionPolicy.DYNAMIC, RegionEntityStorageMode.REGION_OWNED);
         final PersistentEntitySectionManager<Entity> manager = newManager(RegionLayout.DYNAMIC);
         final ServerLevel level = mockLevel(manager);
-        final List<Throwable> failures = new CopyOnWriteArrayList<>();
+        final AtomicReference<Boolean> guard = new AtomicReference<>();
         final TestEntity self = new TestEntity(level, entity -> {
-            try {
-                level.getEntities(entity, INSIDE_BOX, candidate -> true);
-            } catch (Throwable throwable) {
-                failures.add(throwable);
-            }
+            guard.set(RegionThreadingHooks.shouldRejectLegacyEntityQuery());
+            RegionThreadingHooks.recordUnservedRangeQuery("Level.getEntities(Entity, AABB, Predicate)",
+                    RegionEntityQueryCounters.Operation.GET_IN_BOX);
         });
         self.setPos(1.0, 64.0, 1.0);
         addEntity(manager, 0, 0, self);
@@ -202,29 +205,37 @@ class RegionScopedEntityQueryTest {
         assertTrue(plan.accept(self));
         plan.executeAndAwait();
 
-        assertEquals(1, failures.size(), () -> "a DYNAMIC lease must keep the legacy rejection: " + failures);
-        assertTrue(failures.get(0).getMessage().contains("Level.getEntities(Entity, AABB, Predicate)"),
-                () -> "the rejection must name the operation, got: " + failures.get(0).getMessage());
+        assertTrue(guard.get(), "a DYNAMIC storage keeps the guard, it just stops being fatal");
         assertEquals(0L, this.engine.diagnostics().entityQueriesAllowedByLease());
-        assertEquals(0L, this.engine.diagnostics().entityQueriesTruncatedByLease());
-        assertEquals(1L, this.engine.diagnostics().entityQueriesRejected());
+        assertEquals(1L, RegionEntityQueryCounters.count(RegionEntityQueryCounters.Operation.GET_IN_BOX,
+                RegionEntityQueryCounters.Path.TRUNCATED));
+        assertEquals(0L, this.engine.diagnostics().entityQueriesRejected());
     }
 
     @Test
-    void mainThreadOnlyStorageKeepsTheWorkerRejection() {
+    void mainThreadOnlyStorageAnswersEmptyOnAWorker() {
         this.installEngine(1, true, RegionPolicy.FIXED_3X3, RegionEntityStorageMode.MAIN_THREAD_ONLY);
         final ServerLevel level = mockLevel(newManager(RegionLayout.FIXED_3X3));
         assertNull(this.engine.beginEntityTickPlan(level, entity -> true, PARKING_BARRIER),
                 "MAIN_THREAD_ONLY storage must not start an entity worker batch");
-        final AtomicReference<Throwable> rejection = new AtomicReference<>();
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final AtomicBoolean predicateRan = new AtomicBoolean();
 
-        runOnNativeWorker(() -> rejection.set(assertThrows(IllegalStateException.class,
-                () -> level.getEntities((Entity) null, INSIDE_BOX, candidate -> true))));
+        runOnNativeWorker(() -> {
+            try {
+                assertTrue(level.getEntities((Entity) null, INSIDE_BOX, candidate -> {
+                    predicateRan.set(true);
+                    return true;
+                }).isEmpty());
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            }
+        });
 
-        assertNotNull(rejection.get());
-        assertTrue(rejection.get().getMessage().contains("Level.getEntities(Entity, AABB, Predicate)"));
+        assertNull(failure.get(), () -> "an unserved query must not fail the tick, got: " + failure.get());
+        assertFalse(predicateRan.get(), "an unserved query must not run its predicate");
         assertEquals(0L, this.engine.diagnostics().entityQueriesAllowedByLease());
-        assertEquals(1L, this.engine.diagnostics().entityQueriesRejected());
+        assertEquals(0L, this.engine.diagnostics().entityQueriesRejected());
     }
 
     @Test

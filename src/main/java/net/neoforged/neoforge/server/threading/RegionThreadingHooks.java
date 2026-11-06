@@ -57,6 +57,9 @@ import org.jetbrains.annotations.Nullable;
  */
 @ApiStatus.Internal
 public final class RegionThreadingHooks {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("RegionThreadingHooks");
+    /** One log line per range query a worker could not serve. */
+    private static final java.util.Set<String> UNSERVED_RANGE_QUERIES = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final java.util.concurrent.atomic.AtomicLong RAW_CHUNK_INTERNALS_ACCESSES = new java.util.concurrent.atomic.AtomicLong();
 
     /** Diagnostic access count only: obtaining raw internals is not proof that a caller mutated them. */
@@ -261,6 +264,52 @@ public final class RegionThreadingHooks {
     }
 
     /**
+     * {@return true when {@code entity} or one of its passengers is already added to a level}
+     */
+    private static boolean hasAddedMember(Entity entity) {
+        if (entity.isAddedToLevel()) {
+            return true;
+        }
+        for (final Entity passenger : entity.getPassengers()) {
+            if (hasAddedMember(passenger)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@return true when a worker's entity admission it could not defer was handed to the server thread}
+     * <p>
+     * A vanilla tick spawns entities constantly - death loot, experience, a projectile, an egg, a sapling that a
+     * random tick places - and the spawn can land outside the lease of the region that is ticking (a mob at the
+     * border drops its loot across it). The deferred admission of the batch cannot record that entity, so
+     * instead of failing the tick the admission is queued for the server thread, which performs it after the
+     * batch finished. The caller sees the vanilla answer "accepted for this tick"; the entity is in the level
+     * before the next tick starts.
+     */
+    public static boolean handOffEntityAddition(ServerLevel level, Entity entity) {
+        if (!RegionWorkerScope.isNativeWorkerThread()) {
+            return false;
+        }
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        if (!(threading instanceof RegionThreadingEngine engine)) {
+            return false;
+        }
+        if (entity.isRemoved() || entity.level() != level || hasAddedMember(entity)) {
+            // An entity of another level, a removed entity and a riding graph with a member that is already in a
+            // level keep the refusal: admitting them again would add an entity twice, and the server thread
+            // would have to undo a half admission instead of simply refusing it.
+            return false;
+        }
+        return engine.queueServerTaskInCurrentBatch(() -> {
+            if (!entity.isRemoved()) {
+                level.addFreshEntity(entity);
+            }
+        });
+    }
+
+    /**
      * Defers the admission of a new entity to the entity batch barrier of the current native region worker.
      * <p>
      * Adding an entity writes the level's UUID admission set, the visible lookup, the entity section, the
@@ -438,6 +487,25 @@ public final class RegionThreadingHooks {
      * @param operation the entry point a crash report has to name
      * @param path      the operation the per-operation counters record the refusal under
      */
+    /**
+     * Records a range query that a native region worker could not serve, and answers it like vanilla answers a
+     * query whose box holds no entity: with no result.
+     * <p>
+     * {@code Level.getEntities} is reached by collision, explosions and every {@code getEntitiesOfClass} of a
+     * tick, so throwing out of it fails an entity tick for a reason the caller cannot act on. The empty answer
+     * is what vanilla produces for an unloaded or empty area, it is counted per operation and logged once, and
+     * the caller's predicate is never run on storage the worker may not read.
+     */
+    public static void recordUnservedRangeQuery(String operation, RegionEntityQueryCounters.Operation path) {
+        RegionEntityQueryCounters.record(path, RegionEntityQueryCounters.Path.TRUNCATED);
+        RegionEntityOwnershipScope.recordTruncatedQuery();
+        if (UNSERVED_RANGE_QUERIES.add(operation)) {
+            LOGGER.warn("A native region worker asked {} and its lease cannot answer it: the query answers the "
+                    + "empty result vanilla answers for an empty area, and is counted as truncated.",
+                    operation);
+        }
+    }
+
     public static void rejectLegacyEntityQuery(String operation, RegionEntityQueryCounters.Operation path) {
         RegionEntityOwnershipScope.recordRejectedQuery();
         RegionEntityQueryCounters.record(path, RegionEntityQueryCounters.Path.REFUSED);

@@ -477,7 +477,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
         ALLOWED_QUERY_COUNT.incrementAndGet();
     }
 
-    static void recordTruncatedQuery() {
+    public static void recordTruncatedQuery() {
         TRUNCATED_QUERY_COUNT.incrementAndGet();
     }
 

@@ -712,7 +712,7 @@ class RegionEntityStorageBoundaryTest {
     }
 
     @Test
-    void legacyLevelEntityQueryRejectsNativeWorkerBeforePredicate() {
+    void legacyLevelEntityQueryAnswersEmptyOnANativeWorker() {
         this.installEngine();
         final ServerLevel level = mockServerLevel();
         final AtomicBoolean predicateRan = new AtomicBoolean();
@@ -722,11 +722,18 @@ class RegionEntityStorageBoundaryTest {
         };
         final List<Entity> callerList = new ArrayList<>();
 
-        assertRejected("Level.getEntities(Entity, AABB, Predicate)", () -> level.getEntities((Entity) null, new AABB(0, 0, 0, 1, 1, 1), predicate));
-        assertRejected("Level.getEntities(EntityTypeTest, AABB, Predicate, List, int)",
-                () -> level.getEntities(EntityTypeTest.forClass(Entity.class), new AABB(0, 0, 0, 1, 1, 1), predicate, callerList, 10));
-        assertFalse(predicateRan.get(), "a rejected query must not run its predicate");
-        assertTrue(callerList.isEmpty(), "a rejected query must not fill the caller list");
+        // Collision, explosions and every getEntitiesOfClass of a tick reach these two methods, so a worker
+        // answers an unserved query with the empty result vanilla answers for an empty area instead of failing
+        // the tick. The predicate never runs on storage the worker may not read.
+        this.runOnNativeWorker(() -> {
+            assertTrue(level.getEntities((Entity) null, new AABB(0, 0, 0, 1, 1, 1), predicate).isEmpty());
+            level.getEntities(EntityTypeTest.forClass(Entity.class), new AABB(0, 0, 0, 1, 1, 1), predicate, callerList, 10);
+        });
+
+        assertFalse(predicateRan.get(), "an unserved query must not run its predicate");
+        assertTrue(callerList.isEmpty(), "an unserved query must not fill the caller list");
+        assertEquals(0L, this.engine.diagnostics().entityQueriesRejected(),
+                "an unserved query is a truncation, not a rejected query");
     }
 
     @Test
