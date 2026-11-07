@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "dev.forgia.compat.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "CommonHooksMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
