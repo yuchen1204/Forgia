@@ -14,8 +14,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -80,6 +82,16 @@ public final class RegionThreadingDeclarations {
     private static final String ENTITIES = "entities";
     /** JSON member of the block-entity declarations. */
     private static final String BLOCK_ENTITIES = "block_entities";
+    /**
+     * JSON member of the block-entity types a pack admits to worker ticks.
+     * <p>
+     * The other two lists narrow the engine, this one widens it: a type named here may tick on a region worker
+     * (still only in an interior chunk of its region) even though it is not one of the built-in vanilla types.
+     * A pack author uses it for a modded machine whose tick only touches its own chunk; the engine cannot prove
+     * that for a mod it has never seen, so the declaration is the pack's promise and the counters report what
+     * the promise cost.
+     */
+    private static final String ADMIT_BLOCK_ENTITIES = "admit_block_entities";
     /** JSON member naming the registry type of one declaration. */
     private static final String TYPE = "type";
     /** JSON member carrying the reason of one declaration. */
@@ -137,21 +149,23 @@ public final class RegionThreadingDeclarations {
     public record Report(
             List<EntityDeclaration> entities,
             List<BlockEntityDeclaration> blockEntities,
+            List<BlockEntityDeclaration> admittedBlockEntities,
             List<String> ignored) {
         public Report {
             entities = List.copyOf(entities);
             blockEntities = List.copyOf(blockEntities);
+            admittedBlockEntities = List.copyOf(admittedBlockEntities);
             ignored = List.copyOf(ignored);
         }
 
         /** {@return a report that declares nothing, which is the absent-file case} */
         public static Report empty() {
-            return new Report(List.of(), List.of(), List.of());
+            return new Report(List.of(), List.of(), List.of(), List.of());
         }
 
         /** {@return the number of declarations in effect} */
         public int declarationCount() {
-            return this.entities.size() + this.blockEntities.size();
+            return this.entities.size() + this.blockEntities.size() + this.admittedBlockEntities.size();
         }
 
         /** {@return true when no declaration is in effect} */
@@ -180,6 +194,11 @@ public final class RegionThreadingDeclarations {
                 blockEntityReasons.put(declaration.type(), declaration.reason());
             }
             RegionTickCompatibility.declareServerThreadOnlyTypes(blockEntityReasons);
+            final Set<String> admitted = new LinkedHashSet<>();
+            for (final BlockEntityDeclaration declaration : this.admittedBlockEntities) {
+                admitted.add(declaration.type());
+            }
+            RegionTickCompatibility.declareAdmittedBlockEntityTypes(admitted);
         }
 
         /** {@return the report lines of the declarations in effect and of the ignored entries} */
@@ -192,6 +211,11 @@ public final class RegionThreadingDeclarations {
             for (final BlockEntityDeclaration declaration : this.blockEntities) {
                 lines.add("Region threading declaration: block entity " + declaration.type()
                         + " reason=\"" + declaration.reason() + "\" source=" + declaration.source());
+            }
+            for (final BlockEntityDeclaration declaration : this.admittedBlockEntities) {
+                lines.add("Region threading declaration: block entity (admitted to workers) "
+                        + declaration.type() + " reason=\"" + declaration.reason()
+                        + "\" source=" + declaration.source());
             }
             for (final String ignored : this.ignored) {
                 lines.add("Region threading declaration ignored: " + ignored);
@@ -214,13 +238,13 @@ public final class RegionThreadingDeclarations {
         } catch (RuntimeException e) {
             // The config directory is not resolvable in this environment, so no file of this server can be
             // read; a declaration is optional by definition and must never keep a server from starting.
-            return new Report(List.of(), List.of(), List.of(
+            return new Report(List.of(), List.of(), List.of(), List.of(
                     "declaration sources: the config directory is not available (" + e.getClass().getSimpleName() + ")"));
         }
         try {
             return loadSources(configFile);
         } catch (RuntimeException e) {
-            return new Report(List.of(), List.of(), List.of(
+            return new Report(List.of(), List.of(), List.of(), List.of(
                     "declaration sources: the files cannot be read (" + e.getClass().getSimpleName() + ")"));
         }
     }
@@ -256,7 +280,7 @@ public final class RegionThreadingDeclarations {
         }
         final List<String> allIgnored = new ArrayList<>(ignored);
         allIgnored.addAll(parsed.ignored());
-        return new Report(parsed.entities(), parsed.blockEntities(), allIgnored);
+        return new Report(parsed.entities(), parsed.blockEntities(), parsed.admittedBlockEntities(), allIgnored);
     }
 
     /**
@@ -269,6 +293,7 @@ public final class RegionThreadingDeclarations {
     public static Report parse(List<Source> sources, TypeLookup lookup) {
         final List<EntityDeclaration> entities = new ArrayList<>();
         final List<BlockEntityDeclaration> blockEntities = new ArrayList<>();
+        final List<BlockEntityDeclaration> admittedBlockEntities = new ArrayList<>();
         final List<String> ignored = new ArrayList<>();
         for (final Source source : sources) {
             final JsonObject root = readRoot(source, ignored);
@@ -287,8 +312,14 @@ public final class RegionThreadingDeclarations {
                     blockEntities.add(declaration);
                 }
             });
+            readEntries(source, root, ADMIT_BLOCK_ENTITIES, ignored, entry -> {
+                final BlockEntityDeclaration declaration = blockEntityDeclaration(source, entry, ignored, lookup);
+                if (declaration != null) {
+                    admittedBlockEntities.add(declaration);
+                }
+            });
         }
-        return new Report(entities, blockEntities, ignored);
+        return new Report(entities, blockEntities, admittedBlockEntities, ignored);
     }
 
     /**

@@ -7,7 +7,9 @@ package net.neoforged.neoforge.server.command;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.ArgumentBuilder;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -20,6 +22,7 @@ import net.neoforged.neoforge.server.threading.region.RegionEntityQueryCounters;
 import net.neoforged.neoforge.server.threading.region.RegionMetricsReport;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingDiagnostics;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
+import net.neoforged.neoforge.server.threading.region.RegionTickCompatibility;
 
 final class RegionThreadingCommand {
     /** Regions the per-region listing shows when no count is given. */
@@ -220,6 +223,7 @@ final class RegionThreadingCommand {
         source.sendSuccess(() -> Component.literal(blockEntityAttributionLine()), false);
         // A sixth independent line for the player region transitions, so the five lines above keep their shape
         // for scripts that match them.
+        source.sendSuccess(() -> Component.literal(blockEntityAdmissionLine()), false);
         source.sendSuccess(() -> Component.literal("Region players: " + diagnostics.playerRegions()), false);
         // A seventh independent line for the per-operation entity query answers of a native region worker, so
         // the six lines above keep their shape for scripts that match them. The line renders the record the
@@ -239,6 +243,29 @@ final class RegionThreadingCommand {
      * tick. {@code tickerRegistrations} is the number of block writes a ticker deferred, so a body whose cost is
      * registration rather than vanilla work is visible in the numbers.
      */
+    /**
+     * {@return the line that names the block-entity types the pack admitted and the types that lose the slice}
+     * <p>
+     * The block-entity slice only widens by naming types, and the engine cannot guess which type a pack spends
+     * its ticks in. This line is the triage list: {@code declared} counts the pack's admissions, and
+     * {@code mostFrequentUndeclared} names the types whose tickers are still on the server thread, largest
+     * first, so a pack author knows exactly which entry to add to {@code admit_block_entities}.
+     */
+    private static String blockEntityAdmissionLine() {
+        final List<Map.Entry<String, Long>> undeclared = RegionTickCompatibility.undeclaredTypes(10);
+        final StringBuilder line = new StringBuilder("Region block entity admission: declaredByPack=")
+                .append(RegionTickCompatibility.admittedBlockEntityTypes().size())
+                .append(", declaredServerThreadOnly=").append(RegionTickCompatibility.serverThreadOnlyTypes().size())
+                .append(", mostFrequentUndeclared=[");
+        for (int i = 0; i < undeclared.size(); i++) {
+            if (i > 0) {
+                line.append(", ");
+            }
+            line.append(undeclared.get(i).getKey()).append('=').append(undeclared.get(i).getValue());
+        }
+        return line.append(']').toString();
+    }
+
     private static String blockEntityAttributionLine() {
         final RegionBlockEntityTickAttribution.Snapshot attribution = RegionBlockEntityTickAttribution.snapshot();
         final RegionBlockEntityTickAttribution.TickerAttribution tickers = attribution.tickers();

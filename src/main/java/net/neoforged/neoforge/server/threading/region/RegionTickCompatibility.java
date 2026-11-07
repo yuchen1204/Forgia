@@ -5,6 +5,8 @@
 
 package net.neoforged.neoforge.server.threading.region;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.jetbrains.annotations.ApiStatus;
@@ -88,6 +90,30 @@ public final class RegionTickCompatibility {
      */
     private static volatile Map<String, String> serverThreadOnlyTypes = Map.of();
 
+    /**
+     * Types a pack author admitted to worker ticks, by type id.
+     * <p>
+     * The engine can prove the safety of the vanilla types in the allowlist above by reading their code; it
+     * cannot do that for a mod it has never seen. A pack author who has a modded machine whose tick only touches
+     * its own chunk adds the type here, and the interior-chunk rule still applies. The set only ever widens the
+     * allowlist, and a type that is also declared server-thread-only stays on the server thread because the
+     * declaration is the stronger statement.
+     */
+    private static volatile Set<String> admittedTypes = Set.of();
+
+    /**
+     * How often a ticker of each type was left on the server thread because no declaration admits it.
+     * <p>
+     * The block-entity slice can only be widened by naming types, and the engine cannot guess which type a pack
+     * spends its ticks in. This table is the evidence: it is bounded so a pack that spawns a new block-entity
+     * type every tick cannot grow it without limit, and {@code /neoforge regionthreading status} prints the
+     * largest entries. It costs one map lookup per collected ticker of an undeclared type and nothing on the
+     * worker path.
+     */
+    private static final int MAX_TRACKED_UNDECLARED_TYPES = 128;
+
+    private static final Map<String, java.util.concurrent.atomic.LongAdder> UNDECLARED_TICK_COUNTS = new java.util.concurrent.ConcurrentHashMap<>();
+
     private RegionTickCompatibility() {}
 
     /**
@@ -101,6 +127,24 @@ public final class RegionTickCompatibility {
      */
     public static void declareServerThreadOnlyTypes(Map<String, String> declarations) {
         serverThreadOnlyTypes = Map.copyOf(declarations);
+    }
+
+    /**
+     * Replaces the block-entity types a pack admitted to worker ticks.
+     * <p>
+     * This is the widening half of the declaration files: the types named here may tick on a region worker in an
+     * interior chunk of their region, exactly like the built-in vanilla types. Applying an empty set clears the
+     * declarations of an earlier server start.
+     *
+     * @param types the admitted type ids, as the ticker reports them
+     */
+    public static void declareAdmittedBlockEntityTypes(Set<String> types) {
+        admittedTypes = Set.copyOf(types);
+    }
+
+    /** {@return the block-entity types a pack admitted to worker ticks} */
+    public static Set<String> admittedBlockEntityTypes() {
+        return admittedTypes;
     }
 
     /** {@return the declared server-thread-only block-entity types with their reason} */
@@ -126,7 +170,8 @@ public final class RegionTickCompatibility {
      * tick is not safe on a worker at all, so the interior-chunk rule cannot rescue it.
      */
     public static boolean requiresInteriorRegion(@Nullable String type) {
-        return type != null && REGION_SAFE_INTERIOR_BLOCK_ENTITY_TYPES.contains(type)
+        return type != null
+                && (REGION_SAFE_INTERIOR_BLOCK_ENTITY_TYPES.contains(type) || admittedTypes.contains(type))
                 && !serverThreadOnlyTypes.containsKey(type);
     }
 
@@ -139,8 +184,38 @@ public final class RegionTickCompatibility {
      */
     public static RegionBlockEntityTickAdmission.Decision decideBlockEntityTick(@Nullable String type, boolean interiorChunk) {
         if (!requiresInteriorRegion(type)) {
+            recordUndeclaredType(type);
             return RegionBlockEntityTickAdmission.Decision.TYPE_NOT_DECLARED;
         }
         return interiorChunk ? RegionBlockEntityTickAdmission.Decision.ADMITTED : RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK;
+    }
+
+    /** Records one ticker of {@code type} that no declaration admits. */
+    private static void recordUndeclaredType(@Nullable String type) {
+        if (type == null) {
+            return;
+        }
+        java.util.concurrent.atomic.LongAdder counter = UNDECLARED_TICK_COUNTS.get(type);
+        if (counter == null) {
+            if (UNDECLARED_TICK_COUNTS.size() >= MAX_TRACKED_UNDECLARED_TYPES) {
+                return;
+            }
+            counter = UNDECLARED_TICK_COUNTS.computeIfAbsent(type, ignored -> new java.util.concurrent.atomic.LongAdder());
+        }
+        counter.increment();
+    }
+
+    /**
+     * {@return the {@code limit} most frequent block-entity types that no declaration admits, largest first}
+     * <p>
+     * This is the triage list for a pack: the types at the top are where the block-entity slice loses its ticks,
+     * and each one is a candidate for {@code admit_block_entities} in
+     * {@code config/regionthreading-declarations.json}.
+     */
+    public static List<Map.Entry<String, Long>> undeclaredTypes(int limit) {
+        final List<Map.Entry<String, Long>> entries = new ArrayList<>(UNDECLARED_TICK_COUNTS.size());
+        UNDECLARED_TICK_COUNTS.forEach((type, counter) -> entries.add(Map.entry(type, counter.sum())));
+        entries.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        return entries.size() <= limit ? entries : entries.subList(0, limit);
     }
 }

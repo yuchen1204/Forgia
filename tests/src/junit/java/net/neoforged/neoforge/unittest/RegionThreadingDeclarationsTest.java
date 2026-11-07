@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -146,6 +147,52 @@ class RegionThreadingDeclarationsTest {
     }
 
     @Test
+    void admittedBlockEntityTypeJoinsTheRegionSafeAllowlist() throws IOException {
+        // A pack admits a modded machine whose tick only touches its own chunk; the engine cannot prove that for
+        // a mod it has never seen, so the declaration is the pack's promise. The interior-chunk rule still
+        // applies, and a server-thread-only declaration of the same type wins because it is the stronger
+        // statement.
+        final String machine = "testmod:machine";
+        assertFalse(RegionTickCompatibility.requiresInteriorRegion(machine), "an undeclared type is not admitted");
+        final Path file = this.write("admit.json", """
+                {"admit_block_entities": [{"type": "%s", "reason": "%s"}]}
+                """.formatted(machine, BLOCK_ENTITY_REASON));
+        final RegionThreadingDeclarations.Report report = RegionThreadingDeclarations.parse(
+                List.of(new RegionThreadingDeclarations.Source("admit.json", file)),
+                new BlockEntityTypeLookup(machine));
+        assertEquals(1, report.declarationCount());
+        assertTrue(report.ignored().isEmpty(), report.ignored().toString());
+        report.applyTo(null);
+
+        assertTrue(RegionTickCompatibility.requiresInteriorRegion(machine), "an admitted type may tick on a worker");
+        assertEquals(RegionBlockEntityTickAdmission.Decision.ADMITTED,
+                RegionTickCompatibility.decideBlockEntityTick(machine, true),
+                "an interior chunk of its region admits it");
+        assertEquals(RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK,
+                RegionTickCompatibility.decideBlockEntityTick(machine, false),
+                "the interior-chunk rule still applies to an admitted type");
+        assertEquals(Set.of(machine), RegionTickCompatibility.admittedBlockEntityTypes());
+
+        // The narrowing declaration wins over the admission of the same type.
+        final Path narrow = this.write("narrow.json", """
+                {"block_entities": [{"type": "%s", "reason": "%s"}]}
+                """.formatted(machine, BLOCK_ENTITY_REASON));
+        final RegionThreadingDeclarations.Report narrowReport = RegionThreadingDeclarations.parse(
+                List.of(new RegionThreadingDeclarations.Source("narrow.json", narrow)),
+                new BlockEntityTypeLookup(machine));
+        narrowReport.applyTo(null);
+        assertFalse(RegionTickCompatibility.requiresInteriorRegion(machine),
+                "a server-thread-only declaration of the same type wins");
+        assertEquals(RegionBlockEntityTickAdmission.Decision.TYPE_NOT_DECLARED,
+                RegionTickCompatibility.decideBlockEntityTick(machine, true));
+
+        RegionThreadingDeclarations.Report.empty().applyTo(null);
+        assertFalse(RegionTickCompatibility.requiresInteriorRegion(machine), "an empty report clears the admission");
+        assertTrue(RegionTickCompatibility.requiresInteriorRegion("minecraft:hopper"),
+                "the built-in allowlist is unaffected by a pack's admissions");
+    }
+
+    @Test
     void declaredBlockEntityTypeLeavesTheRegionSafeAllowlist() throws IOException {
         assertTrue(RegionTickCompatibility.requiresInteriorRegion("minecraft:hopper"),
                 "the hopper is region-safe before a declaration");
@@ -239,7 +286,10 @@ class RegionThreadingDeclarationsTest {
         assertTrue(RegionTickCompatibility.requiresInteriorRegion("minecraft:hopper"),
                 "without a declaration file the allowlist is the baseline one");
         assertTrue(RegionTickCompatibility.requiresInteriorRegion("minecraft:furnace"));
-        assertFalse(RegionTickCompatibility.requiresInteriorRegion("minecraft:brewing_stand"));
+        assertFalse(RegionTickCompatibility.requiresInteriorRegion("minecraft:brewing_stand"),
+                "a brewing stand can drop a crafting remainder, so it stays on the server thread");
+        assertFalse(RegionTickCompatibility.requiresInteriorRegion("minecraft:beacon"),
+                "a beacon applies its effect to every player in a level-wide radius, so it stays out");
     }
 
     @Test

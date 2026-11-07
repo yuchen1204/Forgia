@@ -423,13 +423,17 @@
          if (this.level() instanceof ServerLevel serverlevel && !this.isRemoved()) {
              ServerLevel serverlevel1 = p_350951_.newLevel();
              List<Entity> list = this.getPassengers();
-@@ -2649,6 +_,11 @@
+@@ -2649,6 +_,15 @@
      }
  
      public void setUUID(UUID p_20085_) {
 +        // Neo: the UUID is part of the published identity. Changing it on an admitted entity rebinds the
 +        // published record on the server thread instead of leaving the ledger keyed by the old UUID.
-+        if (level() instanceof ServerLevel serverLevel) {
++        // Only an entity that is already in a level has a published record to rebind: a constructor that picks
++        // its UUID - a fake player of a Create deployer, a projectile, a piece of loot - is not added yet, and
++        // obtaining the ledger is a server-owned storage read a region worker may not perform. Its record is
++        // published at admission, on the server thread.
++        if (this.isAddedToLevel() && level() instanceof ServerLevel serverLevel) {
 +            serverLevel.entityIdentityLedger().rebindUuid(this, this.uuid, p_20085_);
 +        }
          this.uuid = p_20085_;
