@@ -257,7 +257,7 @@ class RegionEntityAdmissionDeferralTest {
     }
 
     @Test
-    void anAlreadyAddedOrCrossLevelEntityKeepsTheAdmissionRefusal() {
+    void anAlreadyAddedEntityIsHandedOffWhileACrossLevelEntityIsRefused() {
         this.installEngine(1, true);
         final TrackingRecorder recorder = new TrackingRecorder();
         final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
@@ -270,7 +270,9 @@ class RegionEntityAdmissionDeferralTest {
         final TestEntity foreignLevel = new TestEntity(otherLevel);
         final List<String> attempts = new CopyOnWriteArrayList<>();
         final TestEntity zombie = new TestEntity(level, self -> {
-            // An entity that is already in the level is never re-admitted.
+            // A mob that finalizes its own spawn re-adds itself while the spawner already put it in the level.
+            // Vanilla answers "not added again", not an exception, so the worker hands the call to the server
+            // thread instead of failing the tick.
             recordAttempt(attempts, () -> self.level().addFreshEntity(alreadyAdded));
             // An entity of another level is never admitted into this one.
             recordAttempt(attempts, () -> self.level().addFreshEntity(foreignLevel));
@@ -283,10 +285,12 @@ class RegionEntityAdmissionDeferralTest {
         plan.executeAndAwait();
 
         assertEquals(2, attempts.size());
-        assertTrue(attempts.get(0).contains("ServerLevel.addEntity"), attempts.toString());
+        assertEquals("granted", attempts.get(0),
+                () -> "an entity that is already in the level is handed off, not failed: " + attempts);
         assertTrue(attempts.get(1).contains("ServerLevel.addEntity"), attempts.toString());
         assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsRecorded());
-        assertEquals(2L, this.engine.diagnostics().entityAddRejectedOnWorker());
+        assertEquals(1L, this.engine.diagnostics().entityAddRejectedOnWorker(),
+                "only the cross-level entity is rejected");
         assertTrue(manager.isLoaded(alreadyAdded.getUUID()), "the already added entity must stay admitted");
     }
 

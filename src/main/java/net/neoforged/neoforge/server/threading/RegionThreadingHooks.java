@@ -264,14 +264,11 @@ public final class RegionThreadingHooks {
     }
 
     /**
-     * {@return true when {@code entity} or one of its passengers is already added to a level}
+     * {@return true when one of the passengers of {@code entity} is already added to a level}
      */
-    private static boolean hasAddedMember(Entity entity) {
-        if (entity.isAddedToLevel()) {
-            return true;
-        }
+    private static boolean hasAddedPassenger(Entity entity) {
         for (final Entity passenger : entity.getPassengers()) {
-            if (hasAddedMember(passenger)) {
+            if (passenger.isAddedToLevel() || hasAddedPassenger(passenger)) {
                 return true;
             }
         }
@@ -296,10 +293,15 @@ public final class RegionThreadingHooks {
         if (!(threading instanceof RegionThreadingEngine engine)) {
             return false;
         }
-        if (entity.isRemoved() || entity.level() != level || hasAddedMember(entity)) {
-            // An entity of another level, a removed entity and a riding graph with a member that is already in a
-            // level keep the refusal: admitting them again would add an entity twice, and the server thread
-            // would have to undo a half admission instead of simply refusing it.
+        if (entity.isRemoved() || entity.level() != level || hasAddedPassenger(entity)) {
+            // An entity of another level, a removed entity and a riding graph with a *passenger* that is already in
+            // a level keep the refusal: admitting the vehicle would add that passenger twice, and the server
+            // thread would have to undo a half admission instead of simply refusing it.
+            //
+            // The entity itself being in a level already is not that case. A mob that finalizes its own spawn
+            // re-adds itself - {@code Zombie.finalizeSpawn} calls {@code addFreshEntity(this)} after the spawner
+            // put it in the level - and vanilla answers that with "not added again", not with an exception. The
+            // admission is still handed off, so the caller sees the vanilla answer instead of a crashed tick.
             return false;
         }
         return engine.queueServerTaskInCurrentBatch(() -> {
