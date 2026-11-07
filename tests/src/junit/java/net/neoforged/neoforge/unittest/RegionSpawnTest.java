@@ -567,6 +567,46 @@ class RegionSpawnTest {
                 "the applied admission has to be counted");
     }
 
+    @Test
+    void workerEntityAdditionOutsideAnEntityBatchIsDrainedAtLevelTickEnd() {
+        this.installEngine(true);
+        final ServerLevel level = this.mockLevel(Set.of());
+        final List<Entity> admitted = new CopyOnWriteArrayList<>();
+        final List<String> admittedOn = new CopyOnWriteArrayList<>();
+        doAnswer(invocation -> {
+            admitted.add(invocation.getArgument(0));
+            admittedOn.add(Thread.currentThread().getName());
+            return true;
+        }).when(level).addFreshEntity(any(Entity.class));
+        final Entity spawned = mockPendingMob(level, new BlockPos(4 * 16 + 8, 64, 4 * 16 + 8));
+        final AtomicBoolean attempted = new AtomicBoolean();
+        final AtomicBoolean accepted = new AtomicBoolean();
+
+        // The chunk worker has a region lease but no entity-tick batch. This is the live Primal/Jockey shape:
+        // finalizeSpawn calls addFreshEntity while natural spawning is running.
+        final RegionChunkTickPlan plan = this.engine.beginChunkTickPlan(level, 3, PARKING_BARRIER);
+        assertNotNull(plan, "chunk tick worker execution must be enabled");
+        plan.accept(this.randomTickChunk(new ChunkPos(1, 1), () -> {
+            if (attempted.compareAndSet(false, true)) {
+                accepted.set(RegionThreadingHooks.handOffEntityAddition(level, spawned));
+            }
+        }));
+        plan.executeAndAwait(PARKING_BARRIER);
+
+        assertTrue(accepted.get(), "a worker spawn outside an entity batch must be accepted for this tick");
+        assertEquals(List.of(), admitted, "the server task is not run until the level tick closes");
+        this.engine.endLevelTick(level);
+        assertEquals(List.of(spawned), admitted,
+                () -> "the parked spawn must be applied once at level tick end; queued=" + this.engine.workerServerTasksQueued()
+                        + " applied=" + this.engine.workerServerTasksApplied() + " admitted=" + admitted);
+        assertEquals(1, admittedOn.size());
+        assertFalse(admittedOn.get(0).startsWith("NeoForge Region Worker"),
+                "entity storage must be written by the server thread: " + admittedOn);
+        assertEquals(1L, this.engine.workerServerTasksQueued());
+        assertEquals(1L, this.engine.workerServerTasksApplied());
+        assertEquals(0L, this.engine.workerServerTasksDropped());
+    }
+
     /**
      * With the switch off there is no plan at all - and with it no level-wide counter - so the level runs the
      * untouched vanilla body, whose cap is the count of its own spawn state.

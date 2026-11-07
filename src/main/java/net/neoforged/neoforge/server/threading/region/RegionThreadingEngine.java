@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
@@ -258,6 +259,20 @@ public final class RegionThreadingEngine implements RegionThreading {
      * one map lookup per level tick entry and per region phase end; the entry is created by the first post.
      */
     private final Map<ServerLevel, RegionMailbox> mailboxes = new ConcurrentHashMap<>();
+    /**
+     * Server-thread tasks a region worker queued while it was <b>not</b> inside an entity batch.
+     * <p>
+     * Region scoped spawning, chunk ticks and block entity ticks run on workers without an entity batch, yet a mod
+     * can add an entity from any of them: Primal spawns a jockey from {@code Zombie.finalizeSpawn} during natural
+     * spawning, and that addition found neither a lease to defer to nor a batch to hand off to, so the storage
+     * guard failed the whole world tick. The queue is drained by the server thread in
+     * {@link #endLevelTick(ServerLevel)}, after every worker of the tick has finished, which keeps the vanilla
+     * "added after this tick's entity pass, therefore first ticked next tick" shape.
+     */
+    private final Map<ServerLevel, ConcurrentLinkedQueue<Runnable>> workerServerTasks = new ConcurrentHashMap<>();
+    private final AtomicLong workerServerTasksQueued = new AtomicLong();
+    private final AtomicLong workerServerTasksApplied = new AtomicLong();
+    private final AtomicLong workerServerTasksDropped = new AtomicLong();
     /*
      * The mailbox counters belong to the engine, not to one mailbox: a mailbox dies with its level, and the
      * messages it dropped on the close have to stay observable in the diagnostics after that.
@@ -1516,6 +1531,47 @@ public final class RegionThreadingEngine implements RegionThreading {
         if (state != null) {
             state.endGlobalPhase();
         }
+        this.drainWorkerServerTasks(level);
+    }
+
+    /**
+     * Runs the server-thread tasks the region workers of {@code level} parked outside an entity batch.
+     * <p>
+     * The server thread owns the level here: every worker of the tick has finished and no region phase is in
+     * flight, so a task may write entity storage exactly like a server-thread spawn. A task that throws is
+     * counted and dropped instead of failing the level tick, because the entity it would have added was never in
+     * the level and the tick that produced it has already produced its result.
+     */
+    private void drainWorkerServerTasks(ServerLevel level) {
+        final ConcurrentLinkedQueue<Runnable> tasks = this.workerServerTasks.get(level);
+        if (tasks == null) {
+            return;
+        }
+        Runnable task;
+        while ((task = tasks.poll()) != null) {
+            try {
+                task.run();
+                this.workerServerTasksApplied.incrementAndGet();
+            } catch (Throwable throwable) {
+                this.workerServerTasksDropped.incrementAndGet();
+                LOGGER.error("Dropped a deferred server-thread task of {}", level.dimension().location(), throwable);
+            }
+        }
+    }
+
+    /** {@return the number of server-thread tasks region workers parked outside an entity batch} */
+    public long workerServerTasksQueued() {
+        return this.workerServerTasksQueued.get();
+    }
+
+    /** {@return the number of parked server-thread tasks the server thread ran} */
+    public long workerServerTasksApplied() {
+        return this.workerServerTasksApplied.get();
+    }
+
+    /** {@return the number of parked server-thread tasks that failed and were dropped} */
+    public long workerServerTasksDropped() {
+        return this.workerServerTasksDropped.get();
     }
 
     /**
@@ -2501,13 +2557,32 @@ public final class RegionThreadingEngine implements RegionThreading {
      * @return {@code true} when the task was queued, {@code false} when the current thread is not a worker task
      *         of a live batch, so the caller has to keep its own behaviour
      */
+    /**
+     * Queues a task for the server thread when the current native worker is inside an entity batch, or when it is
+     * inside another region phase such as spawning, chunk ticking or block-entity ticking.
+     * <p>
+     * The latter uses the level queue drained by {@link #endLevelTick(ServerLevel)} because those phases have no
+     * entity batch barrier of their own.
+     */
     @ApiStatus.Internal
     public boolean queueServerTaskInCurrentBatch(Runnable task) {
         final RegionEntityTickBatch.Group group = this.currentEntityTickGroup();
-        if (group == null) {
+        if (group != null) {
+            group.batch().queueServerTask(task);
+            return true;
+        }
+        // No entity batch: a spawning, chunk tick or block entity worker still cannot write entity storage, so the
+        // task is parked for the level and the server thread runs it once every worker of this tick is done.
+        final RegionThreadingContext context = this.currentContext();
+        if (!(context instanceof BasicRegionThreadingContext basicContext) || context.kind() != RegionThreadingContext.Kind.REGION) {
             return false;
         }
-        group.batch().queueServerTask(task);
+        final ServerLevel level = basicContext.level().orElse(null);
+        if (level == null) {
+            return false;
+        }
+        this.workerServerTasks.computeIfAbsent(level, unused -> new ConcurrentLinkedQueue<>()).add(task);
+        this.workerServerTasksQueued.incrementAndGet();
         return true;
     }
 
@@ -7210,6 +7285,11 @@ public final class RegionThreadingEngine implements RegionThreading {
                     // tick of a level that no longer exists. No batch of the level is in flight here, so no
                     // worker can be inside a delivery or a phase transition either.
                     this.closeLevelMailbox(level);
+                    final ConcurrentLinkedQueue<Runnable> workerTasks = this.workerServerTasks.remove(level);
+                    if (workerTasks != null) {
+                        this.workerServerTasksDropped.addAndGet(workerTasks.size());
+                        workerTasks.clear();
+                    }
                     this.levelTickPhases.remove(level);
                     final Set<RegionState> foreignReaders = this.regionsWithForeignReads.remove(level);
                     if (foreignReaders != null) {
@@ -8704,6 +8784,11 @@ public final class RegionThreadingEngine implements RegionThreading {
                 // submissions are allowed now, and all queued handoffs finish on this server thread.
                 this.regionizer.forEach(region -> this.drainRegionState(region));
                 this.globalRegion.clearTasks();
+                for (final ConcurrentLinkedQueue<Runnable> workerTasks : this.workerServerTasks.values()) {
+                    this.workerServerTasksDropped.addAndGet(workerTasks.size());
+                    workerTasks.clear();
+                }
+                this.workerServerTasks.clear();
                 for (final EntityRegionScheduledTask task : this.entityTaskSnapshot()) {
                     task.cancel();
                 }
