@@ -4557,6 +4557,11 @@ public final class RegionThreadingEngine implements RegionThreading {
         return () -> {
             final long start = System.nanoTime();
             final int[] ticked = { 0 };
+            // Per-entity timing for the long-tick warning, only when the warning is on: a server that does not ask
+            // for it pays nothing, and a batch that trips the warning names the three entities that cost the most.
+            final long warningThreshold = RegionThreadingConfig.longTickWarningNanos();
+            final long[] slowestNanos = new long[3];
+            final Entity[] slowestEntities = new Entity[3];
             try {
                 region.beginOwnership();
                 // The group random is installed once for the whole worker tick loop, exactly like the
@@ -4615,6 +4620,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                                 if (!this.prepareSelfDrivenEntityTick(level, entity, activation, group)) {
                                     continue;
                                 }
+                                final long entityStart = warningThreshold > 0L ? System.nanoTime() : 0L;
                                 try {
                                     // The guarded part of the vanilla pass is exactly the non-passenger tick:
                                     // a failure of the discard predicate, the despawn check or the riding
@@ -4638,6 +4644,9 @@ public final class RegionThreadingEngine implements RegionThreading {
                                     return;
                                 }
                                 ++ticked[0];
+                                if (warningThreshold > 0L) {
+                                    recordSlowEntity(slowestEntities, slowestNanos, System.nanoTime() - entityStart, entity);
+                                }
                             }
                         });
                     } finally {
@@ -4653,7 +4662,8 @@ public final class RegionThreadingEngine implements RegionThreading {
                 region.tickMetrics().recordTick(duration);
                 RegionTickWatchdog.warnIfLongTick("entity batch " + coordinate, duration,
                         () -> "entities=" + ticked[0] + " regionEntities=" + region.entityTickEntryCount()
-                                + " regionChunks=" + region.chunkCount());
+                                + " regionChunks=" + region.chunkCount()
+                                + " slowest=" + describeSlowEntities(slowestEntities, slowestNanos));
                 this.entityTicksOnWorkers.addAndGet(ticked[0]);
                 this.regionizer.removeIfEmpty(region);
             }
@@ -4792,6 +4802,44 @@ public final class RegionThreadingEngine implements RegionThreading {
      *
      * @return {@code true} when the entity still has to be ticked
      */
+    /**
+     * Keeps the three slowest entities of a batch, largest first, for the long-tick warning.
+     * <p>
+     * A warning that says only "27 entities took 57 ms" cannot name the cause; the entity that costs 50 of those
+     * milliseconds can. The slots are plain arrays because the worker loop owns them for the batch.
+     */
+    private static void recordSlowEntity(Entity[] entities, long[] nanos, long took, Entity entity) {
+        if (took <= nanos[2]) {
+            return;
+        }
+        nanos[2] = took;
+        entities[2] = entity;
+        for (int i = 2; i > 0 && nanos[i] > nanos[i - 1]; i--) {
+            final long swapNanos = nanos[i - 1];
+            nanos[i - 1] = nanos[i];
+            nanos[i] = swapNanos;
+            final Entity swapEntity = entities[i - 1];
+            entities[i - 1] = entities[i];
+            entities[i] = swapEntity;
+        }
+    }
+
+    /** {@return a short "type=took ms" list of the slowest entities of a batch} */
+    private static String describeSlowEntities(Entity[] entities, long[] nanos) {
+        final StringBuilder text = new StringBuilder();
+        for (int i = 0; i < entities.length; i++) {
+            if (entities[i] == null) {
+                continue;
+            }
+            if (text.length() > 0) {
+                text.append(", ");
+            }
+            text.append(entities[i].getType()).append('=')
+                    .append(String.format(java.util.Locale.ROOT, "%.1f", nanos[i] / 1_000_000.0)).append("ms");
+        }
+        return text.length() == 0 ? "none" : text.toString();
+    }
+
     private static boolean prepareOwnedEntityTick(Entity entity) {
         if (entity.isRemoved()) {
             return false;
