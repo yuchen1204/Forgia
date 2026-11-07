@@ -4586,6 +4586,14 @@ public final class RegionThreadingEngine implements RegionThreading {
                             this.serverThreadOnlyEntityTicks.incrementAndGet();
                             continue;
                         }
+                        if (carriesPlayer(entry.entity())) {
+                            // A vehicle ticks its passengers recursively, so a boat, a minecart or a Create seat
+                            // that carries a player would tick that player on the worker even though a player is
+                            // declared server-thread-only. The whole riding stack is pinned at the vehicle.
+                            group.batch().addSelfDrivenFallback(entry.entity());
+                            this.serverThreadOnlyEntityTicks.incrementAndGet();
+                            continue;
+                        }
                         if (!ridesLiveVehicle(entry.entity())) {
                             // The per-type policy is consulted before the body starts. A declared type is
                             // ticked on the server thread after the batch instead of on this worker; an
@@ -4757,6 +4765,22 @@ public final class RegionThreadingEngine implements RegionThreading {
         } finally {
             TimeTracker.ENTITY_UPDATE.trackEnd(entity);
         }
+    }
+
+    /**
+     * {@return true when a player rides {@code entity}, directly or through a nested stack}
+     * <p>
+     * A vehicle ticks its passengers recursively, so the per-type declaration of a player is not enough: the
+     * vehicle decides where its stack ticks. A seat of a moving structure carried a player on a region worker and
+     * its tick cost 16 ms, most of it work that belongs to the server thread.
+     */
+    private static boolean carriesPlayer(Entity entity) {
+        for (final Entity passenger : entity.getPassengers()) {
+            if (passenger instanceof net.minecraft.world.entity.player.Player || carriesPlayer(passenger)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
