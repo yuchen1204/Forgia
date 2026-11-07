@@ -110,7 +110,8 @@ class RegionWorkerChunkGuardTest {
         }).when(entity).tick();
         // The main-thread preflight still sees the loaded neighborhood. The worker executes the real method.
         doAnswer(invocation -> Thread.currentThread().getName().startsWith(WORKER_THREAD_PREFIX)
-                ? invocation.callRealMethod() : loaded).when(source).getChunkNow(anyInt(), anyInt());
+                ? invocation.callRealMethod()
+                : loaded).when(source).getChunkNow(anyInt(), anyInt());
 
         final RegionEntityTickPlan plan = plan(level);
         assertTrue(plan.accept(entity));
