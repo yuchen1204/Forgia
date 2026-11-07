@@ -53,6 +53,7 @@ import net.minecraft.world.level.block.RedstoneLampBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ImposterProtoChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.PalettedContainer;
@@ -77,6 +78,8 @@ import net.neoforged.neoforge.server.threading.region.ScheduledTickPhase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Covers the version check of a cross-region chunk read and the fixpoint re-run it triggers.
@@ -386,6 +389,35 @@ class RegionForeignChunkReadVersionTest {
         assertEquals(1, completed.get());
         assertTrue(this.engine.diagnostics().borderUpdates().readOfUnownedChunk() > 0);
         assertEquals(0L, this.engine.diagnostics().borderUpdates().readOfVersionlessChunk());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = { false, true })
+    void imposterProtoChunkUsesItsWrappedChunksVersion(boolean foreign) {
+        final ServerLevel level = this.mockLevel();
+        final Map<Long, LevelChunk> chunks = new HashMap<>();
+        final ChunkPos target = foreign ? WRITER_CHUNK : READER_CHUNK;
+        final LevelChunk wrapped = realChunk(level, target);
+        chunks.put(target.toLong(), wrapped);
+        serveChunks(level, chunks);
+        this.installEngine(level, true);
+        final ImposterProtoChunk imposter = new ImposterProtoChunk(wrapped, false);
+        final LevelTicks<Block> ticks = new LevelTicks<>(pos -> true, () -> InactiveProfiler.INSTANCE);
+        ticks.addContainer(READER_CHUNK, new LevelChunkTicks<>());
+        ticks.schedule(new ScheduledTick<>(Blocks.STONE, READER_POS, 1L, TickPriority.NORMAL, 0L));
+        final AtomicInteger completed = new AtomicInteger();
+
+        ticks.tick(1L, 65536, (pos, block) -> {
+            // Loaded chunks are exposed as ImposterProtoChunk for requests below FULL (e.g. BIOMES).
+            // The wrapper delegates scalar reads to the versioned LevelChunk and must not abort the tick.
+            RegionThreadingHooks.recordForeignChunkRead(level, target.x, target.z, imposter);
+            assertTrue(imposter.getBlockState(target.getWorldPosition()).isAir());
+            completed.incrementAndGet();
+        }, this.engine.beginScheduledTickDispatcher(level, ScheduledTickPhase.BLOCK, PARKING_BARRIER));
+
+        assertEquals(1, completed.get(), "a loaded chunk wrapper must not abort the callback");
+        assertEquals(0L, this.engine.diagnostics().borderUpdates().readOfVersionlessChunk());
+        assertEquals(foreign ? 1L : 0L, this.engine.diagnostics().borderUpdates().foreignReads());
     }
 
     @Test

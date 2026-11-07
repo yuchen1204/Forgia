@@ -8,6 +8,8 @@ package net.neoforged.neoforge.unittest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -18,17 +20,22 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiPredicate;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.PathNavigationRegion;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
@@ -67,6 +74,60 @@ class RegionWorkerChunkGuardTest {
     void shutdownEngine() {
         RegionThreadingManager.clear();
         this.engine = null;
+    }
+
+    @Test
+    void workerPathNavigationSeesLoadedTerrainWithoutLoadingMissingChunks() throws Exception {
+        this.installEngine();
+        final ServerLevel level = mockLevel(true);
+        final ServerChunkCache source = level.getChunkSource();
+        final ChunkMap chunkMap = mock(ChunkMap.class);
+        final ChunkHolder holder = mock(ChunkHolder.class);
+        final LevelChunk loaded = mock(LevelChunk.class);
+        when(chunkMap.getVisibleChunkIfPresent(0L)).thenReturn(holder);
+        when(holder.getChunkIfPresent(ChunkStatus.FULL)).thenReturn(loaded);
+        when(loaded.getBlockState(org.mockito.ArgumentMatchers.any())).thenReturn(Blocks.STONE.defaultBlockState());
+        when(loaded.getFluidState(org.mockito.ArgumentMatchers.any())).thenReturn(Blocks.WATER.defaultBlockState().getFluidState());
+        for (final String name : List.of("level", "chunkMap")) {
+            final Field field = ServerChunkCache.class.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(source, name.equals("level") ? level : chunkMap);
+        }
+        doReturn(-64).when(level).getMinBuildHeight();
+        doReturn(384).when(level).getHeight();
+        final Entity entity = mockEntity(level, new BlockPos(1, 64, 1));
+        final AtomicInteger completed = new AtomicInteger();
+        doAnswer(invocation -> {
+            assertSame(loaded, source.getChunkNow(0, 0));
+            assertNull(source.getChunkNow(20, 20), "a missing chunk must not be loaded or awaited");
+            final PathNavigationRegion terrain = new PathNavigationRegion(level,
+                    new BlockPos(0, 60, 0), new BlockPos(15, 70, 15));
+            assertTrue(terrain.getBlockState(new BlockPos(1, 63, 1)).is(Blocks.STONE),
+                    "pathfinding must see the ground beneath the mob on a region worker");
+            assertEquals(Blocks.WATER.defaultBlockState().getFluidState(), terrain.getFluidState(new BlockPos(1, 64, 1)));
+            completed.incrementAndGet();
+            return null;
+        }).when(entity).tick();
+        // The main-thread preflight still sees the loaded neighborhood. The worker executes the real method.
+        doAnswer(invocation -> Thread.currentThread().getName().startsWith(WORKER_THREAD_PREFIX)
+                ? invocation.callRealMethod() : loaded).when(source).getChunkNow(anyInt(), anyInt());
+
+        final RegionEntityTickPlan plan = plan(level);
+        assertTrue(plan.accept(entity));
+        plan.executeAndAwait();
+
+        assertEquals(1, completed.get());
+        assertEquals(1L, this.engine.diagnostics().entityTicksOnWorkers());
+        assertEquals(0L, this.engine.diagnostics().chunkFallbackEntityTicks());
+    }
+
+    @Test
+    void unrelatedOffThreadChunkNowLookupStillReturnsNull() throws Exception {
+        final ServerChunkCache source = mock(ServerChunkCache.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        final Field mainThread = ServerChunkCache.class.getDeclaredField("mainThread");
+        mainThread.setAccessible(true);
+        mainThread.set(source, new Thread());
+        assertNull(source.getChunkNow(0, 0), "ordinary off-thread callers keep vanilla semantics");
     }
 
     @Test

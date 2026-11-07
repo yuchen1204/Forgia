@@ -941,8 +941,43 @@ public final class RegionThreadingEngine implements RegionThreading {
      * guard sites are only reached from the server thread that destroys or moves them.
      */
     private void declareVanillaServerThreadOnlyEntities() {
+        // A vehicle ticks its passengers recursively. Pin the whole riding stack before worker admission
+        // so a mounted player's connection, input and dismount updates stay on the server thread too.
+        this.entityTickPolicy.serverThreadOnly(net.minecraft.world.entity.player.Player.class, "player_riding_stack");
         this.entityTickPolicy.serverThreadOnly(Slime.class, "slime_split_on_removal");
         this.entityTickPolicy.serverThreadOnly(FishingHook.class, "fishing_hook_remove");
+        this.declareMovingStructureServerThreadOnlyEntities();
+    }
+
+    /**
+     * Entity types of a moving structure that reaches across region borders, by registry id.
+     * <p>
+     * A Create contraption moves a whole structure and acts on the blocks and entities around it: a deployer
+     * grabs an item from a container in the next region, a saw cuts a tree that straddles a border, and a
+     * deployer constructs a fake player, which publishes an identity. Such a tick mutates entities its own
+     * region does not own - which an ownership lease can never grant, whatever the chunk layout - so every
+     * contraption type ticks on the server thread. The cost is small: a pack runs a handful of contraptions and
+     * thousands of ordinary mobs, and a contraption that did tick on a worker crashed a live server.
+     * <p>
+     * The ids are resolved by registry, so a pack without the mod pays one failed lookup per entry.
+     */
+    private static final Map<String, String> MOVING_STRUCTURE_ENTITY_TYPES = Map.of(
+            "create:contraption", "moves its structure and acts on blocks and entities across region borders",
+            "create:stationary_contraption", "acts on blocks and entities across region borders while its structure stands",
+            "create:gantry_contraption", "moves along a gantry and acts across region borders",
+            "create:elevator_contraption", "moves along an elevator and acts across region borders",
+            "create:bearing_contraption", "rotates its structure and acts across region borders",
+            "create:piston_contraption", "pushes its structure and acts across region borders");
+
+    private void declareMovingStructureServerThreadOnlyEntities() {
+        MOVING_STRUCTURE_ENTITY_TYPES.forEach((id, reason) -> {
+            final net.minecraft.resources.ResourceLocation key = net.minecraft.resources.ResourceLocation.tryParse(id);
+            if (key == null || !net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(key)) {
+                // The mod that owns this structure is not installed.
+                return;
+            }
+            this.entityTickPolicy.serverThreadOnlyType(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.get(key), reason);
+        });
     }
 
     /**
@@ -4496,7 +4531,9 @@ public final class RegionThreadingEngine implements RegionThreading {
                 region.clearRunning();
                 final long duration = System.nanoTime() - start;
                 region.tickMetrics().recordTick(duration);
-                RegionTickWatchdog.warnIfLongTick("entity batch " + coordinate, duration);
+                RegionTickWatchdog.warnIfLongTick("entity batch " + coordinate, duration,
+                        () -> "entities=" + ticked[0] + " regionEntities=" + region.entityTickEntryCount()
+                                + " regionChunks=" + region.chunkCount());
                 this.entityTicksOnWorkers.addAndGet(ticked[0]);
                 this.regionizer.removeIfEmpty(region);
             }
@@ -4614,7 +4651,9 @@ public final class RegionThreadingEngine implements RegionThreading {
                 region.clearRunning();
                 final long duration = System.nanoTime() - start;
                 region.tickMetrics().recordTick(duration);
-                RegionTickWatchdog.warnIfLongTick("entity batch " + coordinate, duration);
+                RegionTickWatchdog.warnIfLongTick("entity batch " + coordinate, duration,
+                        () -> "entities=" + ticked[0] + " regionEntities=" + region.entityTickEntryCount()
+                                + " regionChunks=" + region.chunkCount());
                 this.entityTicksOnWorkers.addAndGet(ticked[0]);
                 this.regionizer.removeIfEmpty(region);
             }

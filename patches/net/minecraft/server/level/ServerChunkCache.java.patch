@@ -65,6 +65,17 @@
      @Nullable
      @Override
      public LevelChunk getChunkNow(int p_8357_, int p_8358_) {
+@@ -170,4 +_,10 @@
+         if (Thread.currentThread() != this.mainThread) {
++            // Neo: pathfinding builds its terrain view through this non-loading lookup. Native region
++            // workers must see loaded terrain instead of the empty chunks implied by a null answer.
++            if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.isNativeRegionWorkerThread()) {
++                ChunkAccess chunk = this.getChunkForRegionWorker(p_8357_, p_8358_, ChunkStatus.FULL, false);
++                return chunk instanceof LevelChunk levelChunk ? levelChunk : null;
++            }
+             return null;
+         } else {
+             this.level.getProfiler().incrementCounter("getChunkNow");
 @@ -184,6 +_,7 @@
              if (chunkholder == null) {
                  return null;

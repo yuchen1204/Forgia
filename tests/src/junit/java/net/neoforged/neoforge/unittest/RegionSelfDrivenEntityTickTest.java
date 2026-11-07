@@ -37,8 +37,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.TickRateManager;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.ImposterProtoChunk;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
@@ -124,6 +126,78 @@ class RegionSelfDrivenEntityTickTest {
         assertEquals(0, diagnostics.fallbackEntityTickRegions());
         assertEquals(0, diagnostics.entityTicksOutsideRegion());
         assertEquals(0, diagnostics.serverThreadOnlyEntityTicks());
+    }
+
+    @Test
+    void loadedChunkWrapperDoesNotAbortEntityTicksOnWorkers() {
+        this.installEngine();
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = this.mockLevel();
+        final Entity entity = this.entity(level, new BlockPos(1, 64, 1));
+        this.tickList.add(entity);
+        final ImposterProtoChunk imposter = mock(ImposterProtoChunk.class);
+        when(imposter.getWrapped()).thenReturn(mock(LevelChunk.class));
+        final AtomicInteger completed = new AtomicInteger();
+        doAnswer(invocation -> {
+            RegionThreadingHooks.recordForeignChunkRead(level, 0, 0, imposter);
+            completed.incrementAndGet();
+            return null;
+        }).when(entity).tick();
+
+        this.plan(level).executeAndAwait();
+        this.plan(level).executeAndAwait();
+
+        assertEquals(2, completed.get(), "the biome chunk wrapper must not abort every entity tick");
+        assertEquals(2L, this.engine.diagnostics().entityTicksOnWorkers());
+        assertEquals(0L, this.engine.diagnostics().borderUpdates().readOfVersionlessChunk());
+    }
+
+    @Test
+    void playerRidingStackTicksOnTheServerThread() {
+        this.installEngine();
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = this.mockLevel();
+        final BlockPos position = new BlockPos(1, 64, 1);
+        final Entity vehicle = this.entity(level, position);
+        final Player rider = mock(Player.class);
+        when(rider.level()).thenReturn(level);
+        when(rider.blockPosition()).thenReturn(position);
+        when(rider.chunkPosition()).thenReturn(new ChunkPos(position));
+        when(rider.getUUID()).thenReturn(UUID.randomUUID());
+        when(rider.getId()).thenReturn(this.nextEntityId.getAndIncrement());
+        when(rider.isAlwaysTicking()).thenReturn(true);
+        when(rider.getVehicle()).thenReturn(vehicle);
+        when(vehicle.getPassengers()).thenReturn(List.of(rider));
+        when(vehicle.hasPassenger(rider)).thenReturn(true);
+        this.tickList.addAll(List.of(vehicle, rider));
+        final ImposterProtoChunk imposter = mock(ImposterProtoChunk.class);
+        when(imposter.getWrapped()).thenReturn(mock(LevelChunk.class));
+        final AtomicInteger completedVehicleTicks = new AtomicInteger();
+        final List<Thread> riderThreads = new CopyOnWriteArrayList<>();
+        doAnswer(invocation -> {
+            // The biome lookup in LivingEntity.baseTick asks for BIOMES, served as a loaded chunk wrapper.
+            RegionThreadingHooks.recordForeignChunkRead(level, 0, 0, imposter);
+            completedVehicleTicks.incrementAndGet();
+            return null;
+        }).when(vehicle).tick();
+        doAnswer(invocation -> {
+            riderThreads.add(Thread.currentThread());
+            return null;
+        }).when(rider).rideTick();
+
+        assertFalse(this.engine.beginPerEntityTickPlan(level, entity -> true, PARKING_BARRIER).accept(vehicle),
+                "the per-entity collection must also keep a player's riding stack off workers");
+        this.plan(level).executeAndAwait();
+        this.plan(level).executeAndAwait();
+
+        assertEquals(2, completedVehicleTicks.get(), "the vehicle must finish each tick before ticking passengers");
+        verify(rider, times(2)).rideTick();
+        verify(rider, never()).tick();
+        assertEquals(List.of(Thread.currentThread(), Thread.currentThread()), riderThreads,
+                "the player ride tick, including dismount input, must reach the server-thread handoff");
+        assertEquals(0L, this.engine.diagnostics().borderUpdates().readOfVersionlessChunk());
+        assertEquals(0L, this.engine.diagnostics().entityTicksOnWorkers());
+        assertEquals(2L, this.engine.diagnostics().fallbackEntityTicks());
     }
 
     @Test

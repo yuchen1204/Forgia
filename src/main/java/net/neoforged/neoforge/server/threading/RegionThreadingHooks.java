@@ -1209,9 +1209,11 @@ public final class RegionThreadingHooks {
      * Records the version of one chunk a region worker is about to read.
      * <p>
      * The chunk source of a level serves any loaded chunk to a region worker, including a chunk another region
-     * is mutating. Block, fluid and heightmap scalar reads validate the chunk seqlock before returning data;
-     * versionless native-worker reads are refused without replay. The observed version is also recorded per
-     * region and pass, so propagation origins are reevaluated if their dependencies change later in the tick.
+     * is mutating. Requests below FULL can return an ImposterProtoChunk wrapping that same loaded chunk; its
+     * version is the wrapped LevelChunk's version. Block, fluid and heightmap scalar reads validate the chunk
+     * seqlock before returning data; versionless native-worker reads are refused without replay. The observed
+     * version is also recorded per region and pass, so propagation origins are reevaluated if their dependencies
+     * change later in the tick.
      * Non-replayable callbacks receive a consistent scalar value, not a whole-world transaction snapshot.
      * <p>
      * The call site is the worker chunk lookup, so the hook is on the read path of every block, fluid and block
@@ -1225,6 +1227,12 @@ public final class RegionThreadingHooks {
      */
     public static void recordForeignChunkRead(net.minecraft.world.level.Level level, int chunkX, int chunkZ,
             net.minecraft.world.level.chunk.ChunkAccess chunk) {
+        // BIOMES and other pre-FULL requests for a loaded chunk return this view. Its scalar reads delegate
+        // to the wrapped LevelChunk, including that chunk's read guards. Treating the view as versionless
+        // aborts LivingEntity.baseTick during the rain/biome check every tick, starving AI and passenger updates.
+        if (chunk instanceof net.minecraft.world.level.chunk.ImposterProtoChunk imposter) {
+            chunk = imposter.getWrapped();
+        }
         final RegionThreading threading = RegionThreadingManager.currentOrNull();
         if (isNativeRegionWorkerThread() && !(chunk instanceof net.minecraft.world.level.chunk.LevelChunk)) {
             if (threading instanceof RegionThreadingEngine engine) {
