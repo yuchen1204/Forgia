@@ -62,7 +62,7 @@
  
      private Ingredient(Stream<? extends Ingredient.Value> p_43907_) {
          this.values = p_43907_.toArray(Ingredient.Value[]::new);
-@@ -47,17 +_,39 @@
+@@ -47,17 +_,34 @@
          this.values = p_301044_;
      }
  
@@ -76,21 +76,16 @@
      public ItemStack[] getItems() {
 -        if (this.itemStacks == null) {
 -            this.itemStacks = Arrays.stream(this.values).flatMap(p_43916_ -> p_43916_.getItems().stream()).distinct().toArray(ItemStack[]::new);
++        // Neo: the cache is built completely and then published through a volatile field, so a concurrent reader
++        // never observes a partially built array. No monitor is taken: the build is idempotent, two threads may
++        // both build it, and the last publication wins with the same content.
 +        ItemStack[] items = this.itemStacks;
 +        if (items == null) {
-+            synchronized (this) {
-+                items = this.itemStacks;
-+                if (items == null) {
-+                    // Neo: build the whole array before publishing it, so concurrent readers never observe a partially built cache.
-+                    // Neo: vanilla used Stream.distinct() here which has basically no effect as ItemStack does not override hashCode() and equals().
-+                    // Using ItemStackLinkedSet::createTypeAndComponentsSet instead for a real distinct result.
-+                    final Stream<ItemStack> stream = this.customIngredient == null
-+                            ? Arrays.stream(this.values).flatMap(value -> value.getItems().stream())
-+                            : this.customIngredient.getItems();
-+                    items = stream.collect(java.util.stream.Collectors.toCollection(net.minecraft.world.item.ItemStackLinkedSet::createTypeAndComponentsSet)).toArray(ItemStack[]::new);
-+                    this.itemStacks = items;
-+                }
-+            }
++            final Stream<ItemStack> stream = this.customIngredient == null
++                    ? Arrays.stream(this.values).flatMap(value -> value.getItems().stream())
++                    : this.customIngredient.getItems();
++            items = stream.collect(java.util.stream.Collectors.toCollection(net.minecraft.world.item.ItemStackLinkedSet::createTypeAndComponentsSet)).toArray(ItemStack[]::new);
++            this.itemStacks = items;
          }
  
 -        return this.itemStacks;
@@ -105,37 +100,32 @@
          } else if (this.isEmpty()) {
              return p_43914_.isEmpty();
          } else {
-@@ -72,27 +_,89 @@
+@@ -72,27 +_,86 @@
      }
  
      public IntList getStackingIds() {
 -        if (this.stackingIds == null) {
 -            ItemStack[] aitemstack = this.getItems();
 -            this.stackingIds = new IntArrayList(aitemstack.length);
--
--            for (ItemStack itemstack : aitemstack) {
--                this.stackingIds.add(StackedContents.getStackingIndex(itemstack));
++        // Neo: built locally and published once through the volatile field, exactly like getItems(). A shared
++        // partial list was the original bug; a monitor is not needed to fix it, and taking one here made a
++        // recipe lookup fail with IllegalMonitorStateException on a server whose recipe stack is transformed by
++        // mods (Polymorph redirects CraftingMenu, other mods touch Ingredient).
 +        IntList ids = this.stackingIds;
 +        if (ids == null) {
-+            synchronized (this) {
-+                ids = this.stackingIds;
-+                if (ids == null) {
-+                    // Neo: build and sort a complete list locally, then publish it once. Concurrent callers
-+                    // previously assigned the shared field before filling it and corrupted each other's list.
-+                    ItemStack[] aitemstack = this.getItems();
-+                    IntArrayList built = new IntArrayList(aitemstack.length);
-+
-+                    for (ItemStack itemstack : aitemstack) {
-+                        built.add(StackedContents.getStackingIndex(itemstack));
-+                    }
-+
-+                    built.sort(IntComparators.NATURAL_COMPARATOR);
-+                    ids = built;
-+                    this.stackingIds = ids;
-+                }
++            final ItemStack[] aitemstack = this.getItems();
++            final IntArrayList built = new IntArrayList(aitemstack.length);
+ 
+-            for (ItemStack itemstack : aitemstack) {
+-                this.stackingIds.add(StackedContents.getStackingIndex(itemstack));
++            for (final ItemStack itemstack : aitemstack) {
++                built.add(StackedContents.getStackingIndex(itemstack));
              }
--
+ 
 -            this.stackingIds.sort(IntComparators.NATURAL_COMPARATOR);
++            built.sort(IntComparators.NATURAL_COMPARATOR);
++            ids = built;
++            this.stackingIds = ids;
          }
  
 -        return this.stackingIds;

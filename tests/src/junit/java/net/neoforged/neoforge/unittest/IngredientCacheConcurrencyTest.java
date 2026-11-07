@@ -89,7 +89,7 @@ class IngredientCacheConcurrencyTest {
 
     @Test
     @Timeout(120)
-    void customIngredientCachesAreBuiltOnceUnderConcurrentAccess(MinecraftServer server) throws Exception {
+    void customIngredientCachesAreBuiltSafelyUnderConcurrentAccess(MinecraftServer server) throws Exception {
         List<ItemStack> stacks = registeredItemStacks();
         int[] expected = expectedStackingIds(stacks);
         Set<Item> expectedItems = stacks.stream().map(ItemStack::getItem).collect(Collectors.toSet());
@@ -105,9 +105,13 @@ class IngredientCacheConcurrencyTest {
                         .containsExactlyInAnyOrderElementsOf(expectedItems);
             });
 
+            // The cache is published lock-free: the build is idempotent, so a race may build it more than once
+            // but every caller must observe the complete, correct value (asserted above). Taking a monitor here
+            // made a recipe lookup fail with IllegalMonitorStateException on a server whose recipe stack is
+            // transformed by mods, which is a worse trade than a few extra enumerations at first access.
             Assertions.assertThat(custom.getItemsCalls())
                     .as("custom ingredient enumeration count in round %s", round)
-                    .isEqualTo(1);
+                    .isBetween(1, THREADS);
         }
     }
 
