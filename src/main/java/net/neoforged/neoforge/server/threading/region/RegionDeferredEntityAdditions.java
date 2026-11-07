@@ -25,15 +25,15 @@ import org.jetbrains.annotations.ApiStatus;
  * Both slices that can spawn an entity own one of these: the entity tick batch (a tick that spawns) and the
  * chunk tick batch (a random tick that hatches or otherwise spawns).
  * <p>
- * One entry is one riding graph, because an entity and its passengers are one admission. A member that an
- * earlier record already carries is a no-op, so {@code addFreshEntityWithPassengers} - which adds the members
- * one by one - records the graph once.
+ * One entry contains the members of a riding graph that have not already been recorded. Shared members belong
+ * to their earlier entry, so overlapping graphs never replay an admission. The per-member calls of
+ * {@code addFreshEntityWithPassengers} are no-ops when the earlier entry already carries that member.
  */
 @ApiStatus.Internal
 final class RegionDeferredEntityAdditions {
     /**
-     * One deferred admission: the entity the worker added and the whole riding graph it belongs to, in the
-     * order the barrier admits it. The root is kept for diagnostics; the graph is what the barrier admits.
+     * One deferred admission: the entity the worker added and the as-yet unrecorded members of its riding graph,
+     * in the order the barrier admits them. The root is kept for diagnostics; the graph is what the barrier admits.
      */
     record DeferredEntityAddition(Entity root, List<Entity> graph) {}
 
@@ -87,8 +87,12 @@ final class RegionDeferredEntityAdditions {
             if (this.recordedMembers.contains(entity)) {
                 return true;
             }
-            this.additions.add(new DeferredEntityAddition(entity, List.copyOf(graph)));
-            this.recordedMembers.addAll(graph);
+            // A mod can record a passenger first, then record a vehicle whose graph contains that passenger.
+            // Replaying the passenger twice makes the barrier reject the entire second record as already added,
+            // losing the vehicle. The earlier record owns the shared members; only new members belong here.
+            final List<Entity> unrecorded = graph.stream().filter(member -> !this.recordedMembers.contains(member)).toList();
+            this.additions.add(new DeferredEntityAddition(entity, unrecorded));
+            this.recordedMembers.addAll(unrecorded);
             this.recordedCount++;
             return true;
         }

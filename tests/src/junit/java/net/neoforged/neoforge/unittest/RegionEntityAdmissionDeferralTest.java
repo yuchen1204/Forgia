@@ -60,6 +60,7 @@ import net.neoforged.neoforge.server.threading.RegionThreadingManager;
 import net.neoforged.neoforge.server.threading.region.EntityIdentity;
 import net.neoforged.neoforge.server.threading.region.EntityIdentityLedger;
 import net.neoforged.neoforge.server.threading.region.RegionAwareEntityGetter;
+import net.neoforged.neoforge.server.threading.region.RegionEntityAdmissionDiagnostics;
 import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
@@ -345,6 +346,29 @@ class RegionEntityAdmissionDeferralTest {
     }
 
     @Test
+    void overlappingRidingGraphsAdmitEachEntityOnceWithoutDroppingTheNewVehicle() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final TrackingRecorder recorder = new TrackingRecorder();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity rider = new TestEntity(level);
+        final TestEntity vehicle = new TestEntity(level);
+        setField(Entity.class, vehicle, "passengers", ImmutableList.of(rider));
+        setField(Entity.class, rider, "vehicle", vehicle);
+        final Object batch = deferredAdditionBatch(level, rider);
+        assertTrue((Boolean) deferAddition(batch, vehicle, List.of(vehicle, rider)));
+
+        this.applyDeferredAdditions(batch);
+
+        assertTrue(rider.isAddedToLevel(), "the earlier rider admission must survive");
+        assertTrue(vehicle.isAddedToLevel(), "an overlapping recorded rider must not drop the new vehicle");
+        assertEquals(2L, this.engine.diagnostics().deferredEntityAdditionsApplied());
+        assertEquals(0L, this.engine.diagnostics().droppedDeferredEntityAdditions());
+        assertEquals(1L, recorder.eventsOf(rider).stream().filter("created"::equals).count(),
+                "a member shared by two records must be admitted only once");
+    }
+
+    @Test
     void aGraphWithAnAlreadyAddedMemberIsRefusedWhole() {
         this.installEngine(1, true);
         final TrackingRecorder recorder = new TrackingRecorder();
@@ -427,6 +451,7 @@ class RegionEntityAdmissionDeferralTest {
         this.applyDeferredAdditions(batch);
 
         assertTrue(loot.isRemoved());
+        assertEquals(1L, this.engine.entityAdmissionDiagnostics().count(RegionEntityAdmissionDiagnostics.Reason.REMOVED));
         assertFalse(loot.isAddedToLevel(), "a discarded entity must not be admitted");
         assertFalse(manager.isLoaded(loot.getUUID()), "a discarded entity must not touch the storage");
         assertEquals(List.of(), recorder.eventsOf(loot));
@@ -459,9 +484,40 @@ class RegionEntityAdmissionDeferralTest {
         assertTrue(manager.isLoaded(original.getUUID()), "the original entity must stay live");
         assertTrue(original.isAddedToLevel(), "the original entity must stay added to the level");
         assertFalse(loot.isAddedToLevel(), "the duplicate must not be admitted");
+        assertEquals(1L, this.engine.entityAdmissionDiagnostics().count(RegionEntityAdmissionDiagnostics.Reason.VANILLA_REFUSED));
         assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsApplied());
         assertEquals(1L, this.engine.diagnostics().droppedDeferredEntityAdditions(),
                 "a duplicate UUID at the barrier is a counted drop, never a silent loss");
+    }
+
+    @Test
+    void aCancelledJoinEventIsReportedAsAVanillaRefusalWithoutRetrying() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final TrackingRecorder recorder = new TrackingRecorder();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity pending = new TestEntity(level);
+        final Object batch = deferredAdditionBatch(level, pending);
+        final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        final Consumer<net.neoforged.neoforge.event.entity.EntityJoinLevelEvent> listener = event -> {
+            if (event.getEntity() == pending) {
+                calls.incrementAndGet();
+                event.setCanceled(true);
+            }
+        };
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent.class, listener);
+        try {
+            this.applyDeferredAdditions(batch);
+        } finally {
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(listener);
+        }
+        assertEquals(1, calls.get(), "a cancelled admission must not be retried");
+        assertFalse(manager.isLoaded(pending.getUUID()));
+        assertFalse(pending.isAddedToLevel());
+        assertEquals(1L, this.engine.entityAdmissionDiagnostics().count(RegionEntityAdmissionDiagnostics.Reason.VANILLA_REFUSED));
+        assertEquals(1L, this.engine.diagnostics().droppedDeferredEntityAdditions(),
+                "this legacy counter includes intentional vanilla cancellations, not just entity loss");
+        assertTrue(this.engine.entityAdmissionDiagnostics().summaryLine().contains(pending.getUUID().toString()));
     }
 
     @Test

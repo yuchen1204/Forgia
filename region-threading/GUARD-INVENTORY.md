@@ -35,11 +35,16 @@ Classification:
 |---|---|---|---|
 | `Entity.discard`, `remove`, `setRemoved`, `LivingEntity.remove`, `Slime.remove`, `Boat/ChestBoat/AbstractMinecartContainer.remove`, `FishingHook.remove` | DEFERRED (subclass removals refused) | deferred removal set, applied at the barrier | `RegionEntityRemoval*`, `RegionEntityTickPlanTest` |
 | `Entity.move`, `moveTo`, `absMoveTo`, `setPosRaw`, `BlockAttachedEntity.setPos/move` | LOCAL when the entity is admitted; grantable while it is not yet admitted | `RegionEntityOwnershipScope` | `RegionEntityOwnershipLeaseTest` (incl. `aHangingEntityThatIsNotAddedYetMayBePositionedWhileItIsConstructed`) |
-| entity admission (`addFreshEntity`, spawn) | DEFERRED | lease batch admission, or a per-level server-thread queue when a spawn/chunk worker has no entity batch; applied after region work | `RegionEntityAdmissionDeferralTest`, `RegionSpawnTest` |
+| entity admission (`addFreshEntity`, spawn) | DEFERRED | lease batch admission (overlapping graphs admit each member once), or a per-level server-thread queue when a spawn/chunk worker has no entity batch; applied after region work | `RegionEntityAdmissionDeferralTest`, `RegionSpawnTest` |
 | region transfer (`record/commit/abortEntityRegionTransfer`), `EntityIdentityLedger`, `FixedEntitySectionPartitions` | REFUSED | they mutate identity and section storage; the caller defers to the barrier | `RegionEntityTransferTest` |
 | `ServerPlayer.teleportTo/dismountTo/teleportRelative`, `ServerGamePacketListenerImpl.teleport`, `ServerLevel.addPlayer` | REFUSED | a player is ticked by the server thread only; the transition is a recorded event | `PlayerRegionTransitionTest` |
 
 ## Block, chunk and block-entity storage
+
+Deferred admission counters count records, not entities. A record can contain a riding graph, and the legacy
+`droppedDeferredEntityAdditions` total includes intentional removals and vanilla admission refusals (including
+cancelled join events). The status command reports separate reasons and one bounded string sample per reason;
+`PARTIAL_ADMISSION` means some members were admitted and must not be reported as an entirely lost graph.
 
 | Entry point | Class | Implementation | Test |
 |---|---|---|---|

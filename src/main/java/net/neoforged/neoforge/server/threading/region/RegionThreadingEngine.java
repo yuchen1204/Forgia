@@ -794,6 +794,12 @@ public final class RegionThreadingEngine implements RegionThreading {
      * it - so it is always counted.
      */
     private final AtomicLong droppedDeferredAdditionCount = new AtomicLong();
+    private final RegionEntityAdmissionDiagnostics entityAdmissionDiagnostics = new RegionEntityAdmissionDiagnostics();
+
+    public RegionEntityAdmissionDiagnostics entityAdmissionDiagnostics() {
+        return this.entityAdmissionDiagnostics;
+    }
+
     /**
      * Serializes region drain activation with lifecycle cleanup. A drain holds the read lock only while
      * it checks the lifecycle state and marks the lease or worker submission; shutdown and level clear
@@ -7851,31 +7857,40 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
         if (this.shutdown || this.regionizer.isLevelClosed(level) || seamClosed) {
             this.droppedDeferredAdditionCount.addAndGet(drain.additions().size());
+            this.entityAdmissionDiagnostics.record(this.shutdown ? RegionEntityAdmissionDiagnostics.Reason.SHUTDOWN
+                    : this.regionizer.isLevelClosed(level) ? RegionEntityAdmissionDiagnostics.Reason.LEVEL_CLOSED
+                            : RegionEntityAdmissionDiagnostics.Reason.SEAM_CLOSED,
+                    drain.additions().size());
             return;
         }
         Throwable failure = null;
         for (final RegionDeferredEntityAdditions.DeferredEntityAddition addition : drain.additions()) {
-            if (!canAdmitDeferredEntityAddition(level, addition)) {
+            if (!this.canAdmitDeferredEntityAddition(level, addition)) {
                 this.droppedDeferredAdditionCount.incrementAndGet();
                 continue;
             }
+            int admittedMembers = 0;
+            Entity rejectedMember = null;
             try {
-                boolean admitted = true;
                 for (final Entity member : addition.graph()) {
-                    if (!level.addFreshEntity(member)) {
-                        // The vanilla path refused a member - a duplicate UUID, a cancelled join event or a
-                        // sealed identity. The members it already accepted stay in the level, because an
-                        // admission cannot be rolled back, and the record is counted as dropped.
-                        admitted = false;
+                    if (level.addFreshEntity(member)) {
+                        ++admittedMembers;
+                    } else {
+                        // Vanilla may refuse a duplicate or a cancelled join event. Do not retry a refusal:
+                        // doing so would bypass mod spawning policy or post the join event twice.
+                        rejectedMember = member;
                     }
                 }
-                if (admitted) {
+                if (rejectedMember == null) {
                     this.appliedDeferredAdditionCount.incrementAndGet();
                 } else {
                     this.droppedDeferredAdditionCount.incrementAndGet();
+                    this.entityAdmissionDiagnostics.record(admittedMembers == 0 ? RegionEntityAdmissionDiagnostics.Reason.VANILLA_REFUSED
+                            : RegionEntityAdmissionDiagnostics.Reason.PARTIAL_ADMISSION, rejectedMember, addition.graph().size());
                 }
             } catch (Throwable throwable) {
                 this.droppedDeferredAdditionCount.incrementAndGet();
+                this.entityAdmissionDiagnostics.record(RegionEntityAdmissionDiagnostics.Reason.EXCEPTION, addition.root(), addition.graph().size());
                 if (failure == null) {
                     failure = throwable;
                 } else {
@@ -7895,9 +7910,13 @@ public final class RegionThreadingEngine implements RegionThreading {
      * entity was removed or discarded by the worker after it recorded the admission, its level changed, a
      * member is already in the level - never leave half a graph behind.
      */
-    private static boolean canAdmitDeferredEntityAddition(ServerLevel level, RegionDeferredEntityAdditions.DeferredEntityAddition addition) {
+    private boolean canAdmitDeferredEntityAddition(ServerLevel level, RegionDeferredEntityAdditions.DeferredEntityAddition addition) {
         for (final Entity member : addition.graph()) {
-            if (member.isRemoved() || member.isAddedToLevel() || member.level() != level) {
+            final RegionEntityAdmissionDiagnostics.Reason reason = member.isRemoved() ? RegionEntityAdmissionDiagnostics.Reason.REMOVED
+                    : member.isAddedToLevel() ? RegionEntityAdmissionDiagnostics.Reason.ALREADY_ADDED
+                            : member.level() != level ? RegionEntityAdmissionDiagnostics.Reason.LEVEL_CHANGED : null;
+            if (reason != null) {
+                this.entityAdmissionDiagnostics.record(reason, member, addition.graph().size());
                 return false;
             }
         }
@@ -7923,6 +7942,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 final RegionDeferredEntityAdditions.Drain releasedAdditions = entityBatch.closeDeferredAdditions();
                 this.recordedDeferredAdditionCount.addAndGet(releasedAdditions.recorded());
                 this.droppedDeferredAdditionCount.addAndGet(releasedAdditions.additions().size());
+                this.entityAdmissionDiagnostics.record(RegionEntityAdmissionDiagnostics.Reason.SHUTDOWN, releasedAdditions.additions().size());
             } else if (active instanceof RegionBlockEntityTickBatch blockEntityBatch) {
                 this.releaseDeferredRemovals(blockEntityBatch.closeDeferredRemovals());
             } else if (active instanceof RegionChunkTickBatch chunkTickBatch) {
@@ -7931,11 +7951,13 @@ public final class RegionThreadingEngine implements RegionThreading {
                 final RegionDeferredEntityAdditions.Drain releasedAdditions = chunkTickBatch.closeDeferredAdditions();
                 this.recordedDeferredAdditionCount.addAndGet(releasedAdditions.recorded());
                 this.droppedDeferredAdditionCount.addAndGet(releasedAdditions.additions().size());
+                this.entityAdmissionDiagnostics.record(RegionEntityAdmissionDiagnostics.Reason.SHUTDOWN, releasedAdditions.additions().size());
             } else if (active instanceof RegionSpawnBatch spawnBatch) {
                 this.releaseDeferredRemovals(spawnBatch.closeDeferredRemovals());
                 final RegionDeferredEntityAdditions.Drain releasedAdditions = spawnBatch.closeDeferredAdditions();
                 this.recordedDeferredAdditionCount.addAndGet(releasedAdditions.recorded());
                 this.droppedDeferredAdditionCount.addAndGet(releasedAdditions.additions().size());
+                this.entityAdmissionDiagnostics.record(RegionEntityAdmissionDiagnostics.Reason.SHUTDOWN, releasedAdditions.additions().size());
             }
         }
     }
