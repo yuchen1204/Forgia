@@ -273,6 +273,11 @@ public final class RegionThreadingEngine implements RegionThreading {
     private final AtomicLong workerServerTasksQueued = new AtomicLong();
     private final AtomicLong workerServerTasksApplied = new AtomicLong();
     private final AtomicLong workerServerTasksDropped = new AtomicLong();
+    /**
+     * Neighbor cascades a region worker had to hand to the server thread because they reached a chunk it may not
+     * load. A chunk at the edge of the loaded area is the common reason, and vanilla would have loaded it inline.
+     */
+    private final AtomicLong handedOffNeighborCascades = new AtomicLong();
     /*
      * The mailbox counters belong to the engine, not to one mailbox: a mailbox dies with its level, and the
      * messages it dropped on the close have to stay observable in the diagnostics after that.
@@ -1544,15 +1549,16 @@ public final class RegionThreadingEngine implements RegionThreading {
      * Runs the server-thread tasks the region workers of {@code level} parked outside an entity batch.
      * <p>
      * The server thread owns the level here: every worker of the tick has finished and no region phase is in
-     * flight, so a task may write entity storage exactly like a server-thread spawn. A task that throws is
-     * counted and dropped instead of failing the level tick, because the entity it would have added was never in
-     * the level and the tick that produced it has already produced its result.
+     * flight, so a task may write entity storage exactly like a server-thread spawn. Failed tasks are counted
+     * and their failures are propagated after the queue is drained, like deferred work of an entity batch.
+     * Continuing after a failed neighbor cascade would otherwise hide partially applied world changes.
      */
     private void drainWorkerServerTasks(ServerLevel level) {
         final ConcurrentLinkedQueue<Runnable> tasks = this.workerServerTasks.get(level);
         if (tasks == null) {
             return;
         }
+        Throwable failure = null;
         Runnable task;
         while ((task = tasks.poll()) != null) {
             try {
@@ -1560,9 +1566,40 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.workerServerTasksApplied.incrementAndGet();
             } catch (Throwable throwable) {
                 this.workerServerTasksDropped.incrementAndGet();
-                LOGGER.error("Dropped a deferred server-thread task of {}", level.dimension().location(), throwable);
+                if (failure == null) {
+                    failure = throwable;
+                } else if (failure != throwable) {
+                    failure.addSuppressed(throwable);
+                }
             }
         }
+        if (failure != null) {
+            throwUnchecked(failure);
+        }
+    }
+
+    /**
+     * Queues the remaining cascade of a worker neighbor update for the server thread.
+     * <p>
+     * The cascade reads the target block, and vanilla loads the target chunk when the read misses. A worker may
+     * not load a chunk, so it parks the rest of the cascade like any other server-thread task of its region
+     * context instead of failing the tick.
+     *
+     * @return {@code true} when the cascade was parked, {@code false} on the server thread and on a worker with
+     *         no queue, where the caller keeps the vanilla refusal
+     */
+    @ApiStatus.Internal
+    public boolean handOffNeighborUpdateCascade(Runnable cascade) {
+        if (!RegionWorkerScope.isNativeWorkerThread() || !this.queueServerTaskInCurrentBatch(cascade)) {
+            return false;
+        }
+        this.handedOffNeighborCascades.incrementAndGet();
+        return true;
+    }
+
+    /** {@return the number of worker neighbor cascades handed to the server thread} */
+    public long handedOffNeighborCascades() {
+        return this.handedOffNeighborCascades.get();
     }
 
     /** {@return the number of server-thread tasks region workers parked outside an entity batch} */

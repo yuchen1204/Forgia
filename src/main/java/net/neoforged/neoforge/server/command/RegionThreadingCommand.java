@@ -234,7 +234,8 @@ final class RegionThreadingCommand {
             source.sendSuccess(() -> Component.literal(engine.entityAdmissionDiagnostics().summaryLine()
                     + " workerServerTasksQueued=" + engine.workerServerTasksQueued()
                     + " workerServerTasksApplied=" + engine.workerServerTasksApplied()
-                    + " workerServerTasksDropped=" + engine.workerServerTasksDropped()), false);
+                    + " workerServerTasksDropped=" + engine.workerServerTasksDropped()
+                    + " handedOffNeighborCascades=" + engine.handedOffNeighborCascades()), false);
         }
         source.sendSuccess(() -> Component.literal(RegionEntityQueryCounters.summaryLine(diagnostics.entityQueryPaths())
                 + " playerSnapshots=" + diagnostics.playerSnapshotsPublished()), false);

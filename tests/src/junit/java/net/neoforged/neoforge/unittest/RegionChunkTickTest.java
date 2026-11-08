@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
@@ -39,6 +40,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
@@ -59,6 +61,7 @@ import net.minecraft.world.ticks.ScheduledTick;
 import net.neoforged.neoforge.server.threading.RegionAwareRandomSource;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
+import net.neoforged.neoforge.server.threading.region.RegionAwareNeighborUpdater;
 import net.neoforged.neoforge.server.threading.region.RegionChunkTickAttribution;
 import net.neoforged.neoforge.server.threading.region.RegionChunkTickEntry;
 import net.neoforged.neoforge.server.threading.region.RegionChunkTickPlan;
@@ -758,6 +761,204 @@ class RegionChunkTickTest {
         plan.executeAndAwait(PARKING_BARRIER);
         RegionThreadingManager.clear();
         return recorder.positions();
+    }
+
+    /**
+     * A neighbor cascade that reaches a chunk the worker may not load is handed to the server thread.
+     * <p>
+     * Vanilla loads the target chunk of a neighbor update when the read misses, and a region worker may not. A live
+     * server crashed the whole world tick on exactly that: a deferred cross-region block write was applied on the
+     * target region's worker, the following cascade read a chunk at the edge of the loaded area, and the storage
+     * guard threw. The cascade now moves to the server thread as a whole, so the update order of the vanilla stack
+     * is preserved and the tick survives.
+     */
+    @Test
+    void aNeighborCascadeThatReachesAnUnloadedChunkIsHandedToTheServerThread() throws ReflectiveOperationException {
+        this.installEngine(true);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final Thread ownerThread = Thread.currentThread();
+        final ServerLevel level = mockLevel();
+        // The worker may not load a chunk, the server thread can: the non-loading lookup answers per thread.
+        final net.minecraft.server.level.ServerChunkCache chunkSource = mock(net.minecraft.server.level.ServerChunkCache.class);
+        when(chunkSource.getChunkNow(anyInt(), anyInt())).thenAnswer(invocation -> Thread.currentThread() == ownerThread ? mock(LevelChunk.class) : null);
+        // Admission of the chunk to a worker asks the loaded-chunk set, which is complete: only the neighbor read
+        // inside the cascade is the one that misses.
+        when(chunkSource.hasChunk(anyInt(), anyInt())).thenReturn(true);
+        doReturn(chunkSource).when(level).getChunkSource();
+        // The neighbor read resolves to a no-op block, so only the handoff itself is under test.
+        final Block block = mock(Block.class);
+        final BlockState neighborState = mock(BlockState.class);
+        when(neighborState.getBlock()).thenReturn(block);
+        doReturn(neighborState).when(level).getBlockState(any(BlockPos.class));
+        final java.lang.reflect.Field updaterField = net.minecraft.world.level.Level.class.getDeclaredField("neighborUpdater");
+        updaterField.setAccessible(true);
+        updaterField.set(level, new net.neoforged.neoforge.server.threading.region.RegionAwareNeighborUpdater(level, 512));
+
+        final java.util.concurrent.atomic.AtomicInteger completed = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicBoolean updated = new java.util.concurrent.atomic.AtomicBoolean();
+        // The position sits at the edge of the interior chunk, so one of its six neighbors is in chunk 2,1 - the
+        // same fixed region, but a chunk the worker does not have. The body runs once per selected position, and
+        // the cascade is only interesting the first time.
+        final LevelChunk chunk = chunk(INTERIOR_CHUNK, new TickRecorder(), () -> {
+            if (updated.compareAndSet(false, true)) {
+                level.updateNeighborsAt(new BlockPos(31, 64, 24), block);
+            }
+            completed.incrementAndGet();
+        });
+        final RegionChunkTickPlan plan = this.beginPlan(level);
+        plan.accept(chunk);
+        plan.executeAndAwait(PARKING_BARRIER);
+
+        assertTrue(completed.get() > 0, "the chunk body itself must finish on the worker");
+        assertEquals(1L, this.engine.diagnostics().chunkTicksOnWorkers(),
+                "the chunk under test has to tick on a worker for the handoff to be exercised");
+        assertEquals(1L, this.engine.handedOffNeighborCascades(),
+                "the cascade that reached the unloaded chunk must be handed to the server thread");
+        assertEquals(0L, this.engine.workerServerTasksApplied(), "the handoff must not run inside the worker phase");
+        this.engine.endLevelTick(level);
+        assertEquals(1L, this.engine.workerServerTasksApplied(),
+                "the server thread must finish the handed-off cascade at the end of the level tick");
+    }
+
+    @Test
+    void resumedNeighborCascadePreservesProgressBudgetAndWorkerIsolation() throws ReflectiveOperationException {
+        this.installEngine(true);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final Thread serverThread = Thread.currentThread();
+        final ServerLevel level = mockLevel();
+        final ServerChunkCache source = mock(ServerChunkCache.class);
+        final LevelChunk loaded = mock(LevelChunk.class);
+        when(source.hasChunk(anyInt(), anyInt())).thenReturn(true);
+        when(source.getChunkNow(anyInt(), anyInt())).thenAnswer(call -> Thread.currentThread() != serverThread && (int) call.getArgument(0) == 2 ? null : loaded);
+        doReturn(source).when(level).getChunkSource();
+        final RegionAwareNeighborUpdater updater = new RegionAwareNeighborUpdater(level, 3);
+        final Field field = net.minecraft.world.level.Level.class.getDeclaredField("neighborUpdater");
+        field.setAccessible(true);
+        field.set(level, updater);
+        final Block block = mock(Block.class);
+        final BlockState state = mock(BlockState.class);
+        final BlockPos origin = new BlockPos(31, 64, 24);
+        final BlockPos independent = new BlockPos(20, 64, 20);
+        final BlockPos child1 = new BlockPos(22, 64, 20);
+        final BlockPos child2 = new BlockPos(23, 64, 20);
+        final BlockPos overBudget = new BlockPos(24, 64, 20);
+        final List<BlockPos> executed = new CopyOnWriteArrayList<>();
+        final List<Thread> threads = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            final BlockPos pos = call.getArgument(0);
+            if (Thread.currentThread() != serverThread && pos.getX() >> 4 == 2) {
+                throw RegionWorkerChunkUnavailableException.forChunk(2, 1, ChunkStatus.FULL);
+            }
+            return state;
+        }).when(level).getBlockState(any(BlockPos.class));
+        doAnswer(call -> {
+            final BlockPos pos = call.getArgument(1);
+            executed.add(pos);
+            threads.add(Thread.currentThread());
+            if (pos.equals(origin.east())) {
+                // These must join the resumed collector, using the original cascade's remaining budget.
+                updater.neighborChanged(child1, block, pos);
+                updater.neighborChanged(child2, block, pos);
+                updater.neighborChanged(overBudget, block, pos);
+            }
+            return null;
+        }).when(state).handleNeighborChanged(any(), any(), any(), any(), anyBoolean());
+        final AtomicBoolean once = new AtomicBoolean();
+        final RegionChunkTickPlan plan = this.beginPlan(level);
+        plan.accept(chunk(INTERIOR_CHUNK, new TickRecorder(), () -> {
+            if (once.compareAndSet(false, true)) {
+                updater.updateNeighborsAtExceptFromFacing(origin, block, Direction.SOUTH);
+                // The same worker scope reuses its collector after the first cascade was handed off.
+                updater.neighborChanged(independent, block, independent.west());
+            }
+        }));
+        plan.executeAndAwait(PARKING_BARRIER);
+        assertEquals(List.of(origin.west(), independent), executed,
+                "the worker's later cascade must not join or mutate the transferred stack");
+        assertTrue(threads.stream().noneMatch(serverThread::equals));
+        this.engine.endLevelTick(level);
+        assertEquals(List.of(origin.west(), independent, origin.east(), child1, child2,
+                origin.below(), origin.above(), origin.north()), executed,
+                "resume exactly at EAST, retain child order and count limit, and retain the skipped direction");
+        assertTrue(threads.subList(2, threads.size()).stream().allMatch(serverThread::equals));
+        assertFalse(RegionAwareNeighborUpdater.isRegionScoped(), "the resumed scope must be released");
+        assertEquals(1L, this.engine.handedOffNeighborCascades());
+    }
+
+    @Test
+    void simpleFullAndShapeNeighborUpdatesTransferWithoutDroppingCallbacks() throws ReflectiveOperationException {
+        this.installEngine(true);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final Thread serverThread = Thread.currentThread();
+        final ServerLevel level = mockLevel();
+        final ServerChunkCache source = mock(ServerChunkCache.class);
+        when(source.hasChunk(anyInt(), anyInt())).thenReturn(true);
+        final LevelChunk loaded = mock(LevelChunk.class);
+        when(source.getChunkNow(anyInt(), anyInt())).thenAnswer(call -> Thread.currentThread() == serverThread ? loaded : null);
+        doReturn(source).when(level).getChunkSource();
+        final RegionAwareNeighborUpdater updater = new RegionAwareNeighborUpdater(level, 512);
+        final Field field = net.minecraft.world.level.Level.class.getDeclaredField("neighborUpdater");
+        field.setAccessible(true);
+        field.set(level, updater);
+        final Block block = mock(Block.class);
+        final BlockState state = mock(BlockState.class);
+        final BlockPos target = new BlockPos(24, 64, 24);
+        final BlockPos.MutableBlockPos mutableTarget = target.mutable();
+        final List<BlockPos> destinations = new CopyOnWriteArrayList<>();
+        final List<Thread> callbacks = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            assertEquals(serverThread, Thread.currentThread(), "an unloaded state must never be read by the worker");
+            return state;
+        }).when(level).getBlockState(any(BlockPos.class));
+        doAnswer(call -> {
+            callbacks.add(Thread.currentThread());
+            destinations.add(((BlockPos) call.getArgument(1)).immutable());
+            return null;
+        }).when(state).handleNeighborChanged(any(), any(), any(), any(), anyBoolean());
+        doAnswer(call -> {
+            callbacks.add(Thread.currentThread());
+            return state;
+        }).when(state).updateShape(any(), any(), any(), any(), any());
+        final AtomicBoolean once = new AtomicBoolean();
+        final RegionChunkTickPlan plan = this.beginPlan(level);
+        plan.accept(chunk(INTERIOR_CHUNK, new TickRecorder(), () -> {
+            if (once.compareAndSet(false, true)) {
+                updater.neighborChanged(mutableTarget, block, target.west());
+                mutableTarget.set(100, 64, 100);
+                updater.neighborChanged(state, target, block, target.west(), false);
+                updater.shapeUpdate(Direction.WEST, state, target, target.west(), 3, 32);
+            }
+        }));
+        plan.executeAndAwait(PARKING_BARRIER);
+        assertEquals(List.of(), callbacks);
+        assertEquals(3L, this.engine.handedOffNeighborCascades());
+        this.engine.endLevelTick(level);
+        assertEquals(List.of(serverThread, serverThread, serverThread), callbacks);
+        assertEquals(List.of(target, target), destinations, "a caller's mutable position must be captured before handoff");
+        assertEquals(0L, this.engine.workerServerTasksDropped());
+    }
+
+    @Test
+    void deferredServerTaskFailureRemainsVisibleInsteadOfBeingSwallowed() {
+        this.installEngine(true);
+        final ServerLevel level = mockLevel();
+        final IllegalStateException failure = new IllegalStateException("deferred callback failed");
+        final AtomicBoolean once = new AtomicBoolean();
+        final AtomicInteger completed = new AtomicInteger();
+        final RegionChunkTickPlan plan = this.beginPlan(level);
+        plan.accept(chunk(INTERIOR_CHUNK, new TickRecorder(), () -> {
+            if (once.compareAndSet(false, true)) {
+                assertTrue(this.engine.queueServerTaskInCurrentBatch(() -> {
+                    throw failure;
+                }));
+                assertTrue(this.engine.queueServerTaskInCurrentBatch(completed::incrementAndGet));
+            }
+        }));
+        plan.executeAndAwait(PARKING_BARRIER);
+        assertEquals(failure, assertThrows(IllegalStateException.class, () -> this.engine.endLevelTick(level)));
+        assertEquals(1, completed.get(), "independent queued work must still drain after a failure");
+        assertEquals(1L, this.engine.workerServerTasksDropped());
+        assertEquals(1L, this.engine.workerServerTasksApplied());
     }
 
     private void installEngine(boolean chunkTickWorkers) {

@@ -135,6 +135,87 @@ class RegionBorderUpdateTest {
     }
 
     @Test
+    void borderPropagationHandsOffOnlyTheUnloadedRemainderOfItsNeighborCascade() {
+        final ServerLevel level = this.mockLevel();
+        this.installEngine(level);
+        final Thread serverThread = Thread.currentThread();
+        final Block block = mock(Block.class);
+        final BlockPos origin = new BlockPos(63, 64, 24);
+        final List<BlockPos> executed = new CopyOnWriteArrayList<>();
+        final List<Thread> threads = new CopyOnWriteArrayList<>();
+        final BlockState state = mock(BlockState.class);
+        doAnswer(call -> {
+            final BlockPos pos = call.getArgument(1);
+            executed.add(pos);
+            threads.add(Thread.currentThread());
+            return null;
+        }).when(state).handleNeighborChanged(any(), any(), any(), any(), anyBoolean());
+        doAnswer(call -> {
+            final BlockPos pos = call.getArgument(0);
+            if (Thread.currentThread() != serverThread && (pos.getX() >> 4) == 4) {
+                throw net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.forChunk(4, 1, ChunkStatus.FULL);
+            }
+            return state;
+        }).when(level).getBlockState(any(BlockPos.class));
+        final BlockState targetState = mock(BlockState.class);
+        doAnswer(call -> {
+            level.updateNeighborsAt(origin, block);
+            return null;
+        }).when(targetState).handleNeighborChanged(any(), any(), any(), any(), anyBoolean());
+        doReturn(targetState).when(level).getBlockState(TARGET_POS);
+        // The target region is leased, but an adjacent chunk within that same region is unavailable.
+        final ServerChunkCache source = level.getChunkSource();
+        doAnswer(call -> Thread.currentThread() == serverThread ? mock(LevelChunk.class) : null)
+                .when(source).getChunkNow(4, 1);
+        doAnswer(call -> {
+            level.neighborChanged(TARGET_POS, block, SOURCE_POS);
+            return null;
+        }).when(level).tickChunk(any(LevelChunk.class), anyInt());
+        final RegionChunkTickPlan plan = this.beginPlan(level);
+        plan.accept(this.sourceChunk());
+        plan.executeAndAwait(PARKING_BARRIER);
+        assertEquals(List.of(origin.west()), executed, "the completed prefix must run once on the target worker");
+        assertFalse(threads.get(0).equals(serverThread));
+        assertEquals(1L, this.engine.diagnostics().borderUpdates().applied());
+        assertEquals(1L, this.engine.handedOffNeighborCascades());
+        this.engine.endLevelTick(level);
+        assertEquals(List.of(origin.west(), origin.east(), origin.below(), origin.above(), origin.north(), origin.south()), executed);
+        assertTrue(threads.subList(1, threads.size()).stream().allMatch(serverThread::equals));
+        assertEquals(0L, this.engine.workerServerTasksDropped());
+    }
+
+    @Test
+    void foreignNeighborIsCapturedBeforeCheckingWhetherItsChunkIsLoaded() {
+        final ServerLevel level = this.mockLevel();
+        this.installEngine(level);
+        final AtomicInteger delivered = new AtomicInteger();
+        final BlockState targetState = mock(BlockState.class);
+        doAnswer(call -> {
+            delivered.incrementAndGet();
+            return null;
+        })
+                .when(targetState).handleNeighborChanged(any(), any(), any(), any(), anyBoolean());
+        doReturn(targetState).when(level).getBlockState(TARGET_POS);
+        // If the source collector checks this foreign chunk before border capture, it sees a miss and would
+        // incorrectly move a normal cross-region update to the server thread.
+        final ServerChunkCache source = level.getChunkSource();
+        doAnswer(call -> this.engine.isOwnedByCurrentRegion(level, TARGET_POS) ? mock(LevelChunk.class) : null)
+                .when(source).getChunkNow(TARGET_CHUNK.x, TARGET_CHUNK.z);
+        final Block block = mock(Block.class);
+        doAnswer(call -> {
+            level.neighborChanged(TARGET_POS, block, SOURCE_POS);
+            return null;
+        }).when(level).tickChunk(any(LevelChunk.class), anyInt());
+        final RegionChunkTickPlan plan = this.beginPlan(level);
+        plan.accept(this.sourceChunk());
+        plan.executeAndAwait(PARKING_BARRIER);
+        assertEquals(1, delivered.get());
+        assertEquals(1L, this.engine.diagnostics().borderUpdates().recorded());
+        assertEquals(1L, this.engine.diagnostics().borderUpdates().applied());
+        assertEquals(0L, this.engine.handedOffNeighborCascades());
+    }
+
+    @Test
     void repeatedBorderUpdatesMatchInlineDeliveryAndOrder() {
         final ServerLevel level = this.mockLevel();
         this.installEngine(level);

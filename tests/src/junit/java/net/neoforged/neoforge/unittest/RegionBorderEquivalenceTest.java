@@ -250,6 +250,10 @@ class RegionBorderEquivalenceTest {
                 return 0;
             }).when(this.level).getSignal(any(BlockPos.class), any(Direction.class));
             final ServerChunkCache chunkSource = mock(ServerChunkCache.class);
+            // The synthetic circuit's state map represents loaded terrain. Keep the non-loading chunk lookup
+            // consistent with getBlockState, so it does not masquerade as an unloaded-chunk handoff fixture.
+            final net.minecraft.world.level.chunk.LevelChunk loadedChunk = mock(net.minecraft.world.level.chunk.LevelChunk.class);
+            doReturn(loadedChunk).when(chunkSource).getChunkNow(anyInt(), anyInt());
             doAnswer(invocation -> {
                 final BooleanSupplier condition = invocation.getArgument(0);
                 while (!condition.getAsBoolean()) {

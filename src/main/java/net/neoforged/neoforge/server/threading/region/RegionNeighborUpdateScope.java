@@ -61,6 +61,14 @@ final class RegionNeighborUpdateScope {
         }
     }
 
+    /** Binds a transferred cascade so reentrant server-thread callbacks retain its stack and update budget. */
+    void bind(RegionAwareNeighborUpdater owner, NeighborUpdater updater) {
+        if (this.updaters == null) {
+            this.updaters = new IdentityHashMap<>();
+        }
+        this.updaters.put(owner, updater);
+    }
+
     /**
      * {@return the collection state of {@code owner} inside this context}
      */

@@ -38,13 +38,15 @@ import org.slf4j.Logger;
 @ApiStatus.Internal
 final class RegionCollectingNeighborUpdater implements NeighborUpdater {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private final RegionAwareNeighborUpdater owner;
     private final Level level;
     private final int maxChainedNeighborUpdates;
     private final ArrayDeque<NeighborUpdates> stack = new ArrayDeque<>();
     private final List<NeighborUpdates> addedThisLayer = new ArrayList<>();
     private int count;
 
-    RegionCollectingNeighborUpdater(Level level, int maxChainedNeighborUpdates) {
+    RegionCollectingNeighborUpdater(RegionAwareNeighborUpdater owner, Level level, int maxChainedNeighborUpdates) {
+        this.owner = owner;
         this.level = level;
         this.maxChainedNeighborUpdates = maxChainedNeighborUpdates;
     }
@@ -56,7 +58,7 @@ final class RegionCollectingNeighborUpdater implements NeighborUpdater {
 
     @Override
     public void neighborChanged(BlockPos pos, Block block, BlockPos neighborPos) {
-        this.addAndRun(pos, new SimpleNeighborUpdate(pos, block, neighborPos.immutable()));
+        this.addAndRun(pos, new SimpleNeighborUpdate(pos.immutable(), block, neighborPos.immutable()));
     }
 
     @Override
@@ -96,7 +98,23 @@ final class RegionCollectingNeighborUpdater implements NeighborUpdater {
                 this.addedThisLayer.clear();
                 final NeighborUpdates update = this.stack.peek();
                 while (this.addedThisLayer.isEmpty()) {
-                    if (!update.runNext(this.level)) {
+                    final UpdateResult result = update.runNext(this.level);
+                    if (result == UpdateResult.NEEDS_SERVER_THREAD) {
+                        // Transfer the pending objects to a separate collector before publishing it. The worker
+                        // clears its own containers below and can start another cascade without changing these.
+                        final RegionCollectingNeighborUpdater continuation = new RegionCollectingNeighborUpdater(
+                                this.owner, this.level, this.maxChainedNeighborUpdates);
+                        continuation.stack.addAll(this.stack);
+                        continuation.addedThisLayer.addAll(this.addedThisLayer);
+                        continuation.count = this.count;
+                        if (!RegionThreadingHooks.handOffNeighborUpdateCascade(continuation::resume)) {
+                            final BlockPos target = update.pendingTarget();
+                            throw RegionWorkerChunkUnavailableException.forChunk(target.getX() >> 4, target.getZ() >> 4,
+                                    net.minecraft.world.level.chunk.status.ChunkStatus.FULL);
+                        }
+                        return;
+                    }
+                    if (result == UpdateResult.DONE) {
                         this.stack.pop();
                         break;
                     }
@@ -109,18 +127,53 @@ final class RegionCollectingNeighborUpdater implements NeighborUpdater {
         }
     }
 
+    private void resume() {
+        // Reentrant callbacks must append to this same collector, preserving its stack order and remaining
+        // chained-update budget. No region ownership context is installed on the server thread.
+        final RegionNeighborUpdateScope scope = new RegionNeighborUpdateScope();
+        scope.bind(this.owner, this);
+        final RegionNeighborUpdateScope previous = RegionNeighborUpdateScope.enter(scope);
+        try {
+            this.runUpdates();
+        } finally {
+            RegionNeighborUpdateScope.exit(previous);
+        }
+    }
+
+    private static boolean needsServerThread(Level level, BlockPos pos) {
+        if (!RegionWorkerScope.isNativeWorkerThread()) {
+            return false;
+        }
+        final net.minecraft.world.level.chunk.ChunkSource chunkSource = level.getChunkSource();
+        return chunkSource != null && chunkSource.getChunkNow(pos.getX() >> 4, pos.getZ() >> 4) == null;
+    }
+
+    private enum UpdateResult {
+        DONE, MORE, NEEDS_SERVER_THREAD
+    }
+
     private interface NeighborUpdates {
-        boolean runNext(Level level);
+        UpdateResult runNext(Level level);
+
+        BlockPos pendingTarget();
     }
 
     private record FullNeighborUpdate(BlockState state, BlockPos pos, Block block, BlockPos neighborPos, boolean movedByPiston) implements NeighborUpdates {
         @Override
-        public boolean runNext(Level level) {
+        public BlockPos pendingTarget() {
+            return this.pos;
+        }
+
+        @Override
+        public UpdateResult runNext(Level level) {
             if (RegionThreadingHooks.deferBorderNeighborUpdate(level, this.pos, this.block, this.neighborPos, this.movedByPiston)) {
-                return false;
+                return UpdateResult.DONE;
+            }
+            if (needsServerThread(level, this.pos)) {
+                return UpdateResult.NEEDS_SERVER_THREAD;
             }
             NeighborUpdater.executeUpdate(level, this.state, this.pos, this.block, this.neighborPos, this.movedByPiston);
-            return false;
+            return UpdateResult.DONE;
         }
     }
 
@@ -141,40 +194,68 @@ final class RegionCollectingNeighborUpdater implements NeighborUpdater {
         }
 
         @Override
-        public boolean runNext(Level level) {
-            final BlockPos target = this.sourcePos.relative(UPDATE_ORDER[this.idx++]);
-            if (!RegionThreadingHooks.deferBorderNeighborUpdate(level, target, this.sourceBlock, this.sourcePos, false)) {
+        public BlockPos pendingTarget() {
+            return this.sourcePos.relative(UPDATE_ORDER[this.idx]);
+        }
+
+        @Override
+        public UpdateResult runNext(Level level) {
+            final BlockPos target = this.pendingTarget();
+            final boolean deferred = RegionThreadingHooks.deferBorderNeighborUpdate(level, target, this.sourceBlock, this.sourcePos, false);
+            if (!deferred && needsServerThread(level, target)) {
+                return UpdateResult.NEEDS_SERVER_THREAD;
+            }
+            // Advance only after the preflight check. Resuming must neither skip this direction nor replay the
+            // already completed directions. The index still advances before invoking the block callback.
+            this.idx++;
+            if (!deferred) {
                 final BlockState state = level.getBlockState(target);
                 NeighborUpdater.executeUpdate(level, state, target, this.sourceBlock, this.sourcePos, false);
             }
             if (this.idx < UPDATE_ORDER.length && UPDATE_ORDER[this.idx] == this.skipDirection) {
                 this.idx++;
             }
-            return this.idx < UPDATE_ORDER.length;
+            return this.idx < UPDATE_ORDER.length ? UpdateResult.MORE : UpdateResult.DONE;
         }
     }
 
     private record ShapeUpdate(Direction direction, BlockState state, BlockPos pos, BlockPos neighborPos, int updateFlags,
             int updateLimit) implements NeighborUpdates {
         @Override
-        public boolean runNext(Level level) {
+        public BlockPos pendingTarget() {
+            return this.pos;
+        }
+
+        @Override
+        public UpdateResult runNext(Level level) {
             if (RegionThreadingHooks.deferBorderShapeUpdate(level, this.direction, this.state, this.pos, this.neighborPos, this.updateFlags, this.updateLimit)) {
-                return false;
+                return UpdateResult.DONE;
+            }
+            if (needsServerThread(level, this.pos)) {
+                return UpdateResult.NEEDS_SERVER_THREAD;
             }
             NeighborUpdater.executeShapeUpdate(level, this.direction, this.state, this.pos, this.neighborPos, this.updateFlags, this.updateLimit);
-            return false;
+            return UpdateResult.DONE;
         }
     }
 
     private record SimpleNeighborUpdate(BlockPos pos, Block block, BlockPos neighborPos) implements NeighborUpdates {
         @Override
-        public boolean runNext(Level level) {
+        public BlockPos pendingTarget() {
+            return this.pos;
+        }
+
+        @Override
+        public UpdateResult runNext(Level level) {
             if (RegionThreadingHooks.deferBorderNeighborUpdate(level, this.pos, this.block, this.neighborPos, false)) {
-                return false;
+                return UpdateResult.DONE;
+            }
+            if (needsServerThread(level, this.pos)) {
+                return UpdateResult.NEEDS_SERVER_THREAD;
             }
             final BlockState state = level.getBlockState(this.pos);
             NeighborUpdater.executeUpdate(level, state, this.pos, this.block, this.neighborPos, false);
-            return false;
+            return UpdateResult.DONE;
         }
     }
 }

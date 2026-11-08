@@ -53,7 +53,7 @@ cancelled join events). The status command reports separate reasons and one boun
 | block entity with data, block-entity removal, heightmap-only write, multi-position move, non-representable write | REFUSED (no-replay) | `RegionWorkerChunkUnavailableException` reason | same |
 | `LevelChunk.getBlockState` / `getBlockEntity` of a foreign chunk | LOCAL read via seqlock, or foreign block-entity read answers `null` (counted) | `chunkVersion` seqlock | `versioned-foreign-chunk-reads` tests |
 | `LevelChunk.setBlockState`, `setBlockEntity`, `removeBlockEntity`, `Heightmap.set` on a foreign chunk | REFUSED before mutation | `refuseForeignChunkMutation` | `RegionChunkTickSharedStateTest` |
-| worker chunk load / unload | REFUSED | `RegionWorkerChunkUnavailableException` | `worker-chunk-guard` tests |
+| worker chunk load / unload | REFUSED; a neighbor update whose own-region target is unloaded transfers the remaining cascade to the server thread | `RegionWorkerChunkUnavailableException`; detached `RegionCollectingNeighborUpdater` continuation, preserving stack progress, scope and chained-update count; real callback failures still propagate | `RegionChunkTickTest` (handoff, progress, reentrancy, budget, failure), `RegionBorderUpdateTest` (propagation and capture priority), `worker-chunk-guard` tests |
 | block entity tick | LOCAL for admitted types, server thread otherwise | `RegionBlockEntityTickPlan` + admission cache | `RegionBlockEntityTick*` |
 
 ## Level state

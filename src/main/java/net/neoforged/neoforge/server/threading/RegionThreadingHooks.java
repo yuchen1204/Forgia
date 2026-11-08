@@ -276,6 +276,25 @@ public final class RegionThreadingHooks {
     }
 
     /**
+     * Hands the remaining cascade of a region worker's neighbor update to the server thread.
+     * <p>
+     * A neighbor update reads the target block, and vanilla loads the target chunk when the read misses. A region
+     * worker may not load a chunk, so a cascade that reaches one - the target of a deferred cross-region write at
+     * the edge of the loaded area is the common case - would fail the whole world tick. The server thread can load
+     * the chunk, so the remaining cascade is queued for it instead: the caller stops, the queue runs the same
+     * cascade after the batch (or at the end of the level tick), and the update order of the vanilla stack is
+     * preserved because the whole remainder moves together.
+     *
+     * @param cascade the continuation that runs the remaining updates
+     * @return {@code true} when the cascade was handed off and the caller must stop, {@code false} on the server
+     *         thread and on a worker without a queue
+     */
+    public static boolean handOffNeighborUpdateCascade(Runnable cascade) {
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        return threading instanceof RegionThreadingEngine engine && engine.handOffNeighborUpdateCascade(cascade);
+    }
+
+    /**
      * {@return true when a worker's entity admission it could not defer was handed to the server thread}
      * <p>
      * A vanilla tick spawns entities constantly - death loot, experience, a projectile, an egg, a sapling that a

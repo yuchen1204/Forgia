@@ -338,6 +338,9 @@ final class RegionRedstoneWorld {
         doReturn(List.of()).when(this.level).getEntities(any(Entity.class), any(AABB.class), any());
         doReturn(List.of()).when(this.level).getEntitiesOfClass(any(), any(AABB.class));
         final ServerChunkCache chunkSource = mock(ServerChunkCache.class);
+        // The circuit's state map is loaded terrain; missing chunk stubs must not request a server handoff.
+        final net.minecraft.world.level.chunk.LevelChunk loadedChunk = mock(net.minecraft.world.level.chunk.LevelChunk.class);
+        doReturn(loadedChunk).when(chunkSource).getChunkNow(anyInt(), anyInt());
         doAnswer(invocation -> {
             final BooleanSupplier condition = invocation.getArgument(0);
             while (!condition.getAsBoolean()) {

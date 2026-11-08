@@ -55,7 +55,7 @@ public final class RegionAwareNeighborUpdater implements NeighborUpdater {
         // border updates are off. With the switch on, the region collector additionally records an update that
         // targets another region instead of applying it against a lease it does not hold.
         return RegionThreadingHooks.borderUpdatesEnabled()
-                ? new RegionCollectingNeighborUpdater(this.level, this.maxChainedNeighborUpdates)
+                ? new RegionCollectingNeighborUpdater(this, this.level, this.maxChainedNeighborUpdates)
                 : new CollectingNeighborUpdater(this.level, this.maxChainedNeighborUpdates);
     }
 
