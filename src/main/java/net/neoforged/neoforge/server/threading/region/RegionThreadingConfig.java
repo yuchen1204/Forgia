@@ -5,6 +5,7 @@
 
 package net.neoforged.neoforge.server.threading.region;
 
+import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.common.NeoForgeConfig;
 
 /**
@@ -14,21 +15,21 @@ final class RegionThreadingConfig {
     private RegionThreadingConfig() {}
 
     static int maxImmediateTasksPerDrain() {
-        return NeoForgeConfig.isServerConfigLoaded()
-                ? NeoForgeConfig.SERVER.regionThreadingMaxImmediateTasksPerDrain.get()
-                : NeoForgeConfig.SERVER.regionThreadingMaxImmediateTasksPerDrain.getDefault();
+        return ForgiaConfig.isServerConfigLoaded()
+                ? ForgiaConfig.SERVER.regionThreadingMaxImmediateTasksPerDrain.get()
+                : ForgiaConfig.SERVER.regionThreadingMaxImmediateTasksPerDrain.getDefault();
     }
 
     static int maxScheduledTasksPerDrain() {
-        return NeoForgeConfig.isServerConfigLoaded()
-                ? NeoForgeConfig.SERVER.regionThreadingMaxScheduledTasksPerDrain.get()
-                : NeoForgeConfig.SERVER.regionThreadingMaxScheduledTasksPerDrain.getDefault();
+        return ForgiaConfig.isServerConfigLoaded()
+                ? ForgiaConfig.SERVER.regionThreadingMaxScheduledTasksPerDrain.get()
+                : ForgiaConfig.SERVER.regionThreadingMaxScheduledTasksPerDrain.getDefault();
     }
 
     static long longTickWarningNanos() {
-        return NeoForgeConfig.isServerConfigLoaded()
-                ? NeoForgeConfig.SERVER.regionThreadingLongTickWarningNanos.get()
-                : NeoForgeConfig.SERVER.regionThreadingLongTickWarningNanos.getDefault();
+        return ForgiaConfig.isServerConfigLoaded()
+                ? ForgiaConfig.SERVER.regionThreadingLongTickWarningNanos.get()
+                : ForgiaConfig.SERVER.regionThreadingLongTickWarningNanos.getDefault();
     }
 
     /**
@@ -41,10 +42,10 @@ final class RegionThreadingConfig {
      * silently running those ticks against the one shared vanilla manager.
      */
     static boolean poiStorageEnabled() {
-        if (!NeoForgeConfig.isServerConfigLoaded()) {
+        if (!ForgiaConfig.isServerConfigLoaded()) {
             return false;
         }
-        return NeoForgeConfig.SERVER.enableRegionThreadingPoi.get() || NeoForgeConfig.SERVER.enableRegionThreadingEntityTicks.get();
+        return ForgiaConfig.SERVER.enableRegionThreadingPoi.get() || ForgiaConfig.SERVER.enableRegionThreadingEntityTicks.get();
     }
 
     /**
@@ -55,9 +56,9 @@ final class RegionThreadingConfig {
      * enable it.
      */
     static boolean borderUpdatesEnabled() {
-        return NeoForgeConfig.isServerConfigLoaded()
-                ? NeoForgeConfig.SERVER.enableRegionThreadingBorderUpdates.get()
-                : NeoForgeConfig.SERVER.enableRegionThreadingBorderUpdates.getDefault();
+        return ForgiaConfig.isServerConfigLoaded()
+                ? ForgiaConfig.SERVER.enableRegionThreadingBorderUpdates.get()
+                : ForgiaConfig.SERVER.enableRegionThreadingBorderUpdates.getDefault();
     }
 
     /**
@@ -68,14 +69,14 @@ final class RegionThreadingConfig {
      * foreign block entity while its owner may tick it - the documented racy baseline.
      */
     static boolean crossRegionGameEventsEnabled() {
-        return NeoForgeConfig.isServerConfigLoaded()
-                ? NeoForgeConfig.SERVER.enableRegionThreadingGameEvents.get()
-                : NeoForgeConfig.SERVER.enableRegionThreadingGameEvents.getDefault();
+        return ForgiaConfig.isServerConfigLoaded()
+                ? ForgiaConfig.SERVER.enableRegionThreadingGameEvents.get()
+                : ForgiaConfig.SERVER.enableRegionThreadingGameEvents.getDefault();
     }
 
     static NeoForgeConfig.RegionThreadingOwnershipViolationMode ownershipViolationMode() {
-        return NeoForgeConfig.isServerConfigLoaded()
-                ? NeoForgeConfig.SERVER.regionThreadingOwnershipViolationMode.get()
-                : NeoForgeConfig.SERVER.regionThreadingOwnershipViolationMode.getDefault();
+        return ForgiaConfig.isServerConfigLoaded()
+                ? ForgiaConfig.SERVER.regionThreadingOwnershipViolationMode.get()
+                : ForgiaConfig.SERVER.regionThreadingOwnershipViolationMode.getDefault();
     }
 }

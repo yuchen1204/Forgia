@@ -56,8 +56,8 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.entity.EntitySectionStorage;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.common.NeoForgeConfig;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.common.util.FakePlayerFactory;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -373,8 +373,8 @@ public class ProductionSoakGameTests {
         helper.assertTrue(diagnostics.workerThreadCount() >= 2, "the production soak needs at least two region workers, got " + diagnostics.workerThreadCount());
         helper.assertTrue(diagnostics.chunkTickWorkerDispatchEffective(), "the chunk tick slice of the production soak is requested but not effective");
         helper.assertTrue(diagnostics.spawnWorkerDispatchEffective(), "the spawning slice of the production soak is requested but not effective");
-        helper.assertTrue(NeoForgeConfig.SERVER.enableRegionThreadingPoi.get(), "the production soak needs the regionized POI storage enabled");
-        helper.assertTrue(NeoForgeConfig.SERVER.enableRegionThreadingBorderUpdates.get(), "the production soak needs the border update fixpoint enabled");
+        helper.assertTrue(ForgiaConfig.SERVER.enableRegionThreadingPoi.get(), "the production soak needs the regionized POI storage enabled");
+        helper.assertTrue(ForgiaConfig.SERVER.enableRegionThreadingBorderUpdates.get(), "the production soak needs the border update fixpoint enabled");
     }
 
     /**

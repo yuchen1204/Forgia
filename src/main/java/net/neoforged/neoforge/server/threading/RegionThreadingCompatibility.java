@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.common.NeoForgeConfig;
+import net.neoforged.neoforge.common.ForgiaConfig;
 import org.jetbrains.annotations.ApiStatus;
 
 /**
@@ -23,7 +23,7 @@ public final class RegionThreadingCompatibility {
      */
     @ApiStatus.Experimental
     public static RegionThreadingSupport defaultSupport() {
-        return NeoForgeConfig.SERVER.defaultRegionThreadingSupport.get();
+        return ForgiaConfig.SERVER.defaultRegionThreadingSupport.get();
     }
 
     /**

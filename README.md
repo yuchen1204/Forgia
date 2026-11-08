@@ -61,8 +61,19 @@ The full remaining plan is in [region-threading/STATUS.md](region-threading/STAT
 
 ## Configuration
 
-All switches live in `config/neoforge-server.toml` and are **`false` by default**. A server that wants the
-full stack sets:
+Forgia's region-threading settings live in **`config/forgia.toml`**, separate from `neoforge-server.toml`.
+All enable switches remain **`false` by default**. Switching to upstream NeoForge leaves `forgia.toml`
+untouched; switching back to Forgia reads the saved settings.
+
+On the first start, if `forgia.toml` is missing, Forgia copies only its own keys from `neoforge-server.toml`
+before the NeoForge config loader corrects that file. If upstream already removed those keys, the saved
+`neoforge-server.forgia.toml` side file is also recognized. Existing `forgia.toml` always wins. The same
+migration applies to a world's `serverconfig` directory, whose `forgia.toml` overrides the instance file
+under the normal SERVER-config rules. Legacy source files are not changed by migration. If neither legacy
+file retains the settings, Forgia uses its default-off configuration; previously erased values cannot be recovered.
+Change engine switches while the server is stopped; they take effect on the next start.
+
+A server that wants the full stack sets:
 
 ```toml
 enableRegionThreadingBridge = true

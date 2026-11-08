@@ -38,8 +38,9 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.fml.loading.FMLLoader;
 import net.neoforged.fml.loading.FMLPaths;
+import net.neoforged.neoforge.common.ForgiaConfig;
+import net.neoforged.neoforge.common.ForgiaConfigMigration;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.common.NeoForgeConfig;
 import net.neoforged.neoforge.common.util.LogicalSidedProvider;
 import net.neoforged.neoforge.common.world.BiomeModifier;
 import net.neoforged.neoforge.common.world.StructureModifier;
@@ -105,7 +106,10 @@ public class ServerLifecycleHooks {
         currentServer = server;
         // on the dedi server we need to force the stuff to setup properly
         LogicalSidedProvider.setServer(() -> server);
-        ConfigTracker.INSTANCE.loadConfigs(ModConfig.Type.SERVER, FMLPaths.CONFIGDIR.get(), getServerConfigPath(server));
+        final Path worldServerConfig = getServerConfigPath(server);
+        ForgiaConfigMigration.migrate(FMLPaths.CONFIGDIR.get());
+        ForgiaConfigMigration.migrate(worldServerConfig);
+        ConfigTracker.INSTANCE.loadConfigs(ModConfig.Type.SERVER, FMLPaths.CONFIGDIR.get(), worldServerConfig);
         installRegionThreading();
         runModifiers(server);
         NeoForge.EVENT_BUS.post(new ServerAboutToStartEvent(server));
@@ -122,12 +126,12 @@ public class ServerLifecycleHooks {
      * a declaration only ever moves a type back to the server thread.
      */
     private static void installRegionThreading() {
-        final boolean requested = NeoForgeConfig.SERVER.enableRegionThreadingBridge.get();
-        final boolean forced = NeoForgeConfig.SERVER.regionThreadingForceWithKnownConflicts.get();
+        final boolean requested = ForgiaConfig.SERVER.enableRegionThreadingBridge.get();
+        final boolean forced = ForgiaConfig.SERVER.regionThreadingForceWithKnownConflicts.get();
         final RegionThreadingConflicts.Plan compatibility = RegionThreadingConflicts.plan(
                 requested,
-                NeoForgeConfig.SERVER.enableRegionThreadingEntityTicks.get(),
-                NeoForgeConfig.SERVER.enableRegionThreadingSpawning.get(),
+                ForgiaConfig.SERVER.enableRegionThreadingEntityTicks.get(),
+                ForgiaConfig.SERVER.enableRegionThreadingSpawning.get(),
                 modId -> net.neoforged.fml.ModList.get().isLoaded(modId),
                 forced);
         if (forced && requested) {
@@ -149,14 +153,14 @@ public class ServerLifecycleHooks {
         } else if (RegionThreadingCompatibility.canInstallBridge()) {
             // The layout carries the fixed region edge length, so the engine, its regionizer and the
             // physical section partitions of every level created afterwards share one region size.
-            final RegionLayout layout = RegionLayout.of(NeoForgeConfig.SERVER.regionThreadingMode.get(), NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.get());
+            final RegionLayout layout = RegionLayout.of(ForgiaConfig.SERVER.regionThreadingMode.get(), ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.get());
             // Entity worker ticks need region-owned entity storage: the ticks of the leased entities mutate
             // the level's entity storage, and only the region-owned guards let a worker run them while the
             // server thread keeps the shared vanilla maps. A dynamic layout cannot partition the storage, so
             // the entity slice stays on the server thread there.
             final RegionEntityStorageMode entityStorageMode = RegionEntityStorageMode.forConfiguration(
                     compatibility.entityTickWorkers(), layout);
-            final RegionThreadingEngine engine = new RegionThreadingEngine(NeoForgeConfig.SERVER.regionThreadingWorkerThreads.get(), NeoForgeConfig.SERVER.enableRegionThreadingWorkers.get(), NeoForgeConfig.SERVER.enableGlobalRegionThreadingWorker.get(), compatibility.entityTickWorkers(), NeoForgeConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(), NeoForgeConfig.SERVER.enableRegionThreadingScheduledTicks.get(), NeoForgeConfig.SERVER.enableRegionThreadingRandomTicks.get(), compatibility.spawnWorkers(), NeoForgeConfig.SERVER.enableRegionThreadingPersistentWorkers.get(), NeoForgeConfig.SERVER.enableRegionThreadingPackedRegionLeases.get(), layout, entityStorageMode);
+            final RegionThreadingEngine engine = new RegionThreadingEngine(ForgiaConfig.SERVER.regionThreadingWorkerThreads.get(), ForgiaConfig.SERVER.enableRegionThreadingWorkers.get(), ForgiaConfig.SERVER.enableGlobalRegionThreadingWorker.get(), compatibility.entityTickWorkers(), ForgiaConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(), ForgiaConfig.SERVER.enableRegionThreadingScheduledTicks.get(), ForgiaConfig.SERVER.enableRegionThreadingRandomTicks.get(), compatibility.spawnWorkers(), ForgiaConfig.SERVER.enableRegionThreadingPersistentWorkers.get(), ForgiaConfig.SERVER.enableRegionThreadingPackedRegionLeases.get(), layout, entityStorageMode);
             // The engine ships the vanilla declarations of the types whose own tick reaches a mutation the
             // lease does not own (a splitting slime, a discarding fishing hook); every other type ticks on
             // its region worker. The vanilla POI declarations are gone because the level's POI storage is

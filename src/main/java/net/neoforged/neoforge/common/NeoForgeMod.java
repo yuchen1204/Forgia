@@ -567,6 +567,7 @@ public class NeoForgeMod {
         NeoForge.EVENT_BUS.addListener(this::serverStopping);
         container.registerConfig(ModConfig.Type.CLIENT, NeoForgeConfig.clientSpec);
         container.registerConfig(ModConfig.Type.SERVER, NeoForgeConfig.serverSpec);
+        container.registerConfig(ModConfig.Type.SERVER, ForgiaConfig.SERVER_SPEC, ForgiaConfig.FILE_NAME);
         container.registerConfig(ModConfig.Type.COMMON, NeoForgeConfig.commonSpec);
         modEventBus.register(NeoForgeConfig.class);
         NeoForgeRegistriesSetup.setup(modEventBus);

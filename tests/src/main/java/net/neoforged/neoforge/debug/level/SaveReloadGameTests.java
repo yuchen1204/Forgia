@@ -44,7 +44,7 @@ import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.neoforged.neoforge.common.NeoForgeConfig;
+import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingDiagnostics;
@@ -376,7 +376,7 @@ public class SaveReloadGameTests {
                 : !"false".equalsIgnoreCase(configured.trim());
         if (!expectOn) {
             helper.assertTrue(engine.isEmpty(), "the reference run must not install the region threading bridge");
-            helper.assertFalse(NeoForgeConfig.SERVER.enableRegionThreadingPoi.get(),
+            helper.assertFalse(ForgiaConfig.SERVER.enableRegionThreadingPoi.get(),
                     "the reference run must not enable the regionized POI storage");
             return;
         }
@@ -386,7 +386,7 @@ public class SaveReloadGameTests {
                 && diagnostics.regionChunkSize() == REGION_CHUNK_SIZE,
                 "the save/reload test needs the fixed " + REGION_CHUNK_SIZE + "-chunk layout, got "
                         + diagnostics.regionPolicy() + "/" + diagnostics.regionChunkSize());
-        helper.assertTrue(NeoForgeConfig.SERVER.enableRegionThreadingPoi.get(),
+        helper.assertTrue(ForgiaConfig.SERVER.enableRegionThreadingPoi.get(),
                 "the save/reload test needs the regionized POI storage enabled");
         helper.assertTrue(diagnostics.entityTickWorkerExecutionEnabled(), "the save/reload test needs the entity tick slice");
         helper.assertTrue(diagnostics.chunkTickWorkerExecutionEnabled(), "the save/reload test needs the chunk tick slice");

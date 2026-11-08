@@ -13,7 +13,7 @@ import java.util.Map;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.common.NeoForgeConfig;
+import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.server.threading.RegionThreadingCompatReport;
 import net.neoforged.neoforge.server.threading.RegionThreadingCompatibility;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
@@ -72,7 +72,7 @@ final class RegionThreadingCommand {
     }
 
     private static void sendDiagnostics(CommandSourceStack source, RegionThreadingDiagnostics diagnostics) {
-        source.sendSuccess(() -> Component.literal("Region threading diagnostics: enabled=" + NeoForgeConfig.SERVER.enableRegionThreadingBridge.get()
+        source.sendSuccess(() -> Component.literal("Region threading diagnostics: enabled=" + ForgiaConfig.SERVER.enableRegionThreadingBridge.get()
                 + ", regions=" + diagnostics.regionCount()
                 + ", runningRegions=" + diagnostics.runningRegionCount()
                 + ", submittedRegions=" + diagnostics.submittedRegionCount()
@@ -95,7 +95,7 @@ final class RegionThreadingCommand {
                 + ", chunkTickWorkerDispatchEffective=" + diagnostics.chunkTickWorkerDispatchEffective()
                 + ", spawnWorkerExecutionRequested=" + diagnostics.spawnWorkerExecutionEnabled()
                 + ", spawnWorkerDispatchEffective=" + diagnostics.spawnWorkerDispatchEffective()
-                + ", borderUpdateEnabled=" + NeoForgeConfig.SERVER.enableRegionThreadingBorderUpdates.get()
+                + ", borderUpdateEnabled=" + ForgiaConfig.SERVER.enableRegionThreadingBorderUpdates.get()
                 + ", borderUpdates=" + diagnostics.borderUpdates()
                 + ", gameEvents=" + diagnostics.gameEvents()
                 + ", entityTicksOnWorkers=" + diagnostics.entityTicksOnWorkers()
@@ -158,7 +158,7 @@ final class RegionThreadingCommand {
                 + ", globalSubmitted=" + diagnostics.globalRegionSubmitted()
                 + ", rejectedWorkerTasks=" + diagnostics.rejectedWorkerTaskCount()
                 + ", failedQueuedTasks=" + diagnostics.failedQueuedTaskCount()
-                + ", ownershipViolations=" + NeoForgeConfig.SERVER.regionThreadingOwnershipViolationMode.get()
+                + ", ownershipViolations=" + ForgiaConfig.SERVER.regionThreadingOwnershipViolationMode.get()
                 + ", ownershipViolationCount=" + diagnostics.ownershipViolationCount()
                 + ", defaultModSupport=" + RegionThreadingCompatibility.defaultSupport()
                 + ", unsupportedMods=" + RegionThreadingCompatibility.unsupportedMods().size()
@@ -329,25 +329,25 @@ final class RegionThreadingCommand {
 
     private static void sendNotInstalled(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal("Region threading bridge is not installed: enabled="
-                + NeoForgeConfig.SERVER.enableRegionThreadingBridge.get()
-                + ", workerExecution=" + NeoForgeConfig.SERVER.enableRegionThreadingWorkers.get()
-                + ", globalWorkerExecution=" + NeoForgeConfig.SERVER.enableGlobalRegionThreadingWorker.get()
-                + ", entityTickWorkerExecution=" + NeoForgeConfig.SERVER.enableRegionThreadingEntityTicks.get()
-                + ", blockEntityTickWorkerExecution=" + NeoForgeConfig.SERVER.enableRegionThreadingBlockEntityTicks.get()
-                + ", scheduledTickWorkerExecutionRequested=" + NeoForgeConfig.SERVER.enableRegionThreadingScheduledTicks.get()
-                + ", chunkTickWorkerExecutionRequested=" + NeoForgeConfig.SERVER.enableRegionThreadingRandomTicks.get()
-                + ", spawnWorkerExecutionRequested=" + NeoForgeConfig.SERVER.enableRegionThreadingSpawning.get()
-                + ", borderUpdateEnabled=" + NeoForgeConfig.SERVER.enableRegionThreadingBorderUpdates.get()
-                + ", ownershipViolations=" + NeoForgeConfig.SERVER.regionThreadingOwnershipViolationMode.get()
+                + ForgiaConfig.SERVER.enableRegionThreadingBridge.get()
+                + ", workerExecution=" + ForgiaConfig.SERVER.enableRegionThreadingWorkers.get()
+                + ", globalWorkerExecution=" + ForgiaConfig.SERVER.enableGlobalRegionThreadingWorker.get()
+                + ", entityTickWorkerExecution=" + ForgiaConfig.SERVER.enableRegionThreadingEntityTicks.get()
+                + ", blockEntityTickWorkerExecution=" + ForgiaConfig.SERVER.enableRegionThreadingBlockEntityTicks.get()
+                + ", scheduledTickWorkerExecutionRequested=" + ForgiaConfig.SERVER.enableRegionThreadingScheduledTicks.get()
+                + ", chunkTickWorkerExecutionRequested=" + ForgiaConfig.SERVER.enableRegionThreadingRandomTicks.get()
+                + ", spawnWorkerExecutionRequested=" + ForgiaConfig.SERVER.enableRegionThreadingSpawning.get()
+                + ", borderUpdateEnabled=" + ForgiaConfig.SERVER.enableRegionThreadingBorderUpdates.get()
+                + ", ownershipViolations=" + ForgiaConfig.SERVER.regionThreadingOwnershipViolationMode.get()
                 + ", defaultModSupport=" + RegionThreadingCompatibility.defaultSupport()
                 + ", unsupportedMods=" + RegionThreadingCompatibility.unsupportedMods().size()
                 + ", requiredMods=" + RegionThreadingCompatibility.requiredMods().size()
                 + ", compatDeclarations=" + RegionThreadingCompatReport.declarationCount()
                 + ", compatConflicts=" + RegionThreadingCompatReport.conflictCount()
                 + ", compatLeftOffSlices=" + RegionThreadingCompatReport.state().plan().leftOffSlices()
-                + ", configuredWorkerThreads=" + NeoForgeConfig.SERVER.regionThreadingWorkerThreads.get()
-                + ", configuredRegionPolicy=" + NeoForgeConfig.SERVER.regionThreadingMode.get()
-                + ", configuredRegionChunkSize=" + NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.get()), false);
+                + ", configuredWorkerThreads=" + ForgiaConfig.SERVER.regionThreadingWorkerThreads.get()
+                + ", configuredRegionPolicy=" + ForgiaConfig.SERVER.regionThreadingMode.get()
+                + ", configuredRegionChunkSize=" + ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.get()), false);
         source.sendSuccess(() -> Component.literal(RegionMetricsReport.notInstalledLine()), false);
     }
 }

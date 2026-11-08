@@ -30,7 +30,7 @@ import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
-import net.neoforged.neoforge.common.NeoForgeConfig;
+import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
 import net.neoforged.neoforge.server.threading.ScheduledRegionTask;
 import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickPlan;
@@ -116,19 +116,19 @@ class RegionFixedPolicyTest {
 
     @Test
     void productionConfigDefaultsToFixedPolicy() {
-        assertEquals(RegionPolicy.FIXED_3X3, NeoForgeConfig.SERVER.regionThreadingMode.getDefault());
+        assertEquals(RegionPolicy.FIXED_3X3, ForgiaConfig.SERVER.regionThreadingMode.getDefault());
         assertEquals(RegionPolicy.FIXED_3X3, RegionLayout.of(RegionPolicy.FIXED_3X3).policy());
         assertEquals(RegionPolicy.DYNAMIC, RegionLayout.of(RegionPolicy.DYNAMIC).policy());
     }
 
     @Test
     void productionConfigDefaultsToTheSizeThreeFixedRegion() {
-        assertEquals(RegionLayout.FIXED_3X3_REGION_CHUNK_SIZE, NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.getDefault().intValue());
-        assertEquals(RegionLayout.MIN_FIXED_REGION_CHUNK_SIZE, NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.getDefault().intValue());
+        assertEquals(RegionLayout.FIXED_3X3_REGION_CHUNK_SIZE, ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.getDefault().intValue());
+        assertEquals(RegionLayout.MIN_FIXED_REGION_CHUNK_SIZE, ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.getDefault().intValue());
         // The production wiring builds one layout from the two config values and hands it to the engine.
         final RegionLayout configured = RegionLayout.of(
-                NeoForgeConfig.SERVER.regionThreadingMode.getDefault(),
-                NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.getDefault());
+                ForgiaConfig.SERVER.regionThreadingMode.getDefault(),
+                ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.getDefault());
         assertSame(RegionLayout.FIXED_3X3, configured);
         assertEquals(RegionLayout.FIXED_3X3_REGION_CHUNK_SIZE, configured.regionChunkSize());
     }
@@ -179,9 +179,9 @@ class RegionFixedPolicyTest {
     void fixedRegionChunkSizeIsClampedByTheConfigAndRejectedByTheLayout() {
         // An existing config file with an out-of-range value is clamped into 3..32 when the config loads.
         assertEquals(RegionLayout.MIN_FIXED_REGION_CHUNK_SIZE,
-                ((Integer) NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.getSpec().correct(RegionLayout.MIN_FIXED_REGION_CHUNK_SIZE - 1)).intValue());
+                ((Integer) ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.getSpec().correct(RegionLayout.MIN_FIXED_REGION_CHUNK_SIZE - 1)).intValue());
         assertEquals(RegionLayout.MAX_FIXED_REGION_CHUNK_SIZE,
-                ((Integer) NeoForgeConfig.SERVER.regionThreadingFixedRegionChunks.getSpec().correct(RegionLayout.MAX_FIXED_REGION_CHUNK_SIZE + 1)).intValue());
+                ((Integer) ForgiaConfig.SERVER.regionThreadingFixedRegionChunks.getSpec().correct(RegionLayout.MAX_FIXED_REGION_CHUNK_SIZE + 1)).intValue());
         // The layout constructor path rejects instead of clamping, so nothing can build an engine or
         // partition set with a size it did not ask for.
         assertThrows(IllegalArgumentException.class, () -> RegionLayout.fixed(RegionLayout.MIN_FIXED_REGION_CHUNK_SIZE - 1));

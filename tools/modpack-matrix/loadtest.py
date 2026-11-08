@@ -169,7 +169,7 @@ class Run:
             shutil.copy2(src, self.root / 'mods' / name)
         self.summary['mods'] = len(names)
         (self.root / 'mods-list.txt').write_text('\n'.join(names) + '\n')
-        cfg = self.root / 'config/neoforge-server.toml'
+        cfg = self.root / 'config/forgia.toml'
         cfg.parent.mkdir(exist_ok=True)
         enabled = 'false' if self.args.no_regions else 'true'
         switches = {key: enabled for key in ('enableRegionThreadingBridge','enableRegionThreadingWorkers',

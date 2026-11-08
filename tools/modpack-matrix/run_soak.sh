@@ -31,9 +31,9 @@ for entry in "$PACK"/*; do
     ln -s "$entry" "$RUNDIR/$base"
 done
 cp -a "$PACK/config/." "$RUNDIR/config/" 2>/dev/null
-# The pack's server config is a full generated file; a partial one is rejected and regenerated with defaults, so
-# patch the copied file in place and never replace it.
-CFG_FILE="$RUNDIR/config/neoforge-server.toml"
+# Configure Forgia independently; upstream NeoForge may normalize its own config during reference runs.
+CFG_FILE="$RUNDIR/config/forgia.toml"
+touch "$CFG_FILE"
 set_key() {
     if grep -q "^$1 = " "$CFG_FILE"; then
         sed -i -E "s|^$1 = .*|$1 = $2|" "$CFG_FILE"

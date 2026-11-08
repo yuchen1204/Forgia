@@ -358,7 +358,7 @@ regionThreadingOwnershipViolationMode = "WARN"
         group = "runs"
         description = "Writes the region threading config of the ${runName} run and, for a run that starts from a fresh world, deletes its world."
         def worldDirectory = layout.projectDirectory.dir("runs/${options.gameDirectory}/world").asFile
-        def configFile = layout.projectDirectory.file("runs/${options.gameDirectory}/config/neoforge-server.toml").asFile
+        def configFile = layout.projectDirectory.file("runs/${options.gameDirectory}/config/forgia.toml").asFile
         def configText = soakConfigText(options.regionThreading)
         def freshWorld = options.freshWorld
         doLast {

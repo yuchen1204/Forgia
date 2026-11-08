@@ -41,7 +41,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.entity.EntitySectionStorage;
 import net.minecraft.world.phys.AABB;
-import net.neoforged.neoforge.common.NeoForgeConfig;
+import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
@@ -536,11 +536,11 @@ public class RegionThreadingGameTests {
     private static Optional<RegionThreadingDiagnostics> workerDiagnostics(GameTestHelper helper) {
         final Optional<RegionThreadingDiagnostics> diagnostics = RegionThreadingHooks.diagnostics();
         if (diagnostics.isEmpty()) {
-            helper.assertFalse(NeoForgeConfig.SERVER.enableRegionThreadingBridge.get(),
+            helper.assertFalse(ForgiaConfig.SERVER.enableRegionThreadingBridge.get(),
                     "region threading bridge is enabled but its diagnostics are not installed");
-            helper.assertFalse(NeoForgeConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(),
+            helper.assertFalse(ForgiaConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(),
                     "block entity worker slice is enabled but the bridge did not install it");
-            helper.assertFalse(NeoForgeConfig.SERVER.enableRegionThreadingRandomTicks.get(),
+            helper.assertFalse(ForgiaConfig.SERVER.enableRegionThreadingRandomTicks.get(),
                     "random tick worker slice is enabled but the bridge did not install it");
         }
         return diagnostics;
@@ -647,9 +647,9 @@ public class RegionThreadingGameTests {
      */
     private static void assertSliceDisabled(GameTestHelper helper, boolean randomTickSlice, String sliceName) {
         if (randomTickSlice) {
-            helper.assertFalse(NeoForgeConfig.SERVER.enableRegionThreadingRandomTicks.get(), sliceName + " is enabled but its worker execution is disabled");
+            helper.assertFalse(ForgiaConfig.SERVER.enableRegionThreadingRandomTicks.get(), sliceName + " is enabled but its worker execution is disabled");
         } else {
-            helper.assertFalse(NeoForgeConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(), sliceName + " is enabled but its worker execution is disabled");
+            helper.assertFalse(ForgiaConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(), sliceName + " is enabled but its worker execution is disabled");
         }
     }
 
