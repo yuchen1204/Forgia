@@ -8,11 +8,14 @@ package net.neoforged.neoforge.unittest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -20,6 +23,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableList;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -37,6 +41,13 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.TickRateManager;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.Brain;
+import net.minecraft.world.entity.ai.behavior.MeleeAttack;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
+import net.minecraft.world.entity.ai.memory.NearestVisibleLivingEntities;
+import net.minecraft.world.entity.animal.Pufferfish;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -367,6 +378,294 @@ class RegionSelfDrivenEntityTickTest {
         assertEquals(1, this.engine.diagnostics().entityTickIndexFallbacks());
     }
 
+    @Test
+    void brainMeleeAttackDefersTheWholeVirtualCallBeforeForeignPufferfishPositionCallbacks() throws ReflectiveOperationException {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        this.engine.addRegionSection(level, 0, 0);
+        this.engine.addRegionSection(level, 3, 0);
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(47, 64, 1)));
+        final Pufferfish victim = this.entity(Pufferfish.class, level, new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final MinecraftServer server = level.getServer();
+        when(server.isSpawningAnimals()).thenReturn(true);
+        final Field position = Entity.class.getDeclaredField("position");
+        position.setAccessible(true);
+        position.set(victim, new net.minecraft.world.phys.Vec3(49, 64, 1));
+        final Field levelField = Entity.class.getDeclaredField("level");
+        levelField.setAccessible(true);
+        levelField.set(victim, level);
+        when(victim.isAddedToLevel()).thenReturn(true);
+        final LevelChunk loaded = mock(LevelChunk.class);
+        doReturn(loaded).when(level).getChunk(anyInt(), anyInt());
+        doCallRealMethod().when(victim).setPosRaw(anyDouble(), anyDouble(), anyDouble());
+        final Brain<Mob> brain = this.attackBrain(attacker, victim);
+        final List<String> effects = new CopyOnWriteArrayList<>();
+        final List<Thread> attackThreads = new CopyOnWriteArrayList<>();
+        final Thread serverThread = Thread.currentThread();
+        final java.util.concurrent.atomic.AtomicBoolean victimTickDone = new java.util.concurrent.atomic.AtomicBoolean();
+        doAnswer(call -> {
+            victimTickDone.set(true);
+            return null;
+        }).when(victim).tick();
+        doAnswer(call -> {
+            attackThreads.add(Thread.currentThread());
+            assertTrue(victimTickDone.get(), "all target worker ticks must finish before the attack");
+            effects.add("damage");
+            // The real patched operation reached by Pufferfish's death-pose/dimension refresh. It refuses a
+            // foreign worker before changing position; the server-thread continuation may perform it.
+            victim.setPosRaw(49, 64, 1);
+            effects.add("death-pose");
+            effects.add("mod-post-attack-and-drops");
+            return true;
+        }).when(attacker).doHurtTarget(victim);
+        doAnswer(call -> {
+            assertTrue(MeleeAttack.create(20).trigger(level, attacker, 0L));
+            assertTrue(brain.hasMemoryValue(MemoryModuleType.ATTACK_COOLING_DOWN));
+            assertEquals(List.of(), effects, "no target damage or mod override effect starts on the source worker");
+            return null;
+        }).when(attacker).tick();
+        this.tickList.addAll(List.of(attacker, victim));
+        this.plan(level).executeAndAwait();
+        assertEquals(List.of("damage", "death-pose", "mod-post-attack-and-drops"), effects);
+        assertEquals(List.of(serverThread), attackThreads);
+        verify(attacker, times(1)).tick();
+        verify(attacker, times(1)).doHurtTarget(victim);
+        assertEquals(1L, this.engine.meleeAttackCounters().queued());
+        assertEquals(1L, this.engine.meleeAttackCounters().applied());
+        assertEquals(0L, this.engine.meleeAttackCounters().failed());
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void brainMeleeAttackBetweenOwnedEntitiesKeepsTheInlineWorkerCall() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(2, 64, 1)));
+        this.attackBrain(attacker, victim);
+        final List<Thread> calls = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            calls.add(Thread.currentThread());
+            return true;
+        }).when(attacker).doHurtTarget(victim);
+        doAnswer(call -> {
+            assertTrue(MeleeAttack.create(20).trigger(level, attacker, 0L));
+            assertEquals(1, calls.size(), "same-lease attacks retain their synchronous outcome");
+            return null;
+        }).when(attacker).tick();
+        this.tickList.addAll(List.of(attacker, victim));
+        this.plan(level).executeAndAwait();
+        assertEquals(1, calls.size());
+        assertTrue(calls.get(0).getName().startsWith("NeoForge Region Worker"));
+        assertEquals(0L, this.engine.meleeAttackCounters().queued());
+    }
+
+    @Test
+    void sameRegionTargetOutsideTheTickGroupIsAlsoHandedOff() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(2, 64, 1)));
+        final List<Thread> calls = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            calls.add(Thread.currentThread());
+            return true;
+        }).when(attacker).doHurtTarget(victim);
+        doAnswer(call -> {
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            assertEquals(List.of(), calls);
+            return null;
+        }).when(attacker).tick();
+        this.tickList.add(attacker);
+        this.plan(level).executeAndAwait();
+        assertEquals(List.of(Thread.currentThread()), calls);
+        assertEquals(1L, this.engine.meleeAttackCounters().applied());
+    }
+
+    @Test
+    void anAttackWhoseTargetWasRemovedBeforeTheBarrierIsCountedAndNotReplayed() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final java.util.concurrent.atomic.AtomicBoolean removed = new java.util.concurrent.atomic.AtomicBoolean();
+        when(victim.isRemoved()).thenAnswer(call -> removed.get());
+        doAnswer(call -> {
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            removed.set(true);
+            return null;
+        }).when(attacker).tick();
+        this.tickList.add(attacker);
+        this.plan(level).executeAndAwait();
+        verify(attacker, never()).doHurtTarget(victim);
+        verify(attacker, times(1)).tick();
+        assertEquals(1L, this.engine.meleeAttackCounters().queued());
+        assertEquals(1L, this.engine.meleeAttackCounters().skipped());
+        assertEquals(0L, this.engine.meleeAttackCounters().applied());
+    }
+
+    @Test
+    void meleeAttackHookLeavesServerThreadCallersOnTheOriginalPath() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = mock(Mob.class);
+        final Entity target = this.entity(level, new BlockPos(1, 64, 1));
+        assertFalse(RegionThreadingHooks.deferMeleeAttack(attacker, target));
+        verify(attacker, never()).doHurtTarget(target);
+        assertEquals(0L, this.engine.meleeAttackCounters().queued());
+    }
+
+    @Test
+    void bothVanillaGoalAttackPathsHandOffTheVirtualCall() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final net.minecraft.world.entity.PathfinderMob goalAttacker = this.entity(net.minecraft.world.entity.PathfinderMob.class,
+                level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final Mob catAttacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(2, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final List<Thread> attacks = new CopyOnWriteArrayList<>();
+        for (final Mob attacker : List.of(goalAttacker, catAttacker)) {
+            doAnswer(call -> {
+                attacks.add(Thread.currentThread());
+                return true;
+            }).when(attacker).doHurtTarget(victim);
+        }
+        final var goal = new net.minecraft.world.entity.ai.goal.MeleeAttackGoal(goalAttacker, 1.0, false) {
+            @Override
+            protected boolean canPerformAttack(LivingEntity target) {
+                return true;
+            }
+
+            void attack() {
+                this.checkAndPerformAttack(victim);
+            }
+        };
+        when(catAttacker.getTarget()).thenReturn(victim);
+        when(catAttacker.getLookControl()).thenReturn(mock(net.minecraft.world.entity.ai.control.LookControl.class));
+        when(catAttacker.getNavigation()).thenReturn(mock(net.minecraft.world.entity.ai.navigation.PathNavigation.class));
+        final var catGoal = new net.minecraft.world.entity.ai.goal.OcelotAttackGoal(catAttacker);
+        assertTrue(catGoal.canUse());
+        doAnswer(call -> {
+            goal.attack();
+            return null;
+        }).when(goalAttacker).tick();
+        doAnswer(call -> {
+            catGoal.tick();
+            return null;
+        }).when(catAttacker).tick();
+        this.tickList.addAll(List.of(goalAttacker, catAttacker));
+        this.plan(level).executeAndAwait();
+        assertEquals(List.of(Thread.currentThread(), Thread.currentThread()), attacks);
+        assertEquals(2L, this.engine.meleeAttackCounters().queued());
+        assertEquals(2L, this.engine.meleeAttackCounters().applied());
+        verify(goalAttacker, times(1)).doHurtTarget(victim);
+        verify(catAttacker, times(1)).doHurtTarget(victim);
+    }
+
+    @Test
+    void queuedAttackToAPlayerRunsOnTheServerThread() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final Player player = this.entity(Player.class, level, new AtomicReference<>(new BlockPos(2, 64, 1)));
+        final List<Thread> threads = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            threads.add(Thread.currentThread());
+            return true;
+        }).when(attacker).doHurtTarget(player);
+        doAnswer(call -> {
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, player));
+            return null;
+        }).when(attacker).tick();
+        this.tickList.addAll(List.of(attacker, player));
+        this.plan(level).executeAndAwait();
+        assertEquals(List.of(Thread.currentThread()), threads);
+        assertEquals(1L, this.engine.meleeAttackCounters().applied());
+    }
+
+    @Test
+    void failedQueuedAttackIsReportedAfterTheOtherAcceptedAttackRuns() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final AtomicInteger calls = new AtomicInteger();
+        final IllegalStateException failure = new IllegalStateException("mod attack failed");
+        doAnswer(call -> {
+            if (calls.incrementAndGet() == 1) {
+                throw failure;
+            }
+            return false;
+        }).when(attacker).doHurtTarget(victim);
+        doAnswer(call -> {
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            return null;
+        }).when(attacker).tick();
+        this.tickList.add(attacker);
+        final net.minecraft.ReportedException reported = assertThrows(net.minecraft.ReportedException.class,
+                () -> this.plan(level).executeAndAwait());
+        assertEquals(failure, reported.getReport().getException());
+        assertEquals(2, calls.get());
+        assertEquals(2L, this.engine.meleeAttackCounters().queued());
+        assertEquals(1L, this.engine.meleeAttackCounters().failed());
+        assertEquals(1L, this.engine.meleeAttackCounters().applied(), "a false damage result is an executed attack, not a retry");
+        verify(attacker, times(1)).tick();
+    }
+
+    @Test
+    void anUnrelatedDeferredTaskFailureDoesNotSilentlyLoseAnAcceptedAttack() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final IllegalStateException failure = new IllegalStateException("unrelated task failed");
+        doAnswer(call -> {
+            assertTrue(this.engine.queueServerTaskInCurrentBatch(() -> {
+                throw failure;
+            }));
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            return null;
+        }).when(attacker).tick();
+        this.tickList.add(attacker);
+        assertEquals(failure, assertThrows(IllegalStateException.class, () -> this.plan(level).executeAndAwait()));
+        verify(attacker, times(1)).doHurtTarget(victim);
+        assertEquals(1L, this.engine.meleeAttackCounters().applied());
+    }
+
+    @Test
+    void targetChangingLevelsBeforeTheBarrierCancelsTheQueuedAttack() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity victim = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final AtomicReference<Level> targetLevel = new AtomicReference<>(level);
+        when(victim.level()).thenAnswer(call -> targetLevel.get());
+        final ServerLevel elsewhere = mock(ServerLevel.class);
+        doAnswer(call -> {
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            targetLevel.set(elsewhere);
+            return null;
+        }).when(attacker).tick();
+        this.tickList.add(attacker);
+        this.plan(level).executeAndAwait();
+        verify(attacker, never()).doHurtTarget(victim);
+        assertEquals(1L, this.engine.meleeAttackCounters().skipped());
+    }
+
+    private Brain<Mob> attackBrain(Mob attacker, LivingEntity victim) {
+        final Brain<Mob> brain = new Brain<>(List.of(MemoryModuleType.LOOK_TARGET, MemoryModuleType.ATTACK_TARGET,
+                MemoryModuleType.ATTACK_COOLING_DOWN, MemoryModuleType.NEAREST_VISIBLE_LIVING_ENTITIES),
+                List.of(), ImmutableList.of(), () -> null);
+        brain.setMemory(MemoryModuleType.ATTACK_TARGET, victim);
+        final NearestVisibleLivingEntities visible = mock(NearestVisibleLivingEntities.class);
+        when(visible.contains(victim)).thenReturn(true);
+        brain.setMemory(MemoryModuleType.NEAREST_VISIBLE_LIVING_ENTITIES, visible);
+        doReturn(brain).when(attacker).getBrain();
+        when(attacker.isWithinMeleeAttackRange(victim)).thenReturn(true);
+        return brain;
+    }
+
     private RegionEntityTickPlan plan(ServerLevel level) {
         final RegionEntityTickPlan plan = this.engine.beginEntityTickPlan(level, entity -> true, PARKING_BARRIER);
         assertNotNull(plan, "the entity tick worker slice must be enabled");
@@ -419,7 +718,11 @@ class RegionSelfDrivenEntityTickTest {
     }
 
     private Entity entity(ServerLevel level, AtomicReference<BlockPos> position) {
-        final Entity entity = mock(Entity.class);
+        return this.entity(Entity.class, level, position);
+    }
+
+    private <T extends Entity> T entity(Class<T> type, ServerLevel level, AtomicReference<BlockPos> position) {
+        final T entity = mock(type);
         when(entity.level()).thenReturn(level);
         when(entity.blockPosition()).thenAnswer(invocation -> position.get());
         when(entity.chunkPosition()).thenAnswer(invocation -> {

@@ -236,6 +236,8 @@ final class RegionThreadingCommand {
                     + " workerServerTasksApplied=" + engine.workerServerTasksApplied()
                     + " workerServerTasksDropped=" + engine.workerServerTasksDropped()
                     + " handedOffNeighborCascades=" + engine.handedOffNeighborCascades()), false);
+            source.sendSuccess(() -> Component.literal("Region melee attacks: " + engine.meleeAttackCounters()), false);
+            source.sendSuccess(() -> Component.literal("Region block entity fallback scope: " + engine.blockEntityFallbackScopeCounters()), false);
         }
         source.sendSuccess(() -> Component.literal(RegionEntityQueryCounters.summaryLine(diagnostics.entityQueryPaths())
                 + " playerSnapshots=" + diagnostics.playerSnapshotsPublished()), false);

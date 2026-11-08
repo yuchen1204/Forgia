@@ -534,8 +534,20 @@ final class RegionEntityTickBatch extends RegionTickBatch {
             pending = new ArrayList<>(this.deferredServerTasks);
             this.deferredServerTasks.clear();
         }
+        Throwable failure = null;
         for (final Runnable task : pending) {
-            task.run();
+            try {
+                task.run();
+            } catch (Throwable throwable) {
+                if (failure == null) {
+                    failure = throwable;
+                } else if (failure != throwable) {
+                    failure.addSuppressed(throwable);
+                }
+            }
+        }
+        if (failure != null) {
+            net.minecraft.Util.throwAsRuntime(failure);
         }
     }
 

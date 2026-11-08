@@ -21,7 +21,7 @@
              profilerfiller.incrementCounter("getChunkCacheMiss");
              CompletableFuture<ChunkResult<ChunkAccess>> completablefuture = this.getChunkFutureMainThread(p_8360_, p_8361_, p_330876_, p_8363_);
              this.mainThreadProcessor.managedBlock(completablefuture::isDone);
-@@ -164,6 +_,43 @@
+@@ -164,10 +_,53 @@
          }
      }
  
@@ -65,7 +65,6 @@
      @Nullable
      @Override
      public LevelChunk getChunkNow(int p_8357_, int p_8358_) {
-@@ -170,4 +_,10 @@
          if (Thread.currentThread() != this.mainThread) {
 +            // Neo: pathfinding builds its terrain view through this non-loading lookup. Native region
 +            // workers must see loaded terrain instead of the empty chunks implied by a null answer.

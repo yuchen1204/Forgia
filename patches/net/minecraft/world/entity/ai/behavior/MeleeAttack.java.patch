@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/ai/behavior/MeleeAttack.java
++++ b/net/minecraft/world/entity/ai/behavior/MeleeAttack.java
+@@ -30,6 +_,11 @@
+                                     && p_258526_.<NearestVisibleLivingEntities>get(p_258532_).contains(livingentity)) {
+                                     p_258529_.set(new EntityTracker(livingentity, true));
+                                     p_258540_.swing(InteractionHand.MAIN_HAND);
++                                    // Keep the virtual attack (including mod overrides) together at the barrier.
++                                    if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.deferMeleeAttack(p_258540_, livingentity)) {
++                                        p_258531_.setWithExpiry(true, (long)p_259758_);
++                                        return true;
++                                    }
+                                     p_258540_.doHurtTarget(livingentity);
+                                     p_258531_.setWithExpiry(true, (long)p_259758_);
+                                     return true;

@@ -1,0 +1,10 @@
+--- a/net/minecraft/world/entity/ai/goal/OcelotAttackGoal.java
++++ b/net/minecraft/world/entity/ai/goal/OcelotAttackGoal.java
+@@ -62,6 +_,7 @@
+         if (!(d1 > d0)) {
+             if (this.attackTime <= 0) {
+                 this.attackTime = 20;
++                if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.deferMeleeAttack(this.mob, this.target)) return;
+                 this.mob.doHurtTarget(this.target);
+             }
+         }

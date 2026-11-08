@@ -43,9 +43,11 @@ import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.TickRateManager;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
 import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionCoordinate;
@@ -947,6 +949,252 @@ class RegionBlockEntityTickTest {
         assertNull(batchFailure.get(), () -> "batch failed: " + batchFailure.get());
         assertNull(unloadFailure.get(), () -> "unload failed: " + unloadFailure.get());
         verify(ticker, times(1)).tick();
+    }
+
+    @Test
+    void fallbackPhaseReusesEachLeaseAndPreservesChunkAndNestedCallbackOrder() {
+        this.installEngine(true);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        final Thread serverThread = Thread.currentThread();
+        final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenAnswer(call -> Thread.currentThread() == serverThread);
+        doReturn(server).when(level).getServer();
+        final List<Integer> executed = new CopyOnWriteArrayList<>();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        for (int i = 0; i < 256; ++i) {
+            final int index = i;
+            final BlockPos position = new BlockPos(i < 128 ? 8 : 300, 64, 8);
+            final TickingBlockEntity ticker = mockTicker(position, "example:unclassified_machine");
+            doAnswer(call -> {
+                assertEquals(serverThread, Thread.currentThread());
+                RegionThreadingHooks.runBlockTickTask(level, position, () -> {
+                    assertTrue(this.engine.isOwnedByCurrentRegion(level, position));
+                    executed.add(index);
+                    final var context = this.engine.currentContext();
+                    RegionThreadingHooks.runBlockTickTask(level, position, () -> {
+                        assertSame(context, this.engine.currentContext(), "same-region nested work retains its context and neighbor collector");
+                        executed.add(-index - 1);
+                    });
+                });
+                return null;
+            }).when(ticker).tick();
+            plan.accept(ticker);
+        }
+        plan.executeAndAwait();
+        final List<Integer> expected = new ArrayList<>();
+        for (int i = 0; i < 256; ++i) {
+            expected.add(i);
+            expected.add(-i - 1);
+        }
+        assertEquals(expected, executed);
+        final var counters = this.engine.blockEntityFallbackScopeCounters();
+        assertEquals(1L, counters.phases());
+        assertEquals(2L, counters.leases(), "256 tickers in two regions need only two leases");
+        assertEquals(counters.leases(), counters.releases());
+        assertEquals(512L, counters.callbacks());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        assertEquals(0L, this.engine.diagnostics().blockEntityTicksOnWorkers(), "admission policy must not widen");
+    }
+
+    @Test
+    void fallbackPhaseReleasesItsLeasesAndScopeAfterATickerThrows() {
+        this.installEngine(true);
+        final ServerLevel level = mockLevel();
+        final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenReturn(true);
+        doReturn(server).when(level).getServer();
+        final BlockPos pos = new BlockPos(8, 64, 8);
+        final TickingBlockEntity ticker = mockTicker(pos, "example:unclassified_machine");
+        final IllegalStateException failure = new IllegalStateException("ticker failed");
+        doAnswer(call -> {
+            RegionThreadingHooks.runBlockTickTask(level, pos, () -> {
+                throw failure;
+            });
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        plan.accept(ticker);
+        assertEquals(failure, assertThrows(IllegalStateException.class, plan::executeAndAwait));
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        assertEquals(1L, this.engine.blockEntityFallbackScopeCounters().releases());
+        final long callbacks = this.engine.blockEntityFallbackScopeCounters().callbacks();
+        RegionThreadingHooks.runBlockTickTask(level, pos, () -> {});
+        assertEquals(callbacks, this.engine.blockEntityFallbackScopeCounters().callbacks(), "the scope must not leak past failure");
+    }
+
+    @Test
+    void fallbackScopeIsRefusedWhenTheCallerIsNotTheServerThread() {
+        this.installEngine(true);
+        final ServerLevel level = mockLevel();
+        final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenReturn(false);
+        doReturn(server).when(level).getServer();
+        final BlockPos pos = new BlockPos(8, 64, 8);
+        final TickingBlockEntity ticker = mockTicker(pos, "example:unclassified_machine");
+        final AtomicInteger ran = new AtomicInteger();
+        doAnswer(call -> {
+            RegionThreadingHooks.runBlockTickTask(level, pos, ran::incrementAndGet);
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        plan.accept(ticker);
+        plan.executeAndAwait();
+        assertEquals(1, ran.get());
+        assertEquals(0L, this.engine.blockEntityFallbackScopeCounters().phases());
+        assertEquals(1L, this.engine.blockEntityFallbackScopeCounters().refused());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void quiescentFallbackAppliesCrossRegionUpdatesInlineInsteadOfRecordingAFixpoint() {
+        this.installEngine(true);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenReturn(true);
+        doReturn(server).when(level).getServer();
+        final BlockPos own = new BlockPos(8, 64, 8);
+        final BlockPos foreign = new BlockPos(300, 64, 8);
+        final Block block = mock(Block.class);
+        final AtomicInteger written = new AtomicInteger();
+        final TickingBlockEntity ticker = mockTicker(own, "example:unclassified_machine");
+        doAnswer(call -> {
+            RegionThreadingHooks.runBlockTickTask(level, own, () -> {
+                assertFalse(RegionThreadingHooks.deferBorderNeighborUpdate(level, foreign, block, own, false),
+                        "a quiescent server-thread update should execute inline");
+                this.engine.runInBlockRegion(level, foreign, written::incrementAndGet);
+                assertEquals(1, written.get(), "the caller sees cross-region side effects immediately");
+            });
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        plan.accept(ticker);
+        plan.executeAndAwait();
+        assertEquals(0L, this.engine.diagnostics().borderUpdates().recorded());
+        assertEquals(2L, this.engine.blockEntityFallbackScopeCounters().leases());
+        assertEquals(2L, this.engine.blockEntityFallbackScopeCounters().releases());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void fallbackScopeIsRefusedWhileAnotherLevelsWorkerBatchIsInFlight() throws InterruptedException {
+        this.installEngine(true);
+        final ServerLevel workerLevel = mockLevel();
+        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        final TickingBlockEntity workerTicker = mockTicker(new BlockPos(17, 64, 17));
+        doAnswer(call -> {
+            entered.countDown();
+            awaitOrFail(release, "the held worker was not released");
+            return null;
+        }).when(workerTicker).tick();
+        final RegionBlockEntityTickPlan workerPlan = this.plan(workerLevel);
+        workerPlan.accept(workerTicker);
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final Thread otherBatch = new Thread(() -> {
+            try {
+                workerPlan.executeAndAwait();
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            }
+        }, "other-level-batch");
+        otherBatch.start();
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            final ServerLevel fallbackLevel = mockLevel();
+            final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+            when(server.isSameThread()).thenReturn(true);
+            doReturn(server).when(fallbackLevel).getServer();
+            final TickingBlockEntity ticker = mockTicker(new BlockPos(8, 64, 8), "example:unclassified_machine");
+            final AtomicInteger ran = new AtomicInteger();
+            doAnswer(call -> {
+                RegionThreadingHooks.runBlockTickTask(fallbackLevel, ticker.getPos(), ran::incrementAndGet);
+                return null;
+            }).when(ticker).tick();
+            final RegionBlockEntityTickPlan plan = this.plan(fallbackLevel);
+            plan.accept(ticker);
+            plan.executeAndAwait();
+            assertEquals(1, ran.get());
+            assertEquals(0L, this.engine.blockEntityFallbackScopeCounters().phases());
+            assertEquals(1L, this.engine.blockEntityFallbackScopeCounters().refused());
+        } finally {
+            release.countDown();
+            otherBatch.join(10_000L);
+        }
+        assertFalse(otherBatch.isAlive());
+        assertNull(failure.get(), () -> "the other level batch failed: " + failure.get());
+    }
+
+    @Test
+    void fallbackScopeIsRefusedInsideAnExistingRegionContext() {
+        this.installEngine(true);
+        final ServerLevel level = mockLevel();
+        final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenReturn(true);
+        doReturn(server).when(level).getServer();
+        final BlockPos pos = new BlockPos(8, 64, 8);
+        final TickingBlockEntity ticker = mockTicker(pos, "example:unclassified_machine");
+        final AtomicInteger ran = new AtomicInteger();
+        doAnswer(call -> {
+            RegionThreadingHooks.runBlockTickTask(level, pos, ran::incrementAndGet);
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        plan.accept(ticker);
+        this.engine.runInBlockRegion(level, pos, plan::executeAndAwait);
+        assertEquals(1, ran.get());
+        assertEquals(0L, this.engine.blockEntityFallbackScopeCounters().phases());
+        assertEquals(1L, this.engine.blockEntityFallbackScopeCounters().refused());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void busyRegionOutsideAPublishedBatchKeepsTheFallbackCallbackQueued() throws InterruptedException {
+        this.installEngine(true);
+        final ServerLevel level = mockLevel();
+        final Thread main = Thread.currentThread();
+        final net.minecraft.server.MinecraftServer server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenAnswer(call -> Thread.currentThread() == main);
+        doReturn(server).when(level).getServer();
+        final BlockPos pos = new BlockPos(8, 64, 8);
+        final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final Thread holder = new Thread(() -> {
+            try {
+                this.engine.runInBlockRegion(level, pos, () -> {
+                    entered.countDown();
+                    awaitOrFail(release, "the busy region holder was not released");
+                });
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            }
+        }, "manual-region-holder");
+        holder.start();
+        final AtomicInteger ran = new AtomicInteger();
+        try {
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            final TickingBlockEntity ticker = mockTicker(pos, "example:unclassified_machine");
+            doAnswer(call -> {
+                RegionThreadingHooks.runBlockTickTask(level, pos, ran::incrementAndGet);
+                return null;
+            }).when(ticker).tick();
+            final RegionBlockEntityTickPlan plan = this.plan(level);
+            plan.accept(ticker);
+            plan.executeAndAwait();
+            assertEquals(0, ran.get(), "an occupied region must never be accessed inline without its lease");
+            assertEquals(0L, this.engine.blockEntityFallbackScopeCounters().phases());
+            assertEquals(1L, this.engine.blockEntityFallbackScopeCounters().refused());
+            assertEquals(0L, this.engine.blockEntityFallbackScopeCounters().leases());
+        } finally {
+            release.countDown();
+            holder.join(10_000L);
+        }
+        assertFalse(holder.isAlive());
+        assertNull(failure.get(), () -> "region holder failed: " + failure.get());
+        this.engine.drainRegionTasks(level, pos);
+        assertEquals(1, ran.get(), "the queued fallback must run once after the owner releases the region");
     }
 
     private void installEngine(boolean blockEntityTickWorkers) {

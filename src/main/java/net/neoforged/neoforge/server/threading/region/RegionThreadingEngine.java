@@ -45,6 +45,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.level.ChunkPos;
@@ -278,6 +279,18 @@ public final class RegionThreadingEngine implements RegionThreading {
      * load. A chunk at the edge of the loaded area is the common reason, and vanilla would have loaded it inline.
      */
     private final AtomicLong handedOffNeighborCascades = new AtomicLong();
+    private final AtomicLong deferredMeleeAttacks = new AtomicLong();
+    private final AtomicLong appliedMeleeAttacks = new AtomicLong();
+    private final AtomicLong skippedMeleeAttacks = new AtomicLong();
+    private final AtomicLong failedMeleeAttacks = new AtomicLong();
+
+    public record MeleeAttackCounters(long queued, long applied, long skipped, long failed) {}
+
+    public MeleeAttackCounters meleeAttackCounters() {
+        return new MeleeAttackCounters(this.deferredMeleeAttacks.get(), this.appliedMeleeAttacks.get(),
+                this.skippedMeleeAttacks.get(), this.failedMeleeAttacks.get());
+    }
+
     /*
      * The mailbox counters belong to the engine, not to one mailbox: a mailbox dies with its level, and the
      * messages it dropped on the close have to stay observable in the diagnostics after that.
@@ -385,6 +398,37 @@ public final class RegionThreadingEngine implements RegionThreading {
      * {@link #beginBlockEventPhase(ServerLevel)}.
      */
     private final ThreadLocal<BlockEventPhase> blockEventPhase = new ThreadLocal<>();
+    /** Server-thread fallback after this batch's groups have returned; unrelated active batches forbid it. */
+    private final ThreadLocal<BlockEntityFallbackPhase> blockEntityFallbackPhase = new ThreadLocal<>();
+    private final AtomicLong blockEntityFallbackPhases = new AtomicLong();
+    private final AtomicLong blockEntityFallbackLeases = new AtomicLong();
+    private final AtomicLong blockEntityFallbackReleases = new AtomicLong();
+    private final AtomicLong blockEntityFallbackCallbacks = new AtomicLong();
+    private volatile boolean blockEntityFallbackScopeEnabled = true;
+    private final AtomicLong blockEntityFallbackScopeRefusals = new AtomicLong();
+
+    @ApiStatus.Internal
+    public void setBlockEntityFallbackScopeEnabledForTesting(boolean enabled) {
+        this.blockEntityFallbackScopeEnabled = enabled;
+    }
+
+    /** Work stays in its collected order; the scope retains only leases, never reorders tickers by region. */
+    private static final class BlockEntityFallbackPhase {
+        private final ServerLevel level;
+        private final Map<RegionCoordinate, RegionState> leases = new LinkedHashMap<>();
+
+        private BlockEntityFallbackPhase(ServerLevel level) {
+            this.level = level;
+        }
+    }
+
+    public record BlockEntityFallbackScopeCounters(long phases, long leases, long releases, long callbacks, long refused) {}
+
+    public BlockEntityFallbackScopeCounters blockEntityFallbackScopeCounters() {
+        return new BlockEntityFallbackScopeCounters(this.blockEntityFallbackPhases.get(), this.blockEntityFallbackLeases.get(),
+                this.blockEntityFallbackReleases.get(), this.blockEntityFallbackCallbacks.get(), this.blockEntityFallbackScopeRefusals.get());
+    }
+
     /** Block entity reads a region group made against a quiescent foreign region. */
     private final AtomicLong foreignBlockEntityReads = new AtomicLong();
     /**
@@ -1802,6 +1846,9 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
         // A quiescent block event phase captures nothing, so it never needs a fixpoint. Counting an entry here
         // keeps that invariant observable: a phase that reports a fixpoint is a phase that captured something.
+        if (this.blockEntityFallbackPhase.get() != null) {
+            return;
+        }
         if (this.blockEventPhase.get() != null) {
             this.blockEventPhaseFixpoints.incrementAndGet();
         }
@@ -2600,6 +2647,51 @@ public final class RegionThreadingEngine implements RegionThreading {
      * @return {@code true} when the task was queued, {@code false} when the current thread is not a worker task
      *         of a live batch, so the caller has to keep its own behaviour
      */
+    /**
+     * Queues the attacker's entire virtual attack call when the target is not a member of this worker's lease.
+     * <p>
+     * AI can retain a target after it walks across a border. Queries being region-scoped does not invalidate that
+     * reference. Hurt may trigger pose/dimension changes, death, drops and knockback, so moving only setPosRaw
+     * or retrying the attacker tick after a failure would already be too late. No target side effect starts here.
+     * The target's live state is resolved when the barrier invokes the attack, later in this same entity slice;
+     * weapons/target health can therefore differ from the worker's selection-time state. Caller cooldowns remain
+     * in the worker tick. No synchronous boolean damage result is promised by this admission API.
+     */
+    public boolean deferMeleeAttack(Mob attacker, Entity target) {
+        if (!RegionWorkerScope.isNativeWorkerThread()) {
+            return false;
+        }
+        final RegionEntityTickBatch.Group group = this.currentEntityTickGroup();
+        if (group == null || attacker.level() != group.level() || !group.owns(attacker)) {
+            RegionOwnershipViolationHandler.rejectNativeWorkerStorageAccess("melee attack outside the attacker's entity lease");
+            return false;
+        }
+        if (target.level() == group.level() && group.owns(target)
+                && !(target instanceof net.minecraft.world.entity.player.Player)) {
+            return false;
+        }
+        final ServerLevel level = group.level();
+        final RegionCoordinate coordinate = group.region().coordinate();
+        group.batch().queueServerTask(() -> {
+            if (this.shutdown || this.regionizer.isLevelClosed(level) || attacker.isRemoved() || target.isRemoved()
+                    || attacker.level() != level || target.level() != level) {
+                this.skippedMeleeAttacks.incrementAndGet();
+                return;
+            }
+            try {
+                attacker.doHurtTarget(target);
+                this.appliedMeleeAttacks.incrementAndGet();
+            } catch (Throwable failure) {
+                // Keep draining other accepted attacks, then report the real failure through the batch's normal
+                // failure path. Never replay the source tick or quietly drop remaining queued attacks.
+                this.failedMeleeAttacks.incrementAndGet();
+                this.recordWorkerTickFailure(group.batch(), coordinate, attacker, failure);
+            }
+        });
+        this.deferredMeleeAttacks.incrementAndGet();
+        return true;
+    }
+
     /**
      * Queues a task for the server thread when the current native worker is inside an entity batch, or when it is
      * inside another region phase such as spawning, chunk ticking or block-entity ticking.
@@ -3784,7 +3876,7 @@ public final class RegionThreadingEngine implements RegionThreading {
      * queue a second block event vanilla never queues.
      */
     private boolean capturesBorderUpdate(ServerLevel level, BlockPos pos) {
-        if (!this.borderUpdatesEnabled || this.blockEventPhase.get() != null) {
+        if (!this.borderUpdatesEnabled || this.blockEventPhase.get() != null || this.blockEntityFallbackPhase.get() != null) {
             return false;
         }
         final RegionThreadingContext context = this.currentContext();
@@ -5606,13 +5698,112 @@ public final class RegionThreadingEngine implements RegionThreading {
      * the worker ticked it, and the tickers a worker handed back, on the server thread after the batch.
      */
     private void tickFallbackBlockEntities(RegionBlockEntityTickBatch batch) {
+        if (batch.fallbackChunks().isEmpty() && batch.fallbackTickers().isEmpty()) {
+            return;
+        }
         final ServerLevel level = batch.level();
-        for (final RegionBlockEntityTickChunk chunk : batch.fallbackChunks()) {
-            this.tickBlockEntityChunkInline(level, chunk);
+        final BlockEntityFallbackPhase phase = this.openBlockEntityFallbackPhase(batch);
+        try {
+            for (final RegionBlockEntityTickChunk chunk : batch.fallbackChunks()) {
+                this.tickBlockEntityChunkInline(level, chunk);
+            }
+            for (final RegionBlockEntityTickAdmission ticker : batch.fallbackTickers()) {
+                this.tickBlockEntityInline(level, ticker.ticker());
+            }
+        } finally {
+            if (phase != null) {
+                this.blockEntityFallbackPhase.remove();
+                this.releaseBlockEntityFallbackPhase(phase);
+            }
         }
-        for (final RegionBlockEntityTickAdmission ticker : batch.fallbackTickers()) {
-            this.tickBlockEntityInline(level, ticker.ticker());
+    }
+
+    @Nullable
+    private BlockEntityFallbackPhase openBlockEntityFallbackPhase(RegionBlockEntityTickBatch batch) {
+        final MinecraftServer server = batch.level().getServer();
+        if (!this.blockEntityFallbackScopeEnabled || this.shutdown || server == null || !server.isSameThread() || RegionWorkerScope.isNativeWorkerThread()
+                || this.workerPool.isWorkerThread(Thread.currentThread()) || !batch.isExecutingOnCurrentThread()
+                || !batch.isGroupsComplete() || this.blockEntityFallbackPhase.get() != null || this.blockEventPhase.get() != null
+                || this.currentContext().kind() == RegionThreadingContext.Kind.REGION
+                || this.currentContext().kind() == RegionThreadingContext.Kind.GLOBAL_REGION) {
+            this.blockEntityFallbackScopeRefusals.incrementAndGet();
+            return null;
         }
+        for (final RegionTickBatch active : this.activeTickBatches) {
+            if (active != batch) {
+                this.blockEntityFallbackScopeRefusals.incrementAndGet();
+                return null;
+            }
+        }
+        final AtomicBoolean busy = new AtomicBoolean();
+        this.regionizer.forEach(region -> {
+            if (region.isRunning() || region.isWorkerSubmitted()) {
+                busy.set(true);
+            }
+        });
+        if (busy.get()) {
+            this.blockEntityFallbackScopeRefusals.incrementAndGet();
+            return null;
+        }
+        final BlockEntityFallbackPhase phase = new BlockEntityFallbackPhase(batch.level());
+        this.blockEntityFallbackPhase.set(phase);
+        this.blockEntityFallbackPhases.incrementAndGet();
+        return phase;
+    }
+
+    private void releaseBlockEntityFallbackPhase(BlockEntityFallbackPhase phase) {
+        final List<RegionState> leases = new ArrayList<>(phase.leases.values());
+        phase.leases.clear();
+        for (int index = leases.size() - 1; index >= 0; --index) {
+            final RegionState region = leases.get(index);
+            region.endOwnership();
+            region.clearRunning();
+            this.regionizer.removeIfEmpty(region);
+            this.blockEntityFallbackReleases.incrementAndGet();
+        }
+    }
+
+    private void runInBlockEntityFallbackPhase(BlockEntityFallbackPhase phase, BlockPos pos, Runnable task) {
+        final RegionCoordinate coordinate = this.layout.regionAt(phase.level, pos);
+        RegionState region = phase.leases.get(coordinate);
+        if (region == null) {
+            // The batch protects level lifetime, but a cleanup may already hold the lifecycle write gate while
+            // awaiting this batch. Never block on that gate from its server-thread completion.
+            if (this.shutdown) {
+                task.run();
+                return;
+            }
+            if (!this.acquireLifecycleReadLock(true)) {
+                this.enqueueRegionTask(phase.level, pos, task);
+                return;
+            }
+            try {
+                region = this.regionizer.getOrCreate(coordinate);
+                if (region != null && !region.isDead() && region.tryMarkRunning()) {
+                    region.beginOwnership();
+                    phase.leases.put(coordinate, region);
+                    this.blockEntityFallbackLeases.incrementAndGet();
+                } else {
+                    region = null;
+                }
+            } finally {
+                this.lifecycleGate.readLock().unlock();
+            }
+            if (region == null) {
+                // A manually drained or queued region task may own the region outside a published batch.
+                // Keep the original dispatch behavior: queue behind it, never run concurrently without a lease.
+                this.enqueueRegionTask(phase.level, pos, task);
+                return;
+            }
+        }
+        this.blockEntityFallbackCallbacks.incrementAndGet();
+        if (this.isOwnedByCurrentRegion(phase.level, pos)) {
+            // Same-region reentrancy must retain the current neighbor collector and its cascade budget.
+            task.run();
+            return;
+        }
+        this.runWithContext(new BasicRegionThreadingContext(RegionThreadingContext.Kind.REGION,
+                phase.level, coordinate, region, null), task);
     }
 
     /** Ticks the tickers of one chunk on the server thread, in their collected order. */
@@ -6806,6 +6997,11 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     @ApiStatus.Internal
     public void runInBlockRegion(ServerLevel level, BlockPos pos, Runnable task) {
+        final BlockEntityFallbackPhase fallback = this.blockEntityFallbackPhase.get();
+        if (fallback != null && fallback.level == level) {
+            this.runInBlockEntityFallbackPhase(fallback, pos, task);
+            return;
+        }
         final BlockEventPhase phase = this.blockEventPhase.get();
         if (phase != null && phase.level == level) {
             this.runInBlockEventPhase(phase, level, pos, task);

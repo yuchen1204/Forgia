@@ -44,3 +44,11 @@
                  if (d0 > 1024.0) {
                      this.ticksUntilNextPathRecalculation += 10;
                  } else if (d0 > 256.0) {
+@@ -128,6 +_,7 @@
+         if (this.canPerformAttack(p_25557_)) {
+             this.resetAttackCooldown();
+             this.mob.swing(InteractionHand.MAIN_HAND);
++            if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.deferMeleeAttack(this.mob, p_25557_)) return;
+             this.mob.doHurtTarget(p_25557_);
+         }
+     }

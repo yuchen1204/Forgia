@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import net.minecraft.world.level.entity.EntityInLevelCallback;
 import net.minecraft.world.level.entity.EntityTypeTest;
@@ -272,6 +273,26 @@ public final class RegionThreadingHooks {
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * Records a melee attack for the current entity batch when its target is not owned by this worker.
+     * The caller keeps its attack cooldown/swing and skips only the original doHurtTarget invocation when true.
+     * The server thread invokes the attacker's virtual method once after the workers finish, including mod
+     * overrides, damage, knockback, death callbacks and post-attack effects. A false return keeps the original
+     * call for server-thread callers or pairs owned by the current lease. This is an acceptance signal, not the
+     * result of the target's hurt method. It must be called before doHurtTarget, never after catching an error.
+     */
+    public static boolean deferMeleeAttack(Mob attacker, Entity target) {
+        if (!RegionWorkerScope.isNativeWorkerThread()) {
+            return false;
+        }
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        if (threading instanceof RegionThreadingEngine engine) {
+            return engine.deferMeleeAttack(attacker, target);
+        }
+        RegionOwnershipViolationHandler.rejectNativeWorkerStorageAccess("melee attack without an entity batch");
         return false;
     }
 
