@@ -126,16 +126,11 @@ import java.util.Map;
  * revalidated and ticked on the server thread instead of from the stale snapshot. The first three counters
  * therefore measure work the plan avoided, and the last one measures the safety net.
  * <p>
- * The three chunk counters report the entity and block-entity ticks that did not run on a worker because a
- * chunk they need was not available. A guard refusal counts one chunk request that a native region worker
- * refused instead of blocking on the server chunk source
- * ({@link RegionWorkerChunkUnavailableException}); the same request is counted once, so a refusal is never
- * double counted per entity or ticker. A chunk fallback entity tick counts one entity that a worker handed
- * to the server-thread fallback after such a refusal; it is ticked there exactly once. A pre-load refusal
- * counts one entity that was never submitted to a worker because its own chunk neighborhood was not
- * loaded inside the pre-load margin. The counters therefore separate the ticks that never left the server
- * thread (pre-load refusal) from the ticks that were attempted on a worker and completed on the server
- * thread (chunk fallback), and the guard refusals count the chunk requests behind the latter.
+ * Chunk guard refusals count requests which cannot be served immediately to a native worker. A pre-load
+ * refusal counts an entity kept off a worker before its tick because its chunk neighborhood is not loaded.
+ * The legacy {@code chunkFallbackEntityTicks} accessor remains for diagnostics compatibility and now stays
+ * zero: an already-started tick is never restarted after a chunk refusal. Such failures use the normal
+ * worker tick failure counters and server-thread report. A refused request is not a completed continuation.
  * <p>
  * {@link #regionizerWriteLockAcquisitions()} counts the write-lock acquisitions of the regionizer, so the
  * publication scope of one entity batch barrier is observable: a barrier that publishes its deferred

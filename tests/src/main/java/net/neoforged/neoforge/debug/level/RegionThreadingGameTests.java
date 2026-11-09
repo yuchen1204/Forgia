@@ -82,6 +82,67 @@ public class RegionThreadingGameTests {
     /** Distance between the evidence areas of the individual tests, larger than a dynamic 16x16 region. */
     private static final int EVIDENCE_AREA_SPACING = 512;
 
+    @GameTest(batch = "regionChunkOwnerOperation", timeoutTicks = 200)
+    @EmptyTemplate
+    @TestHolder(description = "Loads a real distant chunk for one owner operation and releases nested retention tickets")
+    static void chunkBackedOwnerOperation(final DynamicTest test) {
+        test.onGameTest(helper -> {
+            final ServerLevel level = helper.getLevel();
+            // Isolated scheduler state: do not replace the server's installed bridge or its tick configuration.
+            final var engine = new net.neoforged.neoforge.server.threading.region.RegionThreadingEngine(1, false, false);
+            final ItemEntity owner = new ItemEntity(level, 0, 100, 0, new ItemStack(Items.STONE));
+            final BlockPos destination = new BlockPos(640000, 100, -640000);
+            final ChunkPos chunkPos = new ChunkPos(destination);
+            final AtomicInteger callbacks = new AtomicInteger();
+            try {
+                helper.assertTrue(level.getChunkSource().getChunkNow(chunkPos.x, chunkPos.z) == null,
+                        "the evidence chunk must start unloaded in the fresh test world");
+                final var outer = engine.entityInteractions().submitToOwnerAfterChunkLoad(owner, owner, destination, (currentOwner, loaded) -> {
+                    helper.assertTrue(level.getServer().isSameThread(), "real chunk completion must execute on the server thread");
+                    helper.assertTrue(loaded.getPos().equals(chunkPos), "the requested chunk must be loaded before the callback");
+                    helper.assertTrue(ownerOperationTickets(level, chunkPos) == 1, "outer operation must retain exactly one ticket");
+                    final var inner = engine.entityInteractions().submitToOwnerAfterChunkLoad(owner, owner, destination, (nestedOwner, sameChunk) -> {
+                        helper.assertTrue(sameChunk == loaded && nestedOwner == owner, "nested loading must preserve world and owner identity");
+                        helper.assertTrue(ownerOperationTickets(level, chunkPos) == 2, "nested operations must use independent ticket keys");
+                        callbacks.incrementAndGet();
+                    });
+                    helper.assertTrue(inner.state() == net.neoforged.neoforge.server.threading.EntityInteractionTask.State.COMPLETED,
+                            "nested operation must complete exactly once");
+                    helper.assertTrue(ownerOperationTickets(level, chunkPos) == 1, "inner cleanup must leave the outer ticket alive");
+                    callbacks.incrementAndGet();
+                });
+                helper.assertTrue(outer.state() == net.neoforged.neoforge.server.threading.EntityInteractionTask.State.COMPLETED,
+                        "real chunk owner operation must complete");
+                helper.assertTrue(callbacks.get() == 2 && ownerOperationTickets(level, chunkPos) == 0,
+                        "both callbacks must run once and all operation tickets must be released");
+            } finally {
+                engine.shutdown();
+                owner.discard();
+            }
+            helper.succeed();
+        });
+    }
+
+    private static long ownerOperationTickets(ServerLevel level, ChunkPos chunk) {
+        try {
+            final Field managerField = net.minecraft.server.level.ServerChunkCache.class.getDeclaredField("distanceManager");
+            managerField.setAccessible(true);
+            final Object manager = managerField.get(level.getChunkSource());
+            final Field ticketsField = net.minecraft.server.level.DistanceManager.class.getDeclaredField("tickets");
+            ticketsField.setAccessible(true);
+            final var tickets = (it.unimi.dsi.fastutil.longs.Long2ObjectMap<?>) ticketsField.get(manager);
+            final Object set = tickets.get(chunk.toLong());
+            if (set == null) return 0L;
+            long result = 0;
+            for (Object value : (Iterable<?>) set) {
+                if (((net.minecraft.server.level.Ticket<?>) value).getType().toString().equals("forgia_owner_operation")) result++;
+            }
+            return result;
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("Could not inspect owner operation ticket lifecycle", failure);
+        }
+    }
+
     @GameTest(batch = "regionPhysicalEntityStorage", timeoutTicks = 200)
     @EmptyTemplate(value = "15x10x15", floor = true)
     @TestHolder(description = "Moves a tracked item across a fixed region boundary in the real persistent section storage")

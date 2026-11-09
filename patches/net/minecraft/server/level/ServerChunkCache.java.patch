@@ -21,7 +21,7 @@
              profilerfiller.incrementCounter("getChunkCacheMiss");
              CompletableFuture<ChunkResult<ChunkAccess>> completablefuture = this.getChunkFutureMainThread(p_8360_, p_8361_, p_330876_, p_8363_);
              this.mainThreadProcessor.managedBlock(completablefuture::isDone);
-@@ -164,10 +_,53 @@
+@@ -164,10 +_,60 @@
          }
      }
  
@@ -34,7 +34,8 @@
 +     * is already available: the visible chunk holder answers the request without a load, exactly like the
 +     * main-thread path does after the cache lookup. A request that would have to load, generate or await a
 +     * chunk is refused with {@link net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException},
-+     * which the tick groups turn into a server-thread fallback for the affected entity or ticker.
++     * which an already-started entity/ticker body reports as a failure without replay. Whole-body fallback
++     * is only safe when an admission check refuses the operation before its body starts.
 +     * <p>
 +     * A request that does not require the chunk answers {@code null} like the vanilla main-thread path, so
 +     * callers that probe a chunk without loading it (for example {@code RemoveBlockGoal}) keep their exact
@@ -52,6 +53,12 @@
 +    private ChunkAccess getChunkForRegionWorker(int p_8360_, int p_8361_, ChunkStatus p_330876_, boolean p_8363_) {
 +        ChunkHolder chunkholder = this.getVisibleChunkIfPresent(ChunkPos.asLong(p_8360_, p_8361_));
 +        ChunkAccess chunkaccess = chunkholder == null ? null : chunkholder.getChunkIfPresent(p_330876_);
++        if (chunkaccess == null && p_8363_) {
++            // Mod-owned loaded chunks (for example moving subworld plots) may have no vanilla holder.
++            // Consult the public non-loading lookup on the server thread so its injected storage path is
++            // preserved without reading a mod's global lookup maps from this worker or scheduling a load.
++            chunkaccess = net.neoforged.neoforge.server.threading.RegionThreadingHooks.findLoadedChunkForWorker(this.level, p_8360_, p_8361_);
++        }
 +        if (chunkaccess != null) {
 +            net.neoforged.neoforge.server.threading.RegionThreadingHooks.recordForeignChunkRead(this.level, p_8360_, p_8361_, chunkaccess);
 +            return chunkaccess;

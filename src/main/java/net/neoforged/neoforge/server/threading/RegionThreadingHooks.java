@@ -277,6 +277,64 @@ public final class RegionThreadingHooks {
     }
 
     /**
+     * Submits a pearl's end-gateway notification as one owner operation. BlockState is immutable; the callback
+     * deliberately does not capture the pearl. Normal pearl ticking is still server-thread-only, but this also
+     * safely admits an explicit callback issued by an entity worker which owns the pearl.
+     *
+     * @return true when the original owner call is replaced by this accepted operation; false retains vanilla
+     *         behavior without an engine, or for a server-thread call with an already removed/cross-level pearl
+     */
+    public static boolean submitPearlGatewayOwnerOperation(net.minecraft.world.entity.projectile.ThrownEnderpearl pearl,
+            ServerPlayer owner, net.minecraft.world.level.block.state.BlockState state) {
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        if (threading == null) {
+            if (RegionWorkerScope.isNativeWorkerThread()) {
+                RegionOwnershipViolationHandler.rejectNativeWorkerStorageAccess("pearl gateway without an interaction scheduler");
+            }
+            return false;
+        }
+        if (!RegionWorkerScope.isNativeWorkerThread() && (pearl.isRemoved() || pearl.level() != owner.level())) {
+            // Vanilla can reach checkInsideBlocks after impact already discarded the pearl. The actual server
+            // thread owns that continuation; do not turn its original callback into a rejected admission.
+            if (!(threading instanceof RegionThreadingEngine engine)
+                    || !(pearl.level() instanceof ServerLevel level) || !engine.canRunEntityInteractionImmediately(level)) {
+                throw new IllegalStateException("Pearl gateway continuation requires a quiescent server thread");
+            }
+            return false;
+        }
+        final EntityInteractionTask task = threading.entityInteractions().submitToOwner(pearl, owner,
+                currentOwner -> ((ServerPlayer) currentOwner).onInsideBlock(state));
+        if (task.state() == EntityInteractionTask.State.REJECTED) {
+            throw new IllegalStateException("Pearl gateway owner operation was rejected: " + task.reason());
+        }
+        return true;
+    }
+
+    /**
+     * Admits the complete virtual Mob pickup before even reading the candidate's mutable stack. Queries
+     * can return non-ticking entities not present in this worker's tick membership. Always defer native
+     * worker pickups, including same-region candidates, so all competing mobs recheck one live item in
+     * server completion order. The callback retains the original eligibility and subclass pickup body.
+     */
+    public static boolean deferMobItemPickup(Mob mob, net.minecraft.world.entity.item.ItemEntity item,
+            java.util.function.Consumer<net.minecraft.world.entity.item.ItemEntity> pickup) {
+        if (!RegionWorkerScope.isNativeWorkerThread()) {
+            return false;
+        }
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        if (threading instanceof RegionThreadingEngine engine) {
+            final EntityInteractionTask task = engine.entityInteractions().submit(mob, item,
+                    (source, candidate) -> pickup.accept((net.minecraft.world.entity.item.ItemEntity) candidate));
+            if (task.state() != EntityInteractionTask.State.REJECTED) {
+                return true;
+            }
+            RegionOwnershipViolationHandler.rejectNativeWorkerStorageAccess("mob pickup interaction rejected: " + task.reason());
+        }
+        RegionOwnershipViolationHandler.rejectNativeWorkerStorageAccess("mob pickup without an interaction scheduler");
+        return false;
+    }
+
+    /**
      * Records a melee attack for the current entity batch when its target is not owned by this worker.
      * The caller keeps its attack cooldown/swing and skips only the original doHurtTarget invocation when true.
      * The server thread invokes the attacker's virtual method once after the workers finish, including mod
@@ -345,7 +403,9 @@ public final class RegionThreadingHooks {
             return false;
         }
         return engine.queueServerTaskInCurrentBatch(() -> {
-            if (!entity.isRemoved()) {
+            // Admission and application are separated by the worker barrier. Another accepted operation
+            // may have moved the entity to a different level meanwhile; never publish it into the old level.
+            if (!entity.isRemoved() && entity.level() == level) {
                 level.addFreshEntity(entity);
             }
         });
@@ -638,6 +698,22 @@ public final class RegionThreadingHooks {
     public static boolean shouldHandOffEntityQuery() {
         final RegionThreading threading = RegionThreadingManager.currentOrNull();
         return threading instanceof RegionThreadingEngine engine && engine.isRegionTickBatchWorkerThread();
+    }
+
+    /**
+     * Serializes map registry access on the server thread, including first-load/creation of idcounts.
+     * The returned map value remains live data; obtaining it grants no permission to mutate map pixels or
+     * player trackers concurrently. A native worker outside a serviced batch must not recurse inline.
+     */
+    public static <T> T runMapStorageOperation(ServerLevel level, java.util.function.Supplier<T> operation) {
+        if (!RegionWorkerScope.isNativeWorkerThread()) {
+            return operation.get();
+        }
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        if (threading instanceof RegionThreadingEngine engine && engine.isRegionTickBatchWorkerThread()) {
+            return engine.runOnServerThread(level, operation);
+        }
+        throw new IllegalStateException("Native region worker map storage access requires a serviced tick batch");
     }
 
     /**
@@ -1245,6 +1321,33 @@ public final class RegionThreadingHooks {
         }
         final RegionThreading threading = RegionThreadingManager.currentOrNull();
         return threading instanceof RegionThreadingEngine engine && engine.isForeignRegionBlockEntityReadable(serverLevel, pos);
+    }
+
+    /**
+     * Preserves mod-injected non-loading chunk lookups which do not use vanilla visible holders. Only the
+     * lookup runs on the server thread, through the serviced batch; neither getChunk nor a chunk future is
+     * called here. The worker must still validate the returned chunk through recordForeignChunkRead and
+     * the scalar read guards. This is loaded visibility, not a new mutation lease or load permission.
+     */
+    @Nullable
+    public static net.minecraft.world.level.chunk.LevelChunk findLoadedChunkForWorker(ServerLevel level, int chunkX, int chunkZ) {
+        final RegionThreading threading = RegionThreadingManager.currentOrNull();
+        if (!(threading instanceof RegionThreadingEngine engine) || !engine.isRegionTickBatchWorkerThread()) {
+            return null;
+        }
+        final net.minecraft.server.MinecraftServer server = level.getServer();
+        if (server == null) {
+            return null;
+        }
+        return engine.runOnServerThread(level, () -> {
+            if (!server.isSameThread() || RegionWorkerScope.isNativeWorkerThread()) {
+                throw new IllegalStateException("Loaded chunk provider lookup requires the actual server thread");
+            }
+            final var chunks = level.getChunkSource();
+            final var loaded = chunks.getChunkNow(chunkX, chunkZ);
+            return loaded != null ? loaded
+                    : net.neoforged.neoforge.server.threading.region.SableLoadedChunkLookup.claimedEmptyChunk(chunks, level, chunkX, chunkZ);
+        });
     }
 
     /**

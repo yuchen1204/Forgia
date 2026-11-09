@@ -96,6 +96,20 @@ Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, 
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
 is silently dropped.
 
+The Folia 1.21.1 source comparison, current interaction API and remaining ownership/teleport work are documented
+in [region-threading/FOLIA-REFERENCE.md](region-threading/FOLIA-REFERENCE.md). The incident-by-incident
+comparison and broader repair priorities are in [region-threading/RECENT-BUG-CLASSES.md](region-threading/RECENT-BUG-CLASSES.md).
+Feature-preserving adaptation candidates and their behavioral limits are in
+[region-threading/FOLIA-PRESERVING-ADAPTATIONS.md](region-threading/FOLIA-PRESERVING-ADAPTATIONS.md).
+The latest bounded crash/logic audit and its confirmed unresolved blockers are in
+[region-threading/CRASH-AND-LOGIC-AUDIT.md](region-threading/CRASH-AND-LOGIC-AUDIT.md).
+Entity/machine partial-tick replay removal and the explicit ticket-backed owner completion contract are in
+[region-threading/CHUNK-OWNER-OPERATIONS.md](region-threading/CHUNK-OWNER-OPERATIONS.md).
+Whole mob/item pickup admission, conservation checks and its deferred timing contract are documented in
+[region-threading/MOB-ITEM-PICKUP.md](region-threading/MOB-ITEM-PICKUP.md).
+Worker lookup compatibility for loaded mod subworld chunks and Sable plot gaps is documented in
+[region-threading/SABLE-LOADED-CHUNKS.md](region-threading/SABLE-LOADED-CHUNKS.md).
+
 ## Building
 
 ```

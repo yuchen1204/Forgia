@@ -1,0 +1,51 @@
+--- a/net/minecraft/world/level/saveddata/maps/MapIndex.java
++++ b/net/minecraft/world/level/saveddata/maps/MapIndex.java
+@@ -12,6 +_,20 @@
+     public static final String FILE_NAME = "idcounts";
+     private final Object2IntMap<String> usedAuxIds = new Object2IntOpenHashMap<>();
+ 
++    @Override
++    public void setDirty(boolean dirty) {
++        synchronized (this.usedAuxIds) {
++            super.setDirty(dirty);
++        }
++    }
++
++    @Override
++    public boolean isDirty() {
++        synchronized (this.usedAuxIds) {
++            return super.isDirty();
++        }
++    }
++
+     public static SavedData.Factory<MapIndex> factory() {
+         return new SavedData.Factory<>(MapIndex::new, MapIndex::load, DataFixTypes.SAVED_DATA_MAP_INDEX);
+     }
+@@ -34,17 +_,21 @@
+ 
+     @Override
+     public CompoundTag save(CompoundTag p_77884_, HolderLookup.Provider p_324049_) {
+-        for (Entry<String> entry : this.usedAuxIds.object2IntEntrySet()) {
+-            p_77884_.putInt(entry.getKey(), entry.getIntValue());
++        synchronized (this.usedAuxIds) {
++            for (Entry<String> entry : this.usedAuxIds.object2IntEntrySet()) {
++                p_77884_.putInt(entry.getKey(), entry.getIntValue());
++            }
+         }
+ 
+         return p_77884_;
+     }
+ 
+     public MapId getFreeAuxValueForMap() {
+-        int i = this.usedAuxIds.getInt("map") + 1;
+-        this.usedAuxIds.put("map", i);
+-        this.setDirty();
+-        return new MapId(i);
++        synchronized (this.usedAuxIds) {
++            int i = this.usedAuxIds.getInt("map") + 1;
++            this.usedAuxIds.put("map", i);
++            this.setDirty();
++            return new MapId(i);
++        }
+     }
+ }

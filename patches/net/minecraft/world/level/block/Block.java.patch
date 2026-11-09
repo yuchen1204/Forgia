@@ -27,25 +27,35 @@
          } else if (blockstate.canOcclude()) {
              Block.BlockStatePairKey block$blockstatepairkey = new Block.BlockStatePairKey(p_152445_, blockstate, p_152448_);
              Object2ByteLinkedOpenHashMap<Block.BlockStatePairKey> object2bytelinkedopenhashmap = OCCLUSION_CACHE.get();
-@@ -281,24 +_,30 @@
+@@ -281,24 +_,45 @@
  
      public static void dropResources(BlockState p_49951_, Level p_49952_, BlockPos p_49953_) {
          if (p_49952_ instanceof ServerLevel) {
 +            beginCapturingDrops();
++            final var captureScope = net.neoforged.neoforge.common.util.BlockDropCapture.currentOrThrow();
++            try {
              getDrops(p_49951_, (ServerLevel)p_49952_, p_49953_, null).forEach(p_152406_ -> popResource(p_49952_, p_49953_, p_152406_));
 -            p_49951_.spawnAfterBreak((ServerLevel)p_49952_, p_49953_, ItemStack.EMPTY, true);
 +            List<ItemEntity> captured = stopCapturingDrops();
 +            net.neoforged.neoforge.common.CommonHooks.handleBlockDrops((ServerLevel) p_49952_, p_49953_, p_49951_, null, captured, null, ItemStack.EMPTY);
++            } finally {
++                captureScope.close();
++            }
          }
      }
  
      public static void dropResources(BlockState p_49893_, LevelAccessor p_49894_, BlockPos p_49895_, @Nullable BlockEntity p_49896_) {
          if (p_49894_ instanceof ServerLevel) {
 +            beginCapturingDrops();
++            final var captureScope = net.neoforged.neoforge.common.util.BlockDropCapture.currentOrThrow();
++            try {
              getDrops(p_49893_, (ServerLevel)p_49894_, p_49895_, p_49896_).forEach(p_49859_ -> popResource((ServerLevel)p_49894_, p_49895_, p_49859_));
 -            p_49893_.spawnAfterBreak((ServerLevel)p_49894_, p_49895_, ItemStack.EMPTY, true);
 +            List<ItemEntity> captured = stopCapturingDrops();
 +            net.neoforged.neoforge.common.CommonHooks.handleBlockDrops((ServerLevel) p_49894_, p_49895_, p_49893_, p_49896_, captured, null, ItemStack.EMPTY);
++            } finally {
++                captureScope.close();
++            }
          }
      }
  
@@ -55,10 +65,15 @@
      ) {
          if (p_49883_ instanceof ServerLevel) {
 +            beginCapturingDrops();
++            final var captureScope = net.neoforged.neoforge.common.util.BlockDropCapture.currentOrThrow();
++            try {
              getDrops(p_49882_, (ServerLevel)p_49883_, p_49884_, p_49885_, p_49886_, p_49887_).forEach(p_49944_ -> popResource(p_49883_, p_49884_, p_49944_));
 -            p_49882_.spawnAfterBreak((ServerLevel)p_49883_, p_49884_, p_49887_, true);
 +            List<ItemEntity> captured = stopCapturingDrops();
 +            net.neoforged.neoforge.common.CommonHooks.handleBlockDrops((ServerLevel) p_49883_, p_49884_, p_49882_, p_49885_, captured, p_49886_, p_49887_);
++            } finally {
++                captureScope.close();
++            }
          }
      }
  
@@ -72,8 +87,8 @@
              itementity.setDefaultPickUpDelay();
 -            p_152441_.addFreshEntity(itementity);
 +            // Neo: Add drops to the captured list if capturing is enabled.
-+            if (capturedDrops != null) {
-+                capturedDrops.add(itementity);
++            if (net.neoforged.neoforge.common.util.BlockDropCapture.capture(itementity)) {
++                // Captured by this thread's current loot evaluation.
 +            }
 +            else {
 +                p_152441_.addFreshEntity(itementity);
@@ -111,36 +126,18 @@
      public boolean dropFromExplosion(Explosion p_49826_) {
          return true;
      }
-@@ -485,6 +_,43 @@
+@@ -485,6 +_,25 @@
          return this.stateDefinition.getPossibleStates().stream().collect(ImmutableMap.toImmutableMap(Function.identity(), p_152459_));
      }
  
-+    /**
-+     * Neo: Short-lived holder of dropped item entities. Used mainly for Neo hooks and event logic.
-+     * <p>
-+     * When not null, records all item entities from {@link #popResource(Level, Supplier, ItemStack)} instead of adding them to the world.
-+     */
-+    @Nullable
-+    private static List<ItemEntity> capturedDrops = null;
-+
-+    /**
-+     * Initializes {@link #capturedDrops}, starting the drop capture process.
-+     * <p>
-+     * Must only be called on the server thread.
-+     */
++    /** Starts a nested, thread-confined drop capture; always pair with a finally-closed scope. */
 +    private static void beginCapturingDrops() {
-+        capturedDrops = new java.util.ArrayList<>();
++        net.neoforged.neoforge.common.util.BlockDropCapture.begin();
 +    }
 +
-+    /**
-+     * Ends the drop capture process by setting {@link #capturedDrops} to null and returning the old list.
-+     * <p>
-+     * Must only be called on the server thread.
-+     */
++    /** Returns a non-null list and suspends collection until this call's event callbacks finish. */
 +    private static List<ItemEntity> stopCapturingDrops() {
-+        List<ItemEntity> drops = capturedDrops;
-+        capturedDrops = null;
-+        return drops;
++        return net.neoforged.neoforge.common.util.BlockDropCapture.end();
 +    }
 +
 +    /**

@@ -30,6 +30,10 @@ public interface RegionThreading {
      */
     EntityRegionScheduler entityScheduler();
 
+    /** Whole interactions with explicit lifetime outcomes; call before changing either entity. */
+    @org.jetbrains.annotations.ApiStatus.Experimental
+    EntityInteractionScheduler entityInteractions();
+
     /**
      * {@return true when the current thread owns the region containing {@code pos}}
      */

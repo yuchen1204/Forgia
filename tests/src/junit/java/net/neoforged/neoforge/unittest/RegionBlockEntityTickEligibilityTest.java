@@ -310,7 +310,7 @@ class RegionBlockEntityTickEligibilityTest {
     }
 
     @Test
-    void unstableReadRefusalIsNeitherWrappedNorReplayedByRealTicker() throws ReflectiveOperationException {
+    void unstableReadRefusalIsReportedWithoutReplayByRealWorkerTicker() throws ReflectiveOperationException {
         this.installEngine();
         final ServerLevel level = mockEligibilityLevel();
         completeEntityLoad(attachPendingEntityLoad(level));
@@ -318,6 +318,7 @@ class RegionBlockEntityTickEligibilityTest {
         final FurnaceBlockEntity furnace = furnace(level);
         final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
         final var refusal = net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.forUnstableRead(3, 1);
+        doReturn(Blocks.FURNACE.defaultBlockState()).when(level).getBlockState(FURNACE_POS);
         final Method createTicker = LevelChunk.class.getDeclaredMethod("createTicker", BlockEntity.class, BlockEntityTicker.class);
         createTicker.setAccessible(true);
         final TickingBlockEntity bound = (TickingBlockEntity) createTicker.invoke(chunk, furnace,
@@ -329,10 +330,48 @@ class RegionBlockEntityTickEligibilityTest {
         calls.set(0);
         final RegionBlockEntityTickPlan plan = plan(level);
         assertTrue(plan.accept(wrappedTicker(chunk, bound)));
-        plan.executeAndAwait();
+        assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait);
         assertEquals(1, calls.get(), "the interrupted ticker must not run again on the server thread");
         assertEquals(0L, this.engine.diagnostics().fallbackBlockEntityTicks());
         assertFalse(furnace.isRemoved());
+    }
+
+    @Test
+    void realTickerMissingChunkReportsOnServerAndPreservesMachineInventory() throws ReflectiveOperationException {
+        this.installEngine();
+        final ServerLevel level = mockEligibilityLevel();
+        completeEntityLoad(attachPendingEntityLoad(level));
+        final LevelChunk chunk = furnaceChunk(level);
+        final FurnaceBlockEntity furnace = furnace(level);
+        final Thread main = Thread.currentThread();
+        final List<Thread> reports = new CopyOnWriteArrayList<>();
+        // A real bound ticker and real furnace inventory; spy only the report boundary to assert its thread.
+        final FurnaceBlockEntity tracked = org.mockito.Mockito.spy(furnace);
+        doAnswer(call -> {
+            reports.add(Thread.currentThread());
+            return null;
+        }).when(tracked).fillCrashReportCategory(org.mockito.ArgumentMatchers.any());
+        final var inventory = net.minecraft.core.NonNullList.withSize(3, net.minecraft.world.item.ItemStack.EMPTY);
+        inventory.set(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_INGOT, 2));
+        setField(AbstractFurnaceBlockEntity.class, tracked, "items", inventory);
+        final List<net.minecraft.world.item.ItemStack> output = new CopyOnWriteArrayList<>();
+        final Method createTicker = LevelChunk.class.getDeclaredMethod("createTicker", BlockEntity.class, BlockEntityTicker.class);
+        createTicker.setAccessible(true);
+        final TickingBlockEntity bound = (TickingBlockEntity) createTicker.invoke(chunk, tracked,
+                (BlockEntityTicker<FurnaceBlockEntity>) (world, pos, state, machine) -> {
+                    output.add(machine.removeItem(0, 1));
+                    throw net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.forChunk(100, 100,
+                            net.minecraft.world.level.chunk.status.ChunkStatus.FULL);
+                });
+        final RegionBlockEntityTickPlan plan = plan(level);
+        assertTrue(plan.accept(wrappedTicker(chunk, bound)));
+        assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait);
+        assertEquals(1, tracked.getItem(0).getCount());
+        assertEquals(1, output.size());
+        assertEquals(1, output.getFirst().getCount());
+        assertEquals(List.of(main), reports);
+        assertFalse(tracked.isRemoved());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
     }
 
     @Test

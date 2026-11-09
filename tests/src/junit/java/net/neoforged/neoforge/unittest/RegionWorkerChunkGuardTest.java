@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -52,8 +53,8 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * Exercises the fail-fast chunk source guard of a native region worker: the refusal itself, the per entity
- * pre-load margin that keeps the common case off the chunk source, and the server-thread fallback that ticks
- * an entity whose tick still needed a chunk that was not loaded.
+ * pre-load margin that keeps the common case off the chunk source, safe pre-body fallback and normal error
+ * reporting when an already-started tick requests an unavailable chunk. A partial tick is never replayed.
  * <p>
  * The level is a {@link org.mockito.Mockito#CALLS_REAL_METHODS} mock, so the worker runs the real
  * {@code guardEntityTick} and {@code tickNonPassenger} code; the chunk source is a mock, so a test decides
@@ -123,6 +124,82 @@ class RegionWorkerChunkGuardTest {
     }
 
     @Test
+    void workerRequiredChunkLookupPreservesAnInjectedLoadedProviderBeforeRefusing() throws Exception {
+        this.loadedChunkProviderCase("loaded");
+    }
+
+    @Test
+    void workerRequiredChunkLookupPreservesProvidersOwnEmptyResult() throws Exception {
+        this.loadedChunkProviderCase("empty");
+    }
+
+    @Test
+    void unknownMissingChunkIsStillRefusedWithoutRequestingALoadOrFuture() throws Exception {
+        this.loadedChunkProviderCase("missing");
+    }
+
+    @Test
+    void loadedProviderExceptionPropagatesWithoutReplayingTheEntity() throws Exception {
+        this.loadedChunkProviderCase("failure");
+    }
+
+    private void loadedChunkProviderCase(String mode) throws Exception {
+        this.installEngine();
+        final ServerLevel level = mockLevel(true);
+        final var server = mock(net.minecraft.server.MinecraftServer.class);
+        final Thread main = Thread.currentThread();
+        when(server.isSameThread()).thenAnswer(call -> Thread.currentThread() == main);
+        doReturn(server).when(level).getServer();
+        final ServerChunkCache chunks = level.getChunkSource();
+        final var map = mock(ChunkMap.class);
+        for (String name : List.of("level", "chunkMap", "mainThread")) {
+            final Field field = ServerChunkCache.class.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(chunks, name.equals("level") ? level : name.equals("chunkMap") ? map : main);
+        }
+        final int cx = 1280065;
+        final int cz = 1280960;
+        final LevelChunk supplied = mode.equals("empty") ? mock(net.minecraft.world.level.chunk.EmptyLevelChunk.class) : mock(LevelChunk.class);
+        final AtomicInteger lookups = new AtomicInteger();
+        final RuntimeException failure = new RuntimeException("provider failed");
+        // Simulates a HEAD injection into the public non-loading lookup, not a vanilla visible holder.
+        doAnswer(call -> {
+            assertSame(main, Thread.currentThread(), "the provider owns non-thread-safe mod lookup maps");
+            lookups.incrementAndGet();
+            if (mode.equals("failure")) throw failure;
+            return mode.equals("missing") ? null : supplied;
+        }).when(chunks).getChunkNow(cx, cz);
+        doCallRealMethod().when(chunks).getChunk(cx, cz, ChunkStatus.FULL, true);
+        final Entity entity = mockEntity(level, new BlockPos(1, 64, 1));
+        final AtomicInteger before = new AtomicInteger();
+        final AtomicInteger after = new AtomicInteger();
+        final var result = new java.util.concurrent.atomic.AtomicReference<net.minecraft.world.level.chunk.ChunkAccess>();
+        doAnswer(call -> {
+            before.incrementAndGet();
+            result.set(chunks.getChunk(cx, cz, ChunkStatus.FULL, true));
+            assertTrue(Thread.currentThread().getName().startsWith(WORKER_THREAD_PREFIX));
+            after.incrementAndGet();
+            return null;
+        }).when(entity).tick();
+        final var plan = plan(level);
+        assertTrue(plan.accept(entity));
+        if (mode.equals("missing") || mode.equals("failure")) {
+            final var reported = assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait);
+            assertEquals(0, after.get());
+            if (mode.equals("failure")) assertSame(failure, reported.getCause());
+        } else {
+            plan.executeAndAwait();
+            assertSame(supplied, result.get());
+            assertEquals(1, after.get());
+        }
+        assertEquals(1, before.get());
+        assertEquals(1, lookups.get());
+        verify(chunks, org.mockito.Mockito.never()).getChunkFuture(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(chunks, org.mockito.Mockito.never()).addRegionTicket(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
     void unrelatedOffThreadChunkNowLookupStillReturnsNull() throws Exception {
         final ServerChunkCache source = mock(ServerChunkCache.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         final Field mainThread = ServerChunkCache.class.getDeclaredField("mainThread");
@@ -166,7 +243,49 @@ class RegionWorkerChunkGuardTest {
     }
 
     @Test
-    void entityWhoseTickRefusesAChunkTicksOnTheServerThreadInstead() {
+    void missingChunkAfterInventoryAndDropEffectsIsReportedWithoutReplayingTheTick() {
+        this.installEngine();
+        final ServerLevel level = mockLevel(true);
+        final Entity entity = mockEntity(level, new BlockPos(1, 64, 1));
+        final var inventory = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, 2);
+        final List<net.minecraft.world.item.ItemStack> outputs = new CopyOnWriteArrayList<>();
+        final AtomicInteger pre = new AtomicInteger();
+        final AtomicInteger post = new AtomicInteger();
+        final java.util.function.Consumer<net.neoforged.neoforge.event.tick.EntityTickEvent.Pre> before = event -> {
+            if (event.getEntity() == entity) pre.incrementAndGet();
+        };
+        final java.util.function.Consumer<net.neoforged.neoforge.event.tick.EntityTickEvent.Post> after = event -> {
+            if (event.getEntity() == entity) post.incrementAndGet();
+        };
+        doAnswer(call -> {
+            outputs.add(inventory.split(1));
+            if (Thread.currentThread().getName().startsWith(WORKER_THREAD_PREFIX)) {
+                throw RegionWorkerChunkUnavailableException.forChunk(100, 100, ChunkStatus.FULL);
+            }
+            return null;
+        }).when(entity).tick();
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.EntityTickEvent.Pre.class, before);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.EntityTickEvent.Post.class, after);
+        try {
+            final RegionEntityTickPlan plan = plan(level);
+            assertTrue(plan.accept(entity));
+            assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait,
+                    "an unadapted partial tick must fail normally, never rerun or pretend it completed");
+        } finally {
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(before);
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(after);
+        }
+        assertEquals(1, inventory.getCount());
+        assertEquals(1, outputs.size());
+        assertEquals(1, outputs.getFirst().getCount());
+        assertEquals(1, pre.get());
+        assertEquals(0, post.get(), "a failed tick has no successful post event");
+        verify(entity, times(1)).tick();
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void entityWhoseTickRefusesAChunkIsReportedWithoutReplayingIt() {
         this.installEngine();
         final ServerLevel level = mockLevel(true);
         final Entity refusing = mockEntity(level, new BlockPos(1, 64, 1));
@@ -189,19 +308,14 @@ class RegionWorkerChunkGuardTest {
         final RegionEntityTickPlan plan = plan(level);
         assertTrue(plan.accept(refusing));
         assertTrue(plan.accept(healthy));
-        plan.executeAndAwait();
+        assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait);
 
-        // The refused entity is ticked exactly once: the abandoned worker attempt throws, the fallback tick
-        // runs on the server thread. The group keeps its lease and ticks the remaining entity on the worker.
-        assertEquals(2, refusingTickThreads.size(), refusingTickThreads.toString());
-        assertTrue(refusingTickThreads.get(0).startsWith(WORKER_THREAD_PREFIX), refusingTickThreads.toString());
-        assertFalse(refusingTickThreads.get(1).startsWith(WORKER_THREAD_PREFIX), refusingTickThreads.toString());
-        verify(refusing, times(2)).tick();
-        assertEquals(1, healthyTickThreads.size(), healthyTickThreads.toString());
-        assertTrue(healthyTickThreads.get(0).startsWith(WORKER_THREAD_PREFIX), healthyTickThreads.toString());
-
-        assertEquals(1L, this.engine.diagnostics().chunkFallbackEntityTicks());
-        assertEquals(1L, this.engine.diagnostics().entityTicksOnWorkers());
+        assertEquals(1, refusingTickThreads.size(), refusingTickThreads.toString());
+        assertTrue(refusingTickThreads.getFirst().startsWith(WORKER_THREAD_PREFIX), refusingTickThreads.toString());
+        verify(refusing, times(1)).tick();
+        assertEquals(0, healthyTickThreads.size(), "the failed group stops at its first failing entity, like vanilla");
+        assertEquals(0L, this.engine.diagnostics().chunkFallbackEntityTicks());
+        assertEquals(0L, this.engine.diagnostics().entityTicksOnWorkers());
         assertEquals(0L, this.engine.diagnostics().chunkPreloadRefusedEntityTicks());
         assertEquals(0L, this.engine.diagnostics().fallbackEntityTicks());
         assertEquals(0, this.engine.diagnostics().runningRegionCount());

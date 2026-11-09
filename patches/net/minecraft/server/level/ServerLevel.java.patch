@@ -569,6 +569,36 @@
      }
  
      private boolean doBlockEvent(BlockEventData p_8699_) {
+@@ -1309,16 +_,29 @@
+     @Nullable
+     @Override
+     public MapItemSavedData getMapData(MapId p_323746_) {
++        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.isNativeRegionWorkerThread()) {
++            return net.neoforged.neoforge.server.threading.RegionThreadingHooks.runMapStorageOperation(this, () -> this.getMapData(p_323746_));
++        }
+         return this.getServer().overworld().getDataStorage().get(MapItemSavedData.factory(), p_323746_.key());
+     }
+ 
+     @Override
+     public void setMapData(MapId p_323697_, MapItemSavedData p_143306_) {
++        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.isNativeRegionWorkerThread()) {
++            net.neoforged.neoforge.server.threading.RegionThreadingHooks.runMapStorageOperation(this, () -> {
++                this.setMapData(p_323697_, p_143306_);
++                return null;
++            });
++            return;
++        }
+         this.getServer().overworld().getDataStorage().set(p_323697_.key(), p_143306_);
+     }
+ 
+     @Override
+     public MapId getFreeMapId() {
++        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.isNativeRegionWorkerThread()) {
++            return net.neoforged.neoforge.server.threading.RegionThreadingHooks.runMapStorageOperation(this, this::getFreeMapId);
++        }
+         return this.getServer().overworld().getDataStorage().computeIfAbsent(MapIndex.factory(), "idcounts").getFreeAuxValueForMap();
+     }
+ 
 @@ -1371,7 +_,12 @@
  
      @Override

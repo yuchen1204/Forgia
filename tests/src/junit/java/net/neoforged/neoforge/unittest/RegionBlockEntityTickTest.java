@@ -161,7 +161,33 @@ class RegionBlockEntityTickTest {
     }
 
     @Test
-    void tickerThatRefusesAChunkTicksOnTheServerThreadInstead() {
+    void missingChunkAfterMachineInventoryAndOutputEffectsDoesNotRerunTheMachine() {
+        this.installEngine(true);
+        final ServerLevel level = mockLevel();
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(17, 64, 17));
+        final var inventory = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_INGOT, 2);
+        final List<net.minecraft.world.item.ItemStack> outputs = new CopyOnWriteArrayList<>();
+        final AtomicInteger callbacks = new AtomicInteger();
+        final var refusal = RegionWorkerChunkUnavailableException.forChunk(100, 100, ChunkStatus.FULL);
+        doAnswer(call -> {
+            callbacks.incrementAndGet();
+            outputs.add(inventory.split(1));
+            if (Thread.currentThread().getName().startsWith("NeoForge Region Worker")) throw refusal;
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = plan(level);
+        plan.accept(ticker);
+        assertSame(refusal, assertThrows(RegionWorkerChunkUnavailableException.class, plan::executeAndAwait));
+        assertEquals(1, inventory.getCount());
+        assertEquals(1, outputs.size());
+        assertEquals(1, outputs.getFirst().getCount());
+        assertEquals(1, callbacks.get());
+        verify(ticker, times(1)).tick();
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void tickerThatRefusesAChunkIsReportedWithoutReplayingIt() {
         this.installEngine(true);
         final ServerLevel level = mockLevel();
         final TickingBlockEntity ticker = mockTicker(new BlockPos(17, 64, 17));
@@ -177,16 +203,13 @@ class RegionBlockEntityTickTest {
 
         final RegionBlockEntityTickPlan plan = plan(level);
         plan.accept(ticker);
-        plan.executeAndAwait();
+        assertThrows(RegionWorkerChunkUnavailableException.class, plan::executeAndAwait);
 
-        // The abandoned worker attempt throws and the ticker ticks once more on the server thread; the group
-        // does not abort.
-        verify(ticker, times(2)).tick();
-        assertEquals(2, tickThreads.size(), tickThreads.toString());
-        assertTrue(tickThreads.get(0).startsWith("NeoForge Region Worker"), tickThreads.toString());
-        assertFalse(tickThreads.get(1).startsWith("NeoForge Region Worker"), tickThreads.toString());
+        verify(ticker, times(1)).tick();
+        assertEquals(1, tickThreads.size(), tickThreads.toString());
+        assertTrue(tickThreads.getFirst().startsWith("NeoForge Region Worker"), tickThreads.toString());
         assertEquals(0L, this.engine.diagnostics().blockEntityTicksOnWorkers());
-        assertEquals(1L, this.engine.diagnostics().fallbackBlockEntityTicks());
+        assertEquals(0L, this.engine.diagnostics().fallbackBlockEntityTicks());
         assertEquals(0, this.engine.diagnostics().runningRegionCount());
     }
 

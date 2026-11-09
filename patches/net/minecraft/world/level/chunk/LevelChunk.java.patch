@@ -689,12 +689,16 @@
                              this.loggedInvalidBlockState = false;
                          } else if (!this.loggedInvalidBlockState) {
                              this.loggedInvalidBlockState = true;
-@@ -697,10 +_,23 @@
+@@ -697,10 +_,27 @@
  
                          profilerfiller.pop();
                      } catch (Throwable throwable) {
-+                        // A bounded read refusal abandons this tick without replay or removal, regardless
-+                        // of the removeErroringBlockEntities configuration.
++                        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.isNativeRegionWorkerThread()) {
++                            // Preserve the block-entity report/removal policy, but build and apply it only after
++                            // the worker barrier. A chunk refusal cannot restart a partially applied machine tick.
++                            throw new net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickFailure(LevelChunk.this.level, this.blockEntity, throwable);
++                        }
++                        // Main-thread callers of the legacy bounded-read seam retain its explicit refusal.
 +                        if (net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.mustNotReplay(throwable)) {
 +                            throw throwable;
 +                        }

@@ -83,12 +83,6 @@ final class RegionEntityTickBatch extends RegionTickBatch {
      */
     private final List<Entity> deferredUpdateFallbackEntities = Collections.synchronizedList(new ArrayList<>());
     /**
-     * Entities a worker handed back after the chunk source refused a chunk it needed. They are ticked on the
-     * server thread after the batch, like the entities whose region could not be leased. The list is filled
-     * from the worker threads, so it is synchronized.
-     */
-    private final List<Entity> chunkFallbackEntities = Collections.synchronizedList(new ArrayList<>());
-    /**
      * Ownership changes that a worker deferred to the barrier, keyed by entity identity.
      * <p>
      * The entity is its own key, so recording a deferral is one hash insert instead of a scan of every
@@ -139,6 +133,43 @@ final class RegionEntityTickBatch extends RegionTickBatch {
     /** Set when the engine shuts down; guarded by the monitor of {@link #deferredPortalTransitions}. */
     private volatile boolean portalTransitionSeamClosed;
     private final List<Runnable> deferredServerTasks = Collections.synchronizedList(new ArrayList<>());
+    private static final int MAX_ENTITY_INTERACTIONS = 4096;
+    private final List<RegionEntityInteractionTask> interactions = new ArrayList<>();
+    private boolean interactionsClosed;
+    private net.neoforged.neoforge.server.threading.EntityInteractionTask.Reason interactionClosureReason = net.neoforged.neoforge.server.threading.EntityInteractionTask.Reason.BATCH_CLOSED;
+
+    /** Registration and closure share this monitor so shutdown cannot miss an accepted request. */
+    boolean queueInteraction(RegionEntityInteractionTask task, Runnable apply) {
+        synchronized (this.interactions) {
+            if (this.interactionsClosed || this.isComplete()) {
+                task.retire(net.neoforged.neoforge.server.threading.EntityInteractionTask.State.REJECTED,
+                        this.interactionClosureReason);
+                return false;
+            }
+            if (this.interactions.size() >= MAX_ENTITY_INTERACTIONS) {
+                task.retire(net.neoforged.neoforge.server.threading.EntityInteractionTask.State.REJECTED,
+                        net.neoforged.neoforge.server.threading.EntityInteractionTask.Reason.QUEUE_FULL);
+                return false;
+            }
+            this.interactions.add(task);
+            this.queueServerTask(apply);
+            return true;
+        }
+    }
+
+    void closeInteractions(net.neoforged.neoforge.server.threading.EntityInteractionTask.Reason reason) {
+        synchronized (this.interactions) {
+            if (this.interactionsClosed) {
+                return;
+            }
+            this.interactionsClosed = true;
+            this.interactionClosureReason = reason;
+            for (final RegionEntityInteractionTask task : this.interactions) {
+                task.retire(net.neoforged.neoforge.server.threading.EntityInteractionTask.State.SKIPPED, reason);
+            }
+            this.interactions.clear();
+        }
+    }
 
     RegionEntityTickBatch(ServerLevel level, int blockUpdateEntryBudget) {
         super(level, RegionTickSlice.ENTITY_TICK, blockUpdateEntryBudget);
@@ -218,23 +249,6 @@ final class RegionEntityTickBatch extends RegionTickBatch {
 
     List<Entity> fallbackEntities() {
         return this.fallbackEntities;
-    }
-
-    /**
-     * Records an entity that a worker could not tick because the chunk source refused a chunk the tick
-     * needed; the server thread ticks it after the batch instead.
-     */
-    void addChunkFallback(Entity entity) {
-        this.chunkFallbackEntities.add(entity);
-    }
-
-    /**
-     * Takes the entities a worker handed back because of a refused chunk request.
-     */
-    List<Entity> chunkFallbackEntities() {
-        synchronized (this.chunkFallbackEntities) {
-            return List.copyOf(this.chunkFallbackEntities);
-        }
     }
 
     /**
@@ -461,9 +475,16 @@ final class RegionEntityTickBatch extends RegionTickBatch {
     @Override
     long pendingDeferredWork() {
         return super.pendingDeferredWork()
+                + this.pendingInteractionCount()
                 + this.deferredAdditions.pendingCount()
                 + this.deferredRemovals.pendingCount()
                 + this.deferredSectionUpdates.pendingCount();
+    }
+
+    private long pendingInteractionCount() {
+        synchronized (this.interactions) {
+            return this.interactions.stream().filter(task -> !task.isDone()).count();
+        }
     }
 
     /**
@@ -546,6 +567,7 @@ final class RegionEntityTickBatch extends RegionTickBatch {
                 }
             }
         }
+        this.closeInteractions(net.neoforged.neoforge.server.threading.EntityInteractionTask.Reason.BATCH_CLOSED);
         if (failure != null) {
             net.minecraft.Util.throwAsRuntime(failure);
         }

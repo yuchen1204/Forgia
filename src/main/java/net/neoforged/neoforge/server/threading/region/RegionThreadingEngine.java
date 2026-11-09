@@ -57,6 +57,8 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.ticks.LevelTicks;
 import net.minecraft.world.ticks.ScheduledTick;
 import net.neoforged.neoforge.entity.PartEntity;
+import net.neoforged.neoforge.server.threading.EntityInteractionScheduler;
+import net.neoforged.neoforge.server.threading.EntityInteractionTask;
 import net.neoforged.neoforge.server.threading.EntityRegionScheduler;
 import net.neoforged.neoforge.server.threading.GlobalRegionScheduler;
 import net.neoforged.neoforge.server.threading.RegionScheduler;
@@ -197,7 +199,7 @@ public final class RegionThreadingEngine implements RegionThreading {
      * Entity ticks a worker handed back because the chunk source refused a chunk the tick needed. Each one
      * is ticked on the server thread after the batch instead of blocking the worker on the chunk source.
      */
-    private final AtomicLong chunkFallbackEntityTicks = new AtomicLong();
+    private final AtomicLong chunkFallbackEntityTicks = new AtomicLong(); // Legacy accessor: partial ticks are never replayed.
     /**
      * Entities the pre-load check refused because their own chunk neighborhood was not loaded. They are
      * ticked on the server thread like the entities whose region could not be leased, while the rest of
@@ -283,6 +285,39 @@ public final class RegionThreadingEngine implements RegionThreading {
     private final AtomicLong appliedMeleeAttacks = new AtomicLong();
     private final AtomicLong skippedMeleeAttacks = new AtomicLong();
     private final AtomicLong failedMeleeAttacks = new AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLongArray interactionOutcomes = new java.util.concurrent.atomic.AtomicLongArray(EntityInteractionTask.State.values().length);
+    private final AtomicLong interactionAdmissions = new AtomicLong();
+    private final EntityInteractionScheduler entityInteractionScheduler = new EntityInteractionScheduler() {
+        @Override
+        public EntityInteractionTask submit(Entity source, Entity target, BiConsumer<Entity, Entity> action) {
+            return RegionThreadingEngine.this.submitEntityInteraction(source, target, action);
+        }
+
+        @Override
+        public EntityInteractionTask submitToOwnerAfterChunkLoad(Entity source, Entity owner, BlockPos position,
+                BiConsumer<Entity, LevelChunk> action) {
+            java.util.Objects.requireNonNull(action, "action");
+            return RegionThreadingEngine.this.submitEntityInteraction(source, owner, null, null, false,
+                    java.util.Objects.requireNonNull(position, "position").immutable(), action);
+        }
+
+        @Override
+        public EntityInteractionTask submitToOwner(Entity source, Entity owner, Consumer<Entity> action) {
+            java.util.Objects.requireNonNull(action, "action");
+            return RegionThreadingEngine.this.submitEntityInteraction(source, owner, null, action, false);
+        }
+    };
+
+    public Map<String, Long> entityInteractionCounters() {
+        final Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("admitted", this.interactionAdmissions.get());
+        for (final EntityInteractionTask.State state : EntityInteractionTask.State.values()) {
+            if (state != EntityInteractionTask.State.QUEUED && state != EntityInteractionTask.State.RUNNING) {
+                counts.put(state.name(), this.interactionOutcomes.get(state.ordinal()));
+            }
+        }
+        return Map.copyOf(counts);
+    }
 
     public record MeleeAttackCounters(long queued, long applied, long skipped, long failed) {}
 
@@ -1005,6 +1040,15 @@ public final class RegionThreadingEngine implements RegionThreading {
      * block, the hook is in lava, the reel-in ends), and {@code discard} funnels into
      * {@code FishingHook.remove}, which returns the caught item and the rod damage to the owner before it
      * reaches the funnel.</li>
+     * <li>{@code ThrownEnderpearl}: both impact and end-gateway contact can mutate its owner, including player
+     * connection teleports, dismount, damage and dimension changes. The complete tick stays on the server thread:
+     * deferring only onHit would let ThrowableProjectile continue moving before the impact callback reads the
+     * pearl's position, and would miss onInsideBlock's gateway path. Subclasses inherit this restriction.</li>
+     * <li>{@code FireworkRocketEntity}: attached flight writes another entity's velocity and explosion damage
+     * directly reaches its attached entity (including players) and nearby targets.</li>
+     * <li>{@code WitherSkull}: impact damages a target, may heal its owner and then explodes. Neither the owner
+     * nor the victims are necessarily in the projectile's entity lease. Keep the complete tick inline until
+     * these whole operations have an ownership protocol; do not replay a partially applied impact.</li>
      * </ul>
      * A vehicle ({@code Boat}, {@code ChestBoat}, {@code AbstractMinecartContainer}) and a
      * {@code BlockAttachedEntity} keep the worker: their own tick never removes or re-anchors them, so their
@@ -1016,6 +1060,12 @@ public final class RegionThreadingEngine implements RegionThreading {
         this.entityTickPolicy.serverThreadOnly(net.minecraft.world.entity.player.Player.class, "player_riding_stack");
         this.entityTickPolicy.serverThreadOnly(Slime.class, "slime_split_on_removal");
         this.entityTickPolicy.serverThreadOnly(FishingHook.class, "fishing_hook_remove");
+        this.entityTickPolicy.serverThreadOnly(net.minecraft.world.entity.projectile.ThrownEnderpearl.class,
+                "ender_pearl_owner_interaction");
+        this.entityTickPolicy.serverThreadOnly(net.minecraft.world.entity.projectile.FireworkRocketEntity.class,
+                "firework_attached_and_area_interactions");
+        this.entityTickPolicy.serverThreadOnly(net.minecraft.world.entity.projectile.WitherSkull.class,
+                "wither_skull_impact_interactions");
         this.declareMovingStructureServerThreadOnlyEntities();
     }
 
@@ -1144,6 +1194,11 @@ public final class RegionThreadingEngine implements RegionThreading {
     @Override
     public RegionScheduler regionScheduler() {
         return this.regionScheduler;
+    }
+
+    @Override
+    public EntityInteractionScheduler entityInteractions() {
+        return this.entityInteractionScheduler;
     }
 
     @Override
@@ -1782,11 +1837,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 try {
                     this.runBorderUpdateFixpoint(level);
                 } catch (Throwable throwable) {
-                    if (failure == null) {
-                        failure = throwable;
-                    } else {
-                        failure.addSuppressed(throwable);
-                    }
+                    failure = accumulateFailure(failure, throwable);
                 }
                 // The game events the workers of the batch posted for another region follow the border
                 // updates: the deferred writes of the source are applied first, exactly where the inline run
@@ -1795,11 +1846,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 try {
                     this.runCrossRegionGameEvents(level);
                 } catch (Throwable throwable) {
-                    if (failure == null) {
-                        failure = throwable;
-                    } else {
-                        failure.addSuppressed(throwable);
-                    }
+                    failure = accumulateFailure(failure, throwable);
                 }
             } finally {
                 this.endRegionPhase(level);
@@ -2144,11 +2191,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 }
             }
         } catch (Throwable throwable) {
-            if (failure == null) {
-                failure = throwable;
-            } else {
-                failure.addSuppressed(throwable);
-            }
+            failure = accumulateFailure(failure, throwable);
         } finally {
             failure = runBatchCompletion(failure, () -> this.applyDeferredBlockUpdates(batch));
             failure = runBatchCompletion(failure, () -> this.applyRegionTickMutations(batch.regionTickMutations()));
@@ -2670,26 +2713,148 @@ public final class RegionThreadingEngine implements RegionThreading {
                 && !(target instanceof net.minecraft.world.entity.player.Player)) {
             return false;
         }
-        final ServerLevel level = group.level();
-        final RegionCoordinate coordinate = group.region().coordinate();
-        group.batch().queueServerTask(() -> {
-            if (this.shutdown || this.regionizer.isLevelClosed(level) || attacker.isRemoved() || target.isRemoved()
-                    || attacker.level() != level || target.level() != level) {
-                this.skippedMeleeAttacks.incrementAndGet();
-                return;
-            }
-            try {
-                attacker.doHurtTarget(target);
-                this.appliedMeleeAttacks.incrementAndGet();
-            } catch (Throwable failure) {
-                // Keep draining other accepted attacks, then report the real failure through the batch's normal
-                // failure path. Never replay the source tick or quietly drop remaining queued attacks.
-                this.failedMeleeAttacks.incrementAndGet();
-                this.recordWorkerTickFailure(group.batch(), coordinate, attacker, failure);
-            }
-        });
+        final EntityInteractionTask request = this.submitEntityInteraction(attacker, target,
+                (source, victim) -> ((Mob) source).doHurtTarget(victim), true);
+        if (request.state() == EntityInteractionTask.State.REJECTED) {
+            RegionOwnershipViolationHandler.rejectNativeWorkerStorageAccess("melee interaction rejected: " + request.reason());
+            return false;
+        }
         this.deferredMeleeAttacks.incrementAndGet();
         return true;
+    }
+
+    private EntityInteractionTask submitEntityInteraction(Entity source, Entity target, BiConsumer<Entity, Entity> action) {
+        return this.submitEntityInteraction(source, target, action, false);
+    }
+
+    private EntityInteractionTask submitEntityInteraction(Entity source, Entity target, BiConsumer<Entity, Entity> action, boolean melee) {
+        java.util.Objects.requireNonNull(action, "action");
+        return this.submitEntityInteraction(source, target, action, null, melee);
+    }
+
+    private EntityInteractionTask submitEntityInteraction(Entity source, Entity target,
+            @Nullable BiConsumer<Entity, Entity> action, @Nullable Consumer<Entity> ownerAction, boolean melee) {
+        return this.submitEntityInteraction(source, target, action, ownerAction, melee, null, null);
+    }
+
+    private EntityInteractionTask submitEntityInteraction(Entity source, Entity target,
+            @Nullable BiConsumer<Entity, Entity> action, @Nullable Consumer<Entity> ownerAction, boolean melee,
+            @Nullable BlockPos loadPosition, @Nullable BiConsumer<Entity, LevelChunk> loadedAction) {
+        final boolean ownerOnly = ownerAction != null || loadedAction != null;
+        java.util.Objects.requireNonNull(source, "source");
+        java.util.Objects.requireNonNull(target, "target");
+        final ServerLevel level = source.level() instanceof ServerLevel serverLevel ? serverLevel : null;
+        final var outcomes = this.interactionOutcomes;
+        final AtomicLong meleeApplied = this.appliedMeleeAttacks;
+        final AtomicLong meleeSkipped = this.skippedMeleeAttacks;
+        final AtomicLong meleeFailed = this.failedMeleeAttacks;
+        final Consumer<EntityInteractionTask.State> observer = state -> {
+            outcomes.incrementAndGet(state.ordinal());
+            if (melee) {
+                switch (state) {
+                    case COMPLETED -> meleeApplied.incrementAndGet();
+                    case SKIPPED, CANCELLED -> meleeSkipped.incrementAndGet();
+                    case FAILED -> meleeFailed.incrementAndGet();
+                    default -> {}
+                }
+            }
+        };
+        final RegionEntityInteractionTask request = loadedAction != null
+                ? new RegionEntityInteractionTask(target, level, loadPosition, loadedAction, observer)
+                : ownerAction == null
+                        ? new RegionEntityInteractionTask(source, target, level, action, observer)
+                        : new RegionEntityInteractionTask(target, level, ownerAction, observer);
+        if (this.shutdown) {
+            request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.SHUTDOWN);
+            return request;
+        }
+        if (level == null) {
+            request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.INVALID_CONTEXT);
+            return request;
+        }
+        if (this.regionizer.isLevelClosed(level)) {
+            request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.LEVEL_CLOSED);
+            return request;
+        }
+        if (RegionWorkerScope.isNativeWorkerThread()) {
+            final RegionEntityTickBatch.Group group = this.currentEntityTickGroup();
+            if (group == null || group.level() != level) {
+                request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.INVALID_CONTEXT);
+            } else if (!group.owns(source)) {
+                request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.UNOWNED_SOURCE);
+            } else if (ownerOnly && source.isRemoved()) {
+                request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.ENTITY_REMOVED);
+            } else if (group.batch().queueInteraction(request, this.interactionContinuation(request, group, level,
+                    ownerOnly ? target : source))) {
+                        this.interactionAdmissions.incrementAndGet();
+                    }
+            return request;
+        }
+        if (!this.canRunEntityInteractionImmediately(level)) {
+            request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.INVALID_CONTEXT);
+            return request;
+        }
+        if (ownerOnly && source.isRemoved()) {
+            request.retire(EntityInteractionTask.State.REJECTED, EntityInteractionTask.Reason.ENTITY_REMOVED);
+            return request;
+        }
+        this.interactionAdmissions.incrementAndGet();
+        final Throwable failure = request.execute(() -> this.interactionLifecycleReason(level));
+        if (failure != null) {
+            throwUnchecked(failure);
+        }
+        return request;
+    }
+
+    private EntityInteractionTask.Reason interactionLifecycleReason(ServerLevel level) {
+        return this.shutdown ? EntityInteractionTask.Reason.SHUTDOWN
+                : this.regionizer.isLevelClosed(level) ? EntityInteractionTask.Reason.LEVEL_CLOSED
+                        : this.canRunEntityInteractionImmediately(level) ? EntityInteractionTask.Reason.NONE
+                                : EntityInteractionTask.Reason.INVALID_CONTEXT;
+    }
+
+    /** Internal admission proof, also used by vanilla continuations which no longer have a live source. */
+    @ApiStatus.Internal
+    public boolean canRunEntityInteractionImmediately(ServerLevel level) {
+        final MinecraftServer server = level.getServer();
+        if (this.shutdown || this.regionizer.isLevelClosed(level) || RegionWorkerScope.isNativeWorkerThread()
+                || server == null || !server.isSameThread() || !this.isInteractionCompletionQuiescent()) {
+            return false;
+        }
+        final AtomicBoolean foreignOwner = new AtomicBoolean();
+        this.regionizer.forEach(region -> {
+            if ((region.isRunning() && !region.isOwnedByCurrentThread()) || region.isWorkerSubmitted()) {
+                foreignOwner.set(true);
+            }
+        });
+        return !foreignOwner.get();
+    }
+
+    /** A main-thread continuation may run inside a published batch only after all of its workers returned. */
+    private boolean isInteractionCompletionQuiescent() {
+        for (final RegionTickBatch batch : this.activeTickBatches) {
+            if (!batch.isExecutingOnCurrentThread() || !batch.isGroupsComplete()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Owner-only requests capture the owner for failure reporting, never the consumed source projectile. */
+    private Runnable interactionContinuation(RegionEntityInteractionTask request, RegionEntityTickBatch.Group group,
+            ServerLevel level, Entity failureEntity) {
+        return () -> {
+            if (this.shutdown) {
+                request.retire(EntityInteractionTask.State.SKIPPED, EntityInteractionTask.Reason.SHUTDOWN);
+            } else if (this.regionizer.isLevelClosed(level)) {
+                request.retire(EntityInteractionTask.State.SKIPPED, EntityInteractionTask.Reason.LEVEL_CLOSED);
+            } else {
+                final Throwable failure = request.execute(() -> this.interactionLifecycleReason(level));
+                if (failure != null) {
+                    this.recordWorkerTickFailure(group.batch(), group.region().coordinate(), failureEntity, failure);
+                }
+            }
+        };
     }
 
     /**
@@ -3039,11 +3204,6 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     private void tickSelfDrivenFallbacks(RegionEntityTickBatch batch) {
         final ServerLevel level = batch.level();
-        for (final Entity entity : batch.chunkFallbackEntities()) {
-            // The chunk source refused a chunk the worker tick needed; the tick it abandoned is completed
-            // here, exactly like the fallback of the per-entity plan.
-            this.tickEntityInline(level, entity);
-        }
         for (final Entity entity : batch.deferredUpdateFallbackEntities()) {
             // The batch could not reserve the block-write effects of the tick, so the worker never started it;
             // the whole vanilla body runs here, like for an entity whose region could not be enumerated.
@@ -4711,9 +4871,6 @@ public final class RegionThreadingEngine implements RegionThreading {
                                     // propagating like vanilla lets it propagate.
                                     tickEntityBody(level, entity);
                                 } catch (Throwable throwable) {
-                                    if (handOffRefusedChunk(group, entity, throwable)) {
-                                        continue;
-                                    }
                                     if (failureObserver != null) {
                                         // Diagnostics only: the observer records the rejected operation and the
                                         // group keeps ticking its remaining entities instead of stopping at the
@@ -4845,9 +5002,6 @@ public final class RegionThreadingEngine implements RegionThreading {
                                     // stack above keeps propagating like vanilla lets it propagate.
                                     tickEntityBody(level, entity);
                                 } catch (Throwable throwable) {
-                                    if (handOffRefusedChunk(group, entity, throwable)) {
-                                        continue;
-                                    }
                                     if (failureObserver != null) {
                                         // Diagnostics only: the observer records the rejected operation and the
                                         // group keeps ticking its remaining entities instead of stopping at the
@@ -5007,31 +5161,6 @@ public final class RegionThreadingEngine implements RegionThreading {
     }
 
     /**
-     * Hands {@code entity} to the server-thread fallback when {@code throwable} is a chunk request the
-     * chunk source refused to a native region worker.
-     * <p>
-     * The entity tick group does not abort on the refusal: the entity is recorded as a chunk fallback and
-     * ticked on the server thread after the batch, exactly once, instead of blocking the worker on the chunk
-     * source. Every other failure keeps the production path, which aborts the group and the level tick. The
-     * worker attempt that was abandoned here is not rolled back; the fallback tick is the tick the entity
-     * completes, and the guard fires at the first block read that leaves the pre-loaded margin.
-     *
-     * @return {@code true} when the entity was handed off, {@code false} when the caller has to keep the
-     *         failure
-     */
-    private boolean handOffRefusedChunk(RegionEntityTickBatch.Group group, Entity entity, Throwable throwable) {
-        if (!RegionWorkerChunkUnavailableException.isChunkUnavailable(throwable)) {
-            return false;
-        }
-        if (RegionWorkerChunkUnavailableException.mustNotReplay(throwable)) {
-            return true;
-        }
-        group.batch().addChunkFallback(entity);
-        this.chunkFallbackEntityTicks.incrementAndGet();
-        return true;
-    }
-
-    /**
      * Runs the vanilla preconditions of one worker entity tick.
      *
      * @return {@code true} when the entity still has to be ticked
@@ -5083,16 +5212,12 @@ public final class RegionThreadingEngine implements RegionThreading {
     }
 
     /**
-     * Ticks the entities whose region could not be leased safely, the entities a worker handed back after a
-     * refused chunk request and the entities a worker refused before their body because of the deferred
-     * block-update bound, on the server thread after the batch.
+     * Ticks entities refused before their body, because a region could not be leased safely or because the
+     * deferred block-update bound could not reserve their effects, on the server thread after the batch.
      */
     private void tickFallbackEntities(RegionEntityTickBatch batch) {
         final ServerLevel level = batch.level();
         for (final Entity entity : batch.fallbackEntities()) {
-            this.tickEntityInline(level, entity);
-        }
-        for (final Entity entity : batch.chunkFallbackEntities()) {
             this.tickEntityInline(level, entity);
         }
         for (final Entity entity : batch.deferredUpdateFallbackEntities()) {
@@ -5573,21 +5698,10 @@ public final class RegionThreadingEngine implements RegionThreading {
                                             }
                                         }
                                     } catch (Throwable throwable) {
-                                        // A chunk request the chunk source refused is a handoff, not a failure: the
-                                        // ticker is ticked on the server thread after the batch instead of aborting
-                                        // the group.
-                                        if (!RegionWorkerChunkUnavailableException.isChunkUnavailable(throwable)) {
-                                            // The failure is recorded for the server thread instead of failing the
-                                            // group with it; the group stops at its first failing ticker.
-                                            this.recordWorkerTickFailure(group.batch(), coordinate, null, throwable);
-                                            return;
-                                        }
-                                        if (!RegionWorkerChunkUnavailableException.mustNotReplay(throwable)) {
-                                            group.batch().addFallback(admission);
-                                            this.fallbackBlockEntityTicks.incrementAndGet();
-                                            RegionBlockEntityTickAttribution.recordFallback(RegionBlockEntityTickAttribution.FallbackReason.CHUNK_UNAVAILABLE, 1);
-                                        }
-                                        continue;
+                                        // Once a ticker body started, a chunk refusal is a real failure. Its
+                                        // earlier inventory/world/event effects cannot be rolled back or replayed.
+                                        this.recordWorkerTickFailure(group.batch(), coordinate, null, throwable);
+                                        return;
                                     } finally {
                                         final long closeStart = tickerTiming ? System.nanoTime() : 0L;
                                         scope.close();
@@ -6067,11 +6181,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             try {
                 mutation.run();
             } catch (Throwable throwable) {
-                if (failure == null) {
-                    failure = throwable;
-                } else {
-                    failure.addSuppressed(throwable);
-                }
+                failure = accumulateFailure(failure, throwable);
             }
         }
         if (failure != null) {
@@ -6721,11 +6831,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                             blockUpdate.oldState(), blockUpdate.newState(), blockUpdate.flags());
                 }
             } catch (Throwable throwable) {
-                if (failure[0] == null) {
-                    failure[0] = throwable;
-                } else {
-                    failure[0].addSuppressed(throwable);
-                }
+                failure[0] = accumulateFailure(failure[0], throwable);
             }
         });
         this.appliedDeferredBlockUpdates[slice].addAndGet(applied);
@@ -7875,11 +7981,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.appliedPortalTransitionCount.incrementAndGet();
             } catch (Throwable throwable) {
                 this.refusedPortalTransitionCount.incrementAndGet();
-                if (failure == null) {
-                    failure = throwable;
-                } else {
-                    failure.addSuppressed(throwable);
-                }
+                failure = accumulateFailure(failure, throwable);
             }
         }
         if (failure != null) {
@@ -7928,11 +8030,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 // because their entities were moved by the same batch and must not keep an unpublished
                 // section. The first failure is reported once the whole batch was served.
                 this.droppedDeferredSectionUpdateCount.incrementAndGet();
-                if (failure == null) {
-                    failure = throwable;
-                } else {
-                    failure.addSuppressed(throwable);
-                }
+                failure = accumulateFailure(failure, throwable);
             }
         }
         if (failure != null) {
@@ -8029,11 +8127,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.appliedDeferredRemovalCount.incrementAndGet();
             } catch (Throwable throwable) {
                 this.droppedDeferredRemovalCount.incrementAndGet();
-                if (failure == null) {
-                    failure = throwable;
-                } else {
-                    failure.addSuppressed(throwable);
-                }
+                failure = accumulateFailure(failure, throwable);
             }
         }
         if (failure != null) {
@@ -8124,11 +8218,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             } catch (Throwable throwable) {
                 this.droppedDeferredAdditionCount.incrementAndGet();
                 this.entityAdmissionDiagnostics.record(RegionEntityAdmissionDiagnostics.Reason.EXCEPTION, addition.root(), addition.graph().size());
-                if (failure == null) {
-                    failure = throwable;
-                } else {
-                    failure.addSuppressed(throwable);
-                }
+                failure = accumulateFailure(failure, throwable);
             }
         }
         if (failure != null) {
@@ -8169,6 +8259,7 @@ public final class RegionThreadingEngine implements RegionThreading {
     private void closeDeferredSeams() {
         for (final RegionTickBatch active : this.activeTickBatches) {
             if (active instanceof RegionEntityTickBatch entityBatch) {
+                entityBatch.closeInteractions(EntityInteractionTask.Reason.SHUTDOWN);
                 this.refusedPortalTransitionCount.addAndGet(entityBatch.closeDeferredPortalTransitions());
                 this.droppedDeferredSectionUpdateCount.addAndGet(entityBatch.closeDeferredSectionUpdates());
                 this.releaseDeferredRemovals(entityBatch.closeDeferredRemovals());
@@ -9130,10 +9221,19 @@ public final class RegionThreadingEngine implements RegionThreading {
         try {
             action.run();
         } catch (Throwable throwable) {
-            if (previousFailure == null) {
-                return throwable;
-            }
-            previousFailure.addSuppressed(throwable);
+            return accumulateFailure(previousFailure, throwable);
+        }
+        return previousFailure;
+    }
+
+    private static Throwable accumulateFailure(@Nullable Throwable previousFailure, Throwable nextFailure) {
+        if (previousFailure == null) {
+            return nextFailure;
+        }
+        // A mod may reuse a throwable instance. Self-suppression throws IllegalArgumentException and would
+        // abort the drain/finally chain, stranding unrelated effects and masking the original failure.
+        if (previousFailure != nextFailure) {
+            previousFailure.addSuppressed(nextFailure);
         }
         return previousFailure;
     }

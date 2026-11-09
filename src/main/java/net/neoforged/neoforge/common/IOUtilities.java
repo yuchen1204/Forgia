@@ -18,7 +18,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import net.minecraft.Util;
@@ -40,7 +39,7 @@ public final class IOUtilities {
     };
     private static final Logger LOGGER = LoggerFactory.getLogger(IOUtilities.class);
 
-    private static CompletableFuture<Void> saveDataTasks = CompletableFuture.completedFuture(null);
+    private static final net.neoforged.neoforge.common.util.OrderedIOQueue SAVE_DATA_TASKS = new net.neoforged.neoforge.common.util.OrderedIOQueue(command -> Util.ioPool().execute(command));
 
     private IOUtilities() {}
 
@@ -193,12 +192,11 @@ public final class IOUtilities {
     }
 
     public static void withIOWorker(Runnable task) {
-        saveDataTasks = saveDataTasks.thenRunAsync(task, Util.ioPool());
+        SAVE_DATA_TASKS.submit(task);
     }
 
     public static void waitUntilIOWorkerComplete() {
-        saveDataTasks.join();
-        saveDataTasks = CompletableFuture.completedFuture(null);
+        SAVE_DATA_TASKS.await();
     }
 
     /**

@@ -26,3 +26,11 @@
                      }
                  } else {
                      entity.changeDimension(
+@@ -136,6 +_,7 @@
+     protected void onInsideBlock(BlockState p_353066_) {
+         super.onInsideBlock(p_353066_);
+         if (p_353066_.is(Blocks.END_GATEWAY) && this.getOwner() instanceof ServerPlayer serverplayer) {
++            if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.submitPearlGatewayOwnerOperation(this, serverplayer, p_353066_)) return;
+             serverplayer.onInsideBlock(p_353066_);
+         }
+     }

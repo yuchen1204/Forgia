@@ -1,0 +1,279 @@
+--- a/net/minecraft/world/RandomSequences.java
++++ b/net/minecraft/world/RandomSequences.java
+@@ -22,6 +_,24 @@
+     private boolean includeWorldSeed = true;
+     private boolean includeSequenceId = true;
+     private final Map<ResourceLocation, RandomSequence> sequences = new Object2ObjectOpenHashMap<>();
++    // Registry/defaults are separate from generator monitors. Never hold this lock while encoding a generator
++    // or invoking a forAllSequences callback; different named streams must be able to draw independently.
++    private final Object registryLock = new Object();
++    private final Object dirtyLock = new Object();
++
++    @Override
++    public void setDirty(boolean dirty) {
++        synchronized (this.dirtyLock) {
++            super.setDirty(dirty);
++        }
++    }
++
++    @Override
++    public boolean isDirty() {
++        synchronized (this.dirtyLock) {
++            return super.isDirty();
++        }
++    }
+ 
+     public static SavedData.Factory<RandomSequences> factory(long p_294688_) {
+         return new SavedData.Factory<>(
+@@ -34,7 +_,10 @@
+     }
+ 
+     public RandomSource get(ResourceLocation p_287751_) {
+-        RandomSource randomsource = this.sequences.computeIfAbsent(p_287751_, this::createSequence).random();
++        final RandomSource randomsource;
++        synchronized (this.registryLock) {
++            randomsource = this.sequences.computeIfAbsent(p_287751_, this::createSequence).random();
++        }
+         return new RandomSequences.DirtyMarkingRandomSource(randomsource);
+     }
+ 
+@@ -48,27 +_,42 @@
+     }
+ 
+     public void forAllSequences(BiConsumer<ResourceLocation, RandomSequence> p_294252_) {
+-        this.sequences.forEach(p_294252_);
++        final Map<ResourceLocation, RandomSequence> snapshot;
++        synchronized (this.registryLock) {
++            snapshot = new java.util.LinkedHashMap<>(this.sequences);
++        }
++        // The callback retains vanilla's raw RandomSequence API. Mutating its raw generator concurrently is
++        // unsupported; callers needing concurrent draws must obtain the protected wrapper through get(id).
++        snapshot.forEach(p_294252_);
+     }
+ 
+     public void setSeedDefaults(int p_294511_, boolean p_294255_, boolean p_295889_) {
+-        this.salt = p_294511_;
+-        this.includeWorldSeed = p_294255_;
+-        this.includeSequenceId = p_295889_;
++        synchronized (this.registryLock) {
++            this.salt = p_294511_;
++            this.includeWorldSeed = p_294255_;
++            this.includeSequenceId = p_295889_;
++            this.setDirty();
++        }
+     }
+ 
+     @Override
+     public CompoundTag save(CompoundTag p_287658_, HolderLookup.Provider p_323500_) {
+-        p_287658_.putInt("salt", this.salt);
+-        p_287658_.putBoolean("include_world_seed", this.includeWorldSeed);
+-        p_287658_.putBoolean("include_sequence_id", this.includeSequenceId);
++        final Map<ResourceLocation, RandomSequence> snapshot;
++        synchronized (this.registryLock) {
++            p_287658_.putInt("salt", this.salt);
++            p_287658_.putBoolean("include_world_seed", this.includeWorldSeed);
++            p_287658_.putBoolean("include_sequence_id", this.includeSequenceId);
++            snapshot = new java.util.LinkedHashMap<>(this.sequences);
++        }
+         CompoundTag compoundtag = new CompoundTag();
+-        this.sequences
+-            .forEach(
+-                (p_337697_, p_337698_) -> compoundtag.put(
+-                        p_337697_.toString(), RandomSequence.CODEC.encodeStart(NbtOps.INSTANCE, p_337698_).result().orElseThrow()
+-                    )
+-            );
++        snapshot.forEach((id, sequence) -> {
++            // Xoroshiro encoding reads multiple state words. Use the same monitor as its draw wrappers so a
++            // saved generator is never a mixture of two states. This is per-stream consistency, not one global
++            // instant across different streams, nor an acknowledgement of SavedData's eventual file write.
++            synchronized (sequence.random()) {
++                compoundtag.put(id.toString(), RandomSequence.CODEC.encodeStart(NbtOps.INSTANCE, sequence).result().orElseThrow());
++            }
++        });
+         p_287658_.put("sequences", compoundtag);
+         return p_287658_;
+     }
+@@ -95,21 +_,31 @@
+             }
+         }
+ 
++        randomsequences.setDirty(false); // Restoring defaults is not a new unsaved mutation.
+         return randomsequences;
+     }
+ 
+     public int clear() {
+-        int i = this.sequences.size();
+-        this.sequences.clear();
+-        return i;
++        synchronized (this.registryLock) {
++            int i = this.sequences.size();
++            this.sequences.clear();
++            this.setDirty();
++            return i;
++        }
+     }
+ 
+     public void reset(ResourceLocation p_296099_) {
+-        this.sequences.put(p_296099_, this.createSequence(p_296099_));
++        synchronized (this.registryLock) {
++            this.sequences.put(p_296099_, this.createSequence(p_296099_));
++            this.setDirty();
++        }
+     }
+ 
+     public void reset(ResourceLocation p_294608_, int p_295700_, boolean p_296000_, boolean p_294735_) {
+-        this.sequences.put(p_294608_, this.createSequence(p_294608_, p_295700_, p_296000_, p_294735_));
++        synchronized (this.registryLock) {
++            this.sequences.put(p_294608_, this.createSequence(p_294608_, p_295700_, p_296000_, p_294735_));
++            this.setDirty();
++        }
+     }
+ 
+     class DirtyMarkingRandomSource implements RandomSource {
+@@ -121,62 +_,126 @@
+ 
+         @Override
+         public RandomSource fork() {
+-            RandomSequences.this.setDirty();
+-            return this.random.fork();
++            synchronized (this.random) {
++                try {
++                    return this.random.fork();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public PositionalRandomFactory forkPositional() {
+-            RandomSequences.this.setDirty();
+-            return this.random.forkPositional();
++            synchronized (this.random) {
++                try {
++                    return this.random.forkPositional();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public void setSeed(long p_295551_) {
+-            RandomSequences.this.setDirty();
+-            this.random.setSeed(p_295551_);
++            synchronized (this.random) {
++                try {
++                    this.random.setSeed(p_295551_);
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public int nextInt() {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextInt();
++            synchronized (this.random) {
++                try {
++                    return this.random.nextInt();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public int nextInt(int p_294632_) {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextInt(p_294632_);
++            synchronized (this.random) {
++                try {
++                    return this.random.nextInt(p_294632_);
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public long nextLong() {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextLong();
++            synchronized (this.random) {
++                try {
++                    return this.random.nextLong();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public boolean nextBoolean() {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextBoolean();
++            synchronized (this.random) {
++                try {
++                    return this.random.nextBoolean();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public float nextFloat() {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextFloat();
++            synchronized (this.random) {
++                try {
++                    return this.random.nextFloat();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public double nextDouble() {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextDouble();
++            synchronized (this.random) {
++                try {
++                    return this.random.nextDouble();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
+         }
+ 
+         @Override
+         public double nextGaussian() {
+-            RandomSequences.this.setDirty();
+-            return this.random.nextGaussian();
++            synchronized (this.random) {
++                try {
++                    return this.random.nextGaussian();
++                } finally {
++                    RandomSequences.this.setDirty();
++                }
++            }
++        }
++
++        @Override
++        public double triangle(double mean, double deviation) {
++            synchronized (this.random) {
++                return RandomSource.super.triangle(mean, deviation);
++            }
++        }
++
++        @Override
++        public void consumeCount(int count) {
++            synchronized (this.random) {
++                RandomSource.super.consumeCount(count);
++            }
+         }
+ 
+         @Override

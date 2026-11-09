@@ -18,18 +18,17 @@ import org.jetbrains.annotations.Nullable;
  * waits for it. A region worker that does the same waits for the server thread, which is inside the batch
  * barrier waiting for that worker: the request either stalls the tick for as long as the chunk takes to
  * load or deadlocks the tick outright. A worker therefore only receives a chunk that is already available,
- * and asks for the server-thread fallback instead of waiting for one that is not.
+ * and refuses a request which would have to wait for one that is not available.
  * <p>
- * A missing-chunk refusal is a handoff, not a failure. The entity tick group catches it per entity, counts it in
- * {@link RegionThreadingDiagnostics#chunkFallbackEntityTicks()} and ticks that entity on the server thread
- * after the batch, exactly once. The block-entity tick group hands the refused ticker to its existing
- * server-thread fallback the same way. {@link net.minecraft.world.level.Level#guardEntityTick} rethrows the
- * exception unwrapped, so the handoff never builds a crash report and never discards the entity.
+ * A refusal inside an already-started entity or block-entity tick is a failure, not a restart signal.
+ * Those groups preserve the throwable for normal server-thread reporting without replaying earlier
+ * inventory, world or event effects. Only admission checks before a body starts can use whole-tick fallback.
+ * Explicit chunk-backed owner operations can instead submit their remaining operation before its effects;
+ * they load at a quiescent completion point and invoke that callback once.
  * <p>
- * An unstable-read refusal is different: {@link #mustNotReplay(Throwable)} identifies a body that may
- * already have applied effects. Its handlers abandon the unit for this tick without replay or removal.
- * Regular entity, block-entity and chunk ticks can run again in the next tick; a consumed scheduled call
- * is not rescheduled as a whole. The unstable-read counter records every such loss.
+ * Legacy chunk/spawn/scheduled propagation handlers still distinguish unstable or versionless reads through
+ * {@link #mustNotReplay(Throwable)}. That marker never proves another refusal is safe to replay. Those
+ * handlers' truncation semantics remain a separate compatibility limitation, not transparent continuation.
  * <p>
  * The exception is only ever thrown from a native region worker (see
  * {@link net.neoforged.neoforge.server.threading.RegionThreadingHooks#isNativeRegionWorkerThread()}). The
@@ -61,7 +60,7 @@ public final class RegionWorkerChunkUnavailableException extends IllegalStateExc
         super(message);
     }
 
-    /** Unlike missing-chunk handoffs, this mid-body refusal must never replay prior callback effects. */
+    /** Marks a foreign-read failure; absence of this marker never authorizes replay of a started body. */
     public static RegionWorkerChunkUnavailableException forUnstableRead(int chunkX, int chunkZ) {
         UNSTABLE_READ_REFUSALS.incrementAndGet();
         final RegionWorkerChunkUnavailableException refusal = new RegionWorkerChunkUnavailableException(

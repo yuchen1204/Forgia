@@ -60,7 +60,7 @@
      }
  
      @Override
-@@ -539,7 +_,7 @@
+@@ -539,11 +_,22 @@
              && this.canPickUpLoot()
              && this.isAlive()
              && !this.dead
@@ -69,6 +69,21 @@
              Vec3i vec3i = this.getPickupReach();
  
              for (ItemEntity itementity : this.level()
+                 .getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate((double)vec3i.getX(), (double)vec3i.getY(), (double)vec3i.getZ()))) {
++                if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.deferMobItemPickup(this, itementity, candidate -> {
++                    // Recheck the live state before the first stack/equipment mutation. The grief event
++                    // already admitted this loot scan and must not be posted again at the barrier.
++                    if (this.canPickUpLoot() && this.isAlive() && !this.dead
++                        && !candidate.isRemoved() && !candidate.getItem().isEmpty() && !candidate.hasPickUpDelay()
++                        && this.wantsToPickUp(candidate.getItem())) {
++                        this.pickUpItem(candidate);
++                    }
++                })) {
++                    continue;
++                }
+                 if (!itementity.isRemoved() && !itementity.getItem().isEmpty() && !itementity.hasPickUpDelay() && this.wantsToPickUp(itementity.getItem())) {
+                     this.pickUpItem(itementity);
+                 }
 @@ -666,6 +_,10 @@
  
      private double getApproximateAttackDamageWithItem(ItemStack p_330413_) {

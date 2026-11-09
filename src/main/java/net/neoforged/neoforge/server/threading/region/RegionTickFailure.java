@@ -56,6 +56,10 @@ record RegionTickFailure(RegionTickSlice slice, RegionCoordinate coordinate, lon
             reportEntityTickFailure(this.entity, this.throwable);
             return;
         }
+        if (this.throwable instanceof RegionBlockEntityTickFailure blockEntityFailure) {
+            blockEntityFailure.report();
+            return;
+        }
         rethrow(this.throwable);
     }
 
