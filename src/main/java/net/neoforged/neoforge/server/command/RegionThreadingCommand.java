@@ -67,6 +67,15 @@ final class RegionThreadingCommand {
      */
     private static int sendCompatibility(CommandSourceStack source) {
         RegionThreadingCompatReport.lines().forEach(line -> source.sendSuccess(() -> Component.literal(line), false));
+        net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(source.getServer()).ifPresent(api -> {
+            source.sendSuccess(() -> Component.literal("Parallel API v" + api.apiMajorVersion() + " (experimental): " + api.capabilities()
+                    + "; preparation registrations do not override compatibility restrictions"), false);
+            for (final var adapter : api.adapters()) {
+                source.sendSuccess(() -> Component.literal("  " + adapter.id() + ": ready=" + adapter.preparedUnits()
+                        + ", serial=" + adapter.serialUnits() + ", prepareMs=" + millis(adapter.preparationNanos())
+                        + adapter.lastSerialReason().map(reason -> ", lastSerialReason=" + reason).orElse("")), false);
+            }
+        });
         return 1;
     }
 

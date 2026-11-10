@@ -110,7 +110,14 @@ coexist with the engine in this run - the static table is far more conservative 
 
 Those nine rows now carry a `REPORT_ONLY` action: they are still detected and reported by
 `/neoforge regionthreading compat`, but they no longer remove a slice, because a run with the engine and all of
-them produced no violation. **c2me keeps `DISABLE_ENGINE`**, which makes the pack usable with the engine on:
+them produced no violation. Later production evidence supersedes the `mobspawncontroller` row: its
+`FinalizeSpawnEvent` structure filter reaches `StructureManager.fillStartsForStructure` and synchronously
+requests missing `STRUCTURE_STARTS` chunks (for example `(51,-52)`). It now carries `DISABLE_SPAWNING`:
+only natural spawning returns to the server thread, before any spawn body or listener runs. The existing
+`regionThreadingForceWithKnownConflicts` harness override can still bypass this action and reproduce the
+hazard; normal deployments should leave it false. The entity, block-entity and chunk slices remain available.
+This is containment through serial spawning, not concurrent chunk-loading support or a replay of a partially
+executed spawn attempt. **c2me keeps `DISABLE_ENGINE`**, which makes the pack usable with the engine on:
 
 ```
 enableRegionThreadingBridge = true

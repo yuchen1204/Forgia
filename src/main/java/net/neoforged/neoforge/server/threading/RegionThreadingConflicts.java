@@ -173,8 +173,8 @@ public final class RegionThreadingConflicts {
                     "patches EntityTickList and moves contraptions through the chunk and entity storage; measured compatible"),
             new Conflict("spawn", Kind.LEVEL_WIDE_STATE, Action.REPORT_ONLY,
                     "controls natural spawning through ServerChunkCache and its own level-wide spawn state; measured compatible"),
-            new Conflict("mobspawncontroller", Kind.LEVEL_WIDE_STATE, Action.REPORT_ONLY,
-                    "controls per-chunk spawning through LevelChunk; measured compatible"));
+            new Conflict("mobspawncontroller", Kind.LEVEL_WIDE_STATE,
+                    "FinalizeSpawnEvent structure filters synchronously request STRUCTURE_STARTS chunks; keep natural spawning on the server thread so the complete listener runs with normal chunk loading"));
 
     private RegionThreadingConflicts() {}
 

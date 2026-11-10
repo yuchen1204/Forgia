@@ -2848,6 +2848,22 @@ public final class RegionThreadingEngine implements RegionThreading {
         return !foreignOwner.get();
     }
 
+    /** Conservative server-wide check for the public preparation API; this does not grant ownership. */
+    @ApiStatus.Internal
+    public boolean isQuiescentForParallelApi() {
+        if (!this.isInteractionCompletionQuiescent() || this.globalRegion.isWorkerSubmitted()
+                || (this.globalRegion.isRunning() && !this.globalRegion.isOwnedByCurrentThread())) {
+            return false;
+        }
+        final AtomicBoolean busy = new AtomicBoolean();
+        this.regionizer.forEach(region -> {
+            if (region.isWorkerSubmitted() || (region.isRunning() && !region.isOwnedByCurrentThread())) {
+                busy.set(true);
+            }
+        });
+        return !busy.get();
+    }
+
     /** A main-thread continuation may run inside a published batch only after all of its workers returned. */
     private boolean isInteractionCompletionQuiescent() {
         for (final RegionTickBatch batch : this.activeTickBatches) {
@@ -6531,8 +6547,14 @@ public final class RegionThreadingEngine implements RegionThreading {
                                     this.currentSpawnRandom.set(random);
                                     this.currentSpawnNeighborhood.set(group.neighborhood());
                                     try {
-                                        net.minecraft.world.level.NaturalSpawner.spawnForChunk(level, chunk.chunk(), group.state(),
+                                        final Runnable body = () -> net.minecraft.world.level.NaturalSpawner.spawnForChunk(level, chunk.chunk(), group.state(),
                                                 spawnFriendlies, spawnEnemies, spawnPersistent);
+                                        if (chunk.prepared() == null) {
+                                            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.runSerial(body);
+                                        } else if (!chunk.prepared().run(level, body)) {
+                                            this.skippedSpawnChunks.incrementAndGet();
+                                            continue;
+                                        }
                                         ++spawned[0];
                                     } catch (Throwable throwable) {
                                         if (!RegionWorkerChunkUnavailableException.isChunkUnavailable(throwable)) {

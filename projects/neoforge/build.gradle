@@ -33,6 +33,18 @@ sourceSets {
     }
 }
 
+// Compile-only facade for mod authors. Forgia supplies these classes at runtime; never jar-in-jar it.
+// Publication coordinates remain experimental and are not registered as a Maven publication yet.
+tasks.register('parallelApiJar', Jar) {
+    group = 'build'
+    description = 'Builds the experimental compile-only mod parallel API facade'
+    archiveClassifier = 'parallel-api'
+    from(sourceSets.main.output) {
+        include 'net/neoforged/neoforge/server/threading/api/**'
+        include 'net/neoforged/neoforge/event/server/RegisterParallelAdaptersEvent.class'
+    }
+}
+
 final checkVersion = JCCPlugin.providePreviousVersion(
         project.providers, project.providers.provider({['https://maven.neoforged.net/releases']}), project.providers.provider({'net.neoforged:neoforge'}),
         project.provider { project.version }.map { ver -> CompatibilityTask.VersionComponentTest.MINOR.predicate(ver) }

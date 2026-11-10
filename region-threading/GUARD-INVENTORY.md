@@ -84,6 +84,18 @@ cancelled join events). The status command reports separate reasons and one boun
 | POI queries | LOCAL + PUBLISHED snapshots | `RegionPoiStorage` | `RegionPoiStorage*` |
 | lighting, block updates, section updates, spawns, scheduled ticks | DEFERRED | batch queues, applied in a fixed order at the barrier | `RegionTickBatch*` |
 
+## Experimental mod API
+
+The supported facade for mod registration and natural-spawn preparation is documented in
+[MOD-PARALLEL-API.md](MOD-PARALLEL-API.md). Registration does not override a conflict-table action.
+
+| Entry point | Contract | Test |
+|---|---|---|
+| `RegisterParallelAdaptersEvent` / `ParallelApi.Registrar` | server-scoped, frozen after registration; duplicate id, API-major mismatch and registration overflow reject publication; stopped services are invalidated | `ParallelApiTest` |
+| `ParallelApi.Server.currentPhase` | main-thread service while a worker batch is active is SERVER_SERVICE, not quiescent; no ownership is granted by the phase | `RegionSpawnTest.preparedSpawnDataReachesTheRealWorkerBodyButNotMainThreadService` |
+| `NaturalSpawnPreparation` at `RegionSpawnPlan.accept` | only before the whole chunk spawn body; Ready snapshots are scoped to the body, ServerRequired selects the existing complete serial body; preparation failures propagate, no automatic replay | `ParallelApiTest`, `RegionSpawnTest.adapterFallbackRunsOneCompleteSerialSpawnWithoutWorkerSubmission` |
+| `ParallelApi.prepared` | immutable data contract; thread-local to the active unit, hidden in serial fallback, cleaned on exception; retired or wrong-server/unit work cannot execute | `ParallelApiTest` |
+
 ## Third-party reflection
 
 Forgia reaches into a mod's own API in exactly one place: the optional Sable plot-gap adapter. The rule that

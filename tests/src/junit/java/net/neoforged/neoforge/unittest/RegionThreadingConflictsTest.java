@@ -111,6 +111,38 @@ class RegionThreadingConflictsTest {
     }
 
     @Test
+    void mobSpawnControllerStructureFiltersKeepNaturalSpawningOnTheServerThread() {
+        final RegionThreadingConflicts.Plan plan = RegionThreadingConflicts.plan(true, true, true, loaded("mobspawncontroller"));
+
+        assertTrue(plan.installEngine());
+        assertTrue(plan.entityTickWorkers(), "structure filters must not disable the entity slice");
+        assertFalse(plan.spawnWorkers(), "FinalizeSpawnEvent may synchronously load STRUCTURE_STARTS chunks");
+        assertEquals(List.of("spawning"), plan.leftOffSlices());
+        assertEquals(RegionThreadingConflicts.Action.DISABLE_SPAWNING, plan.conflicts().getFirst().action());
+        assertTrue(plan.lines().stream().anyMatch(line -> line.contains("mobspawncontroller")
+                && line.contains("STRUCTURE_STARTS")), "the report must explain the actual unsupported operation");
+    }
+
+    @Test
+    void mobSpawnControllerDoesNotReportAnAlreadyDisabledSpawnSliceAsTakenAway() {
+        final RegionThreadingConflicts.Plan plan = RegionThreadingConflicts.plan(true, true, false, loaded("mobspawncontroller"));
+
+        assertTrue(plan.installEngine());
+        assertTrue(plan.entityTickWorkers());
+        assertFalse(plan.spawnWorkers());
+        assertTrue(plan.leftOffSlices().isEmpty());
+    }
+
+    @Test
+    void explicitHarnessForceStillReportsTheMobSpawnControllerHazard() {
+        final RegionThreadingConflicts.Plan plan = RegionThreadingConflicts.plan(true, true, true, loaded("mobspawncontroller"), true);
+
+        assertTrue(plan.spawnWorkers(), "the explicit compatibility-harness override remains supported");
+        assertTrue(plan.leftOffSlices().isEmpty());
+        assertEquals(RegionThreadingConflicts.Action.DISABLE_SPAWNING, plan.conflicts().getFirst().action());
+    }
+
+    @Test
     void aSliceTheConfigurationDidNotAskForIsNotReportedAsLeftOff() {
         final RegionThreadingConflicts.Plan plan = RegionThreadingConflicts.plan(true, false, false, loaded("create"),
                 false, List.of(new RegionThreadingConflicts.Conflict("create",

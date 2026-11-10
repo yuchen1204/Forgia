@@ -11,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -503,6 +505,98 @@ class RegionSpawnTest {
         assertTrue(this.engine.diagnostics().capRefusedSpawns() > 0L,
                 "a region without a spawnable chunk has to refuse every category by its cap");
         assertEquals(0, this.engine.diagnostics().runningRegionCount(), "the batch has to release every lease");
+    }
+
+    @Test
+    void preparedSpawnDataReachesTheRealWorkerBodyButNotMainThreadService() {
+        this.installEngine(true);
+        final ServerLevel level = this.mockLevel(Set.of());
+        final var server = mock(net.minecraft.server.MinecraftServer.class);
+        final Thread main = Thread.currentThread();
+        when(server.isSameThread()).thenAnswer(call -> Thread.currentThread() == main);
+        doReturn(server).when(level).getServer();
+        final var key = new net.neoforged.neoforge.server.threading.api.ParallelApi.DataKey<>(
+                ResourceLocation.parse("test:spawn_rules"), String.class);
+        final var observed = new AtomicBoolean();
+        final var prepared = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.initialize(server, registrar -> registrar.register(1, key, unit -> {
+                assertSame(main, Thread.currentThread());
+                assertEquals(1, unit.chunkX());
+                prepared.incrementAndGet();
+                return new net.neoforged.neoforge.server.threading.api.ParallelApi.Ready<>("revision-1");
+            }));
+            final RegionSpawnPlan plan = this.beginPlan(level, Set.of());
+            final var chunk = this.chunk(new ChunkPos(1, 1));
+            when(chunk.getPos()).thenAnswer(call -> {
+                if (Thread.currentThread() != main) {
+                    assertEquals("revision-1", net.neoforged.neoforge.server.threading.api.ParallelApi.prepared(key).orElseThrow());
+                    final var service = net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(server).orElseThrow();
+                    assertEquals(net.neoforged.neoforge.server.threading.api.ParallelApi.Phase.REGION_WORKER, service.currentPhase());
+                    this.engine.runOnServerThread(level, () -> {
+                        assertEquals(net.neoforged.neoforge.server.threading.api.ParallelApi.Phase.SERVER_SERVICE, service.currentPhase());
+                        assertTrue(net.neoforged.neoforge.server.threading.api.ParallelApi.prepared(key).isEmpty());
+                        assertThrows(IllegalStateException.class,
+                                () -> net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.prepare(level, 1, 1));
+                        return null;
+                    });
+                    observed.set(true);
+                }
+                return new ChunkPos(1, 1);
+            });
+            assertSame(this.engine, RegionThreadingManager.getOrThrow());
+            // The FML harness also drains the installed engine on its real server thread. Own the global
+            // phase while preparing, just as production does, rather than racing that background drain.
+            this.engine.runInGlobalRegion(() -> {
+                assertTrue(this.engine.isQuiescentForParallelApi(), () -> this.engine.diagnostics().toString());
+                plan.accept(chunk, true);
+            });
+            assertEquals(1, prepared.get());
+            assertFalse(observed.get(), "preparation must not execute the spawn body");
+            plan.executeAndAwait(PARKING_BARRIER);
+            assertTrue(observed.get(), "the real NaturalSpawner body reads its chunk on the worker");
+            assertEquals(1, prepared.get(), "no preparation retry inside the worker");
+            assertEquals(1, this.engine.diagnostics().spawnChunksOnWorkers());
+            assertTrue(net.neoforged.neoforge.server.threading.api.ParallelApi.prepared(key).isEmpty());
+        } finally {
+            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.close(server);
+        }
+    }
+
+    @Test
+    void adapterFallbackRunsOneCompleteSerialSpawnWithoutWorkerSubmission() {
+        this.installEngine(true);
+        final ServerLevel level = this.mockLevel(Set.of());
+        final var server = mock(net.minecraft.server.MinecraftServer.class);
+        when(server.isSameThread()).thenReturn(true);
+        doReturn(server).when(level).getServer();
+        final var key = new net.neoforged.neoforge.server.threading.api.ParallelApi.DataKey<>(
+                ResourceLocation.parse("test:spawn_rules"), String.class);
+        try {
+            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.initialize(server, registrar -> registrar.register(1, key,
+                    unit -> new net.neoforged.neoforge.server.threading.api.ParallelApi.ServerRequired<>(ResourceLocation.parse("test:missing_data"))));
+            final RegionSpawnPlan plan = this.beginPlan(level, Set.of());
+            final var chunk = this.chunk(new ChunkPos(1, 1));
+            try (var spawns = org.mockito.Mockito.mockStatic(NaturalSpawner.class, CALLS_REAL_METHODS)) {
+                final var bodies = new java.util.concurrent.atomic.AtomicInteger();
+                spawns.when(() -> NaturalSpawner.spawnForChunk(org.mockito.ArgumentMatchers.same(level), org.mockito.ArgumentMatchers.same(chunk),
+                        any(), org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean()))
+                        .thenAnswer(call -> {
+                            assertTrue(server.isSameThread());
+                            assertTrue(net.neoforged.neoforge.server.threading.api.ParallelApi.prepared(key).isEmpty());
+                            bodies.incrementAndGet();
+                            return null;
+                        });
+                this.engine.runInGlobalRegion(() -> plan.accept(chunk, true));
+                assertEquals(1, bodies.get(), "the complete serial body executes at the existing inline fallback point");
+                assertTrue(plan.collectedChunks().isEmpty());
+                plan.executeAndAwait(PARKING_BARRIER);
+                assertEquals(1, bodies.get(), "the fallback must not run a second time after the batch");
+                assertEquals(0, this.engine.diagnostics().spawnChunksOnWorkers());
+            }
+        } finally {
+            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.close(server);
+        }
     }
 
     /**

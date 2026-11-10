@@ -44,6 +44,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.LogicalSidedProvider;
 import net.neoforged.neoforge.common.world.BiomeModifier;
 import net.neoforged.neoforge.common.world.StructureModifier;
+import net.neoforged.neoforge.event.server.RegisterParallelAdaptersEvent;
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -113,6 +114,8 @@ public class ServerLifecycleHooks {
         installRegionThreading();
         runModifiers(server);
         NeoForge.EVENT_BUS.post(new ServerAboutToStartEvent(server));
+        net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.initialize(server,
+                registrar -> NeoForge.EVENT_BUS.post(new RegisterParallelAdaptersEvent(server, registrar)));
     }
 
     /**
@@ -233,7 +236,11 @@ public class ServerLifecycleHooks {
     }
 
     public static void handleServerStopped(final MinecraftServer server) {
-        NeoForge.EVENT_BUS.post(new ServerStoppedEvent(server));
+        try {
+            NeoForge.EVENT_BUS.post(new ServerStoppedEvent(server));
+        } finally {
+            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.close(server);
+        }
         RegionThreadingManager.clear();
         // The declarations of a stopped server must not be reported, and a static block-entity declaration must
         // not outlive the server it belongs to; the next start applies its own set instead.

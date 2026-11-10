@@ -13,6 +13,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.NaturalSpawner;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.neoforged.neoforge.server.threading.ParallelAdapterRuntime;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -134,7 +135,12 @@ public final class RegionSpawnPlan {
             this.spawnInline(chunk);
             return;
         }
-        this.chunks.add(RegionSpawnChunk.of(chunk));
+        final ParallelAdapterRuntime.PreparedSpawn prepared = ParallelAdapterRuntime.prepare(this.level, chunkPos.x, chunkPos.z);
+        if (!prepared.workerReady()) {
+            this.spawnInline(chunk);
+            return;
+        }
+        this.chunks.add(new RegionSpawnChunk(chunkPos.toLong(), chunk, prepared));
     }
 
     /**
@@ -173,7 +179,8 @@ public final class RegionSpawnPlan {
      * body a worker truncated. The vanilla state is built once per level tick on the first such chunk.
      */
     void spawnInline(LevelChunk chunk) {
-        NaturalSpawner.spawnForChunk(this.level, chunk, this.fallbackState(), this.spawnFriendlies, this.spawnEnemies, this.spawnPersistent);
+        ParallelAdapterRuntime.runSerial(() -> NaturalSpawner.spawnForChunk(this.level, chunk, this.fallbackState(),
+                this.spawnFriendlies, this.spawnEnemies, this.spawnPersistent));
     }
 
     /**

@@ -10,7 +10,9 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.RandomSupport;
+import net.neoforged.neoforge.server.threading.ParallelAdapterRuntime;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * One chunk's share of a level tick's natural spawning, as the region worker of its region executes it.
@@ -30,7 +32,11 @@ import org.jetbrains.annotations.ApiStatus;
  * not the order of the vanilla sequence, and a comparison of two runs can only compare populations and rates.
  */
 @ApiStatus.Internal
-public record RegionSpawnChunk(long chunkKey, LevelChunk chunk) {
+public record RegionSpawnChunk(long chunkKey, LevelChunk chunk, @Nullable ParallelAdapterRuntime.PreparedSpawn prepared) {
+    public RegionSpawnChunk(long chunkKey, LevelChunk chunk) {
+        this(chunkKey, chunk, null);
+    }
+
     /**
      * {@return the entry of {@code chunk}}
      */
