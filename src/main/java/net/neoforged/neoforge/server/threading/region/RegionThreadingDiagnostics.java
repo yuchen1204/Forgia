@@ -220,6 +220,7 @@ public record RegionThreadingDiagnostics(
         long skippedEntityTicks,
         long fallbackEntityTicks,
         long deferredEntityTicks,
+        long truncatedEntityTicks,
         long entityMutationsAllowedByOwnership,
         long entityMutationsRejectedByOwnership,
         long entityQueriesAllowedByLease,
@@ -669,6 +670,15 @@ public record RegionThreadingDiagnostics(
         /** {@return the tick failures the workers of {@code slice} recorded} */
         public long recorded(RegionTickSlice slice) {
             return this.recorded[slice.ordinal()];
+        }
+
+        /** {@return the tick failures of every slice, which is what a health check reads} */
+        public long total() {
+            long total = 0L;
+            for (final long count : this.recorded) {
+                total += count;
+            }
+            return total;
         }
 
         @Override

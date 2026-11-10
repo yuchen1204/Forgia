@@ -55,8 +55,46 @@ inside its supposedly non-loading lookup is not made safe by this transport.
 
 `SableLoadedChunkLookup` is optional and has no compiled Sable dependency. Binding is enabled only if the
 transformed ServerChunkCache contains Sable's `sable$emptyChunk` field, then resolves the known
-SubLevelContainer.getContainer(ServerLevel) / inBounds(int,int) API. It caches reflective class members,
+SubLevelContainer.getContainer(ServerLevel) / inBounds(int,int) API. It caches resolved method handles,
 not levels, containers or chunks.
+
+### Binding rule: resolve one member, never enumerate them
+
+The .40 build bound this API with `Class.getMethod`, which builds the class's whole member array, and
+building the array resolves the types in *every* signature. On a dedicated server the runtime dist cleaner
+refuses a signature that mentions a client-only class, so binding threw
+`Attempted to load class net/minecraft/client/multiplayer/ClientLevel for invalid dist DEDICATED_SERVER`
+from inside `computeValue`. That is not a compatibility failure a server may die on, and it did:
+`crash-2026-11-09_17.01.56-server.txt` stopped the 178-mod pack 56 minutes after it started, and the operator
+rolled the core back to vanilla NeoForge.
+
+Two rules replace it:
+
+- **Resolve by name and descriptor** (`MethodHandles.publicLookup().findStatic/findVirtual`), which does not
+  touch the other signatures. `Class.getDeclaredMethod` is no better than `Class.getMethod` here: both build
+  the same array. Verified on this JDK with a container whose unrelated signature is not resolvable -
+  `getMethod` throws `NoClassDefFoundError` where `findStatic` succeeds.
+- **`findStatic` matches the descriptor exactly; it does not widen a covariant return.** Sable declares three
+  overloads of the same name:
+
+  ```
+  public static SubLevelContainer        getContainer(Level)
+  public static ServerSubLevelContainer  getContainer(ServerLevel)
+  public static ClientSubLevelContainer  getContainer(ClientLevel)
+  public boolean inBounds(int, int)
+  ```
+
+  Asking for `(ServerLevel)SubLevelContainer` matches nothing (`NoSuchMethodException`), even though
+  `getMethod` would have accepted it. Bind the `(Level)` overload, whose declared return is exactly
+  `SubLevelContainer`, and `asType` it to `(ServerLevel)Object`. The .41 build shipped the wrong descriptor and
+  the adapter disabled itself on the live server - silently and correctly, which is how it was noticed.
+- **Every unavailable binding is "adapter off", never an error**: Sable absent, Sable present with another
+  API version, a non-public container, a member that cannot be resolved, a field whose type cannot be
+  resolved. The caller then keeps the plain loaded-chunk answer it had before this adapter existed. Only a
+  container that *did* bind and then answers with a wrong-typed sentinel is an explicit compatibility error.
+
+A missing required vanilla chunk still refuses normally when the adapter is off; that refusal is the .39
+failure mode and is tracked separately, not fixed by this guard.
 
 After public getChunkNow returned null, on the server thread:
 
@@ -110,10 +148,14 @@ nearby real-valued positions from the report. The clip boundary models a plot-st
 huge chunk coordinates: an available solid chunk must remain occluding; air must retain visible results.
 This is a controlled boundary regression, not a simulation of Sable's complete pose/projection math.
 
-SableLoadedChunkLookupTest exercises the adapter's actual reflection-resolution path using test member
-bindings, without installing fake Sable classes. It checks exact sentinel identity, domain and absent-container
-rejection, wrong sentinel type and original cause propagation. It does not build or transform the full pack.
-Negative controls remove the worker fallback statement and require the loaded-provider and LOS tests to fail.
+SableLoadedChunkLookupTest exercises the adapter's actual resolution path using test member bindings, without
+installing fake Sable classes. It checks exact sentinel identity, domain and absent-container rejection, wrong
+sentinel type and original cause propagation, and that a container with another API, other descriptors or
+inaccessible members disables the adapter instead of throwing. One case defines a copy of the container
+through a class loader that hides a type used only in an unrelated signature: enumerating that class throws
+`NoClassDefFoundError` (the shape of the production dist-cleaner refusal) while the binding still succeeds.
+It does not build or transform the full pack. Negative controls remove the worker fallback statement and
+require the loaded-provider and LOS tests to fail.
 
 The production lookup still needs a real-pack movement/LOS re-test to establish that all runtime injections
 retain their inspected shapes. No server files, configuration, restart or rollback are part of the local repair.

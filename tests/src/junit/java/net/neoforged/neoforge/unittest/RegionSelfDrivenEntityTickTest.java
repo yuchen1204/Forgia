@@ -1977,7 +1977,7 @@ class RegionSelfDrivenEntityTickTest {
     }
 
     @Test
-    void selfDrivenMissingChunkReportsRealChunkSourceRefusalWithoutInventoryReplay() throws Exception {
+    void selfDrivenMissingChunkTruncatesTheTickWithoutInventoryReplay() throws Exception {
         this.installEngine();
         final ServerLevel level = this.mockLevel();
         final Entity entity = this.entity(level, new BlockPos(1, 64, 1));
@@ -2001,7 +2001,9 @@ class RegionSelfDrivenEntityTickTest {
         }).when(entity).tick();
         doCallRealMethod().when(chunks).getChunk(100, 100, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true);
         this.tickList.add(entity);
-        assertThrows(net.minecraft.ReportedException.class, () -> this.plan(level).executeAndAwait());
+        this.plan(level).executeAndAwait();
+        assertEquals(1L, this.engine.diagnostics().truncatedEntityTicks(),
+                "the chunk refusal is truncated and counted instead of stopping the server");
         assertEquals(1, input.getCount());
         assertEquals(1, output.size());
         verify(entity, times(1)).tick();

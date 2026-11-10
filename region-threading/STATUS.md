@@ -337,7 +337,12 @@ the worker makespan, not the barrier schedule.
 - The persistent worker pool and packed leases are off by default: they help the light slices and cost the
   entity slice, and the next step is a work-stealing dispatcher rather than a global switch.
 - Cross-region effects are ordered per target region, not in one global vanilla order.
-- Modded callbacks that reach beyond the admitted radius are refused, not analysed.
+- Modded callbacks that reach beyond the admitted radius are refused, not analysed. An entity tick that reaches
+  such a chunk is truncated and counted in `truncatedEntityTicks`, and its runtime class is declared
+  server-thread-only with reason `chunk_unavailable`, so the loss happens once per class and later ticks of it
+  run where the read is legal. The truncated tick is lost, not replayed: its body already wrote entity fields and
+  deferred effects when the read failed. Four production crashes (`crash-2026-11-09_11.45.26`, `11.51.15`,
+  `2026-11-08_03.33.25`, `2026-11-10_05.59.18`) were this path.
 - A worker's player view is the snapshot of the level tick: membership and the recorded bounding boxes are
   at most one tick old. A player lookup that must see a player who joined in the current tick is not
   answered by the snapshot, and a worker of a level without a snapshot is refused instead of reading the

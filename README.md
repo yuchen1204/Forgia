@@ -30,7 +30,7 @@ counted.
 | **Redstone** | Cross-region updates converge in the **same tick** through a fixpoint | 98 layouts, 5 880 tick comparisons, identical to vanilla |
 | **Cross-region reads** | Seqlock chunk versions; a stale read re-runs the region that made it | 0 torn reads, 0 stale takes |
 | **Global state** | Explicit global phase + bounded cross-region mailbox | weather/time writes from a region fail closed |
-| **Failures** | A worker tick failure is reported by the server thread, never built on the worker | barrier wait 200 ms → **1.25 ms** |
+| **Failures** | A worker tick failure is reported by the server thread, never built on the worker; a tick that reaches a chunk the lease does not hold is truncated once and its class moves to the server thread | barrier wait 200 ms → **1.25 ms** |
 
 Correctness is the acceptance criterion throughout: the POI manager, the redstone components and the chunk
 random tick are compared against **real vanilla implementations**, tick by tick, not against expectations.

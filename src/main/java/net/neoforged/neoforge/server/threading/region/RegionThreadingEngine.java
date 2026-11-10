@@ -196,6 +196,24 @@ public final class RegionThreadingEngine implements RegionThreading {
     private final AtomicLong fallbackEntityTicks = new AtomicLong();
     private final AtomicLong deferredEntityTicks = new AtomicLong();
     /**
+     * Entity ticks a worker stopped because the tick reached a chunk the lease does not hold.
+     * <p>
+     * A chunk refusal inside the body is not replayable: the body has already written entity fields, deferred
+     * removals, block updates or block drops by the time the read fails, so replaying it would apply them
+     * twice. The tick is therefore lost and counted here, and the entity's runtime class is declared
+     * server-thread-only on the spot through {@link RegionEntityTickPolicy#serverThreadOnly}. The loss happens
+     * once per class, not once per tick, and it is a lost tick instead of a stopped server - the failure this
+     * replaces took the 178-mod pack down four times (`crash-2026-11-09_11.45.26`, `11.51.15`,
+     * `2026-11-08_03.33.25`, `2026-11-10_05.59.18`).
+     * <p>
+     * This is not {@link #fallbackEntityTicks}: that one is decided before the body starts, so the entire
+     * vanilla tick runs on the server thread. {@code chunkFallbackEntityTicks} has the same legacy note -
+     * partial ticks are never replayed.
+     */
+    private final AtomicLong truncatedEntityTicks = new AtomicLong();
+    /** Classes already reported for a truncated tick, so one class cannot flood the log. */
+    private final Set<Class<?>> truncatedEntityTickClasses = ConcurrentHashMap.newKeySet();
+    /**
      * Entity ticks a worker handed back because the chunk source refused a chunk the tick needed. Each one
      * is ticked on the server thread after the batch instead of blocking the worker on the chunk source.
      */
@@ -4871,6 +4889,13 @@ public final class RegionThreadingEngine implements RegionThreading {
                                     // propagating like vanilla lets it propagate.
                                     tickEntityBody(level, entity);
                                 } catch (Throwable throwable) {
+                                    if (this.truncateIfChunkUnavailable(entity, throwable)) {
+                                        // The tick reached a chunk the lease does not hold. Its body already
+                                        // wrote entity fields and deferred effects, so it is not replayed: the
+                                        // tick is lost and the class is declared server-thread-only, which
+                                        // makes every later tick of it run where the read is legal.
+                                        continue;
+                                    }
                                     if (failureObserver != null) {
                                         // Diagnostics only: the observer records the rejected operation and the
                                         // group keeps ticking its remaining entities instead of stopping at the
@@ -5002,6 +5027,13 @@ public final class RegionThreadingEngine implements RegionThreading {
                                     // stack above keeps propagating like vanilla lets it propagate.
                                     tickEntityBody(level, entity);
                                 } catch (Throwable throwable) {
+                                    if (this.truncateIfChunkUnavailable(entity, throwable)) {
+                                        // The tick reached a chunk the lease does not hold. Its body already
+                                        // wrote entity fields and deferred effects, so it is not replayed: the
+                                        // tick is lost and the class is declared server-thread-only, which
+                                        // makes every later tick of it run where the read is legal.
+                                        continue;
+                                    }
                                     if (failureObserver != null) {
                                         // Diagnostics only: the observer records the rejected operation and the
                                         // group keeps ticking its remaining entities instead of stopping at the
@@ -6939,6 +6971,9 @@ public final class RegionThreadingEngine implements RegionThreading {
         return counters;
     }
 
+    /** The reason token of the declaration a chunk-truncated entity tick produces. */
+    public static final String CHUNK_UNAVAILABLE_ENTITY_REASON = "chunk_unavailable";
+
     /**
      * Counts one tick failure of a worker group of {@code batch} and records it for the server thread.
      * <p>
@@ -6950,6 +6985,38 @@ public final class RegionThreadingEngine implements RegionThreading {
     private void recordWorkerTickFailure(RegionTickBatch batch, RegionCoordinate coordinate, @Nullable Entity entity, Throwable throwable) {
         this.workerTickFailures[batch.slice().ordinal()].incrementAndGet();
         batch.recordTickFailure(coordinate, entity, throwable);
+    }
+
+    /**
+     * Truncates one entity tick that a worker stopped because the chunk source refused a chunk it needed.
+     * <p>
+     * The read is legal vanilla - {@code Level#getChunk} loads - and impossible on a worker, because a load
+     * publishes chunk storage the server thread owns. Vanilla answers it by throwing at the tick boundary, which
+     * for an entity means {@code ReportedException: Ticking entity} and a stopped server. Truncating keeps the
+     * worker's guarantee (nothing is replayed) and makes the loss explicit: the tick is counted, the class is
+     * declared server-thread-only so the next tick of that class runs where the read is legal, and the worker
+     * keeps ticking the rest of its group instead of stopping at this entity.
+     * <p>
+     * Only a chunk refusal is truncated. Every other failure keeps the fail-closed behaviour: the group stops
+     * and the server thread reports it exactly like the vanilla entity pass does.
+     *
+     * @return {@code true} when the failure was a chunk refusal and was truncated, {@code false} when the caller
+     *         must treat it as an ordinary failure
+     */
+    private boolean truncateIfChunkUnavailable(Entity entity, Throwable throwable) {
+        if (!RegionWorkerChunkUnavailableException.isChunkUnavailable(throwable)) {
+            return false;
+        }
+        this.truncatedEntityTicks.incrementAndGet();
+        // The declaration covers the runtime class and every subclass of it, and it invalidates the memoized
+        // policy resolutions, so the next tick of this class is admitted to the server thread.
+        this.entityTickPolicy.serverThreadOnly(entity.getClass(), CHUNK_UNAVAILABLE_ENTITY_REASON);
+        if (this.truncatedEntityTickClasses.add(entity.getClass())) {
+            LOGGER.warn("Region worker truncated the tick of {}: the chunk it needs is not loaded ({}). "
+                    + "Ticks of this class now run on the server thread.",
+                    entity.getClass().getName(), throwable.getMessage());
+        }
+        return true;
     }
 
     /** Counts one chunk whose vanilla spawn gate refused it, so vanilla spawns nothing for it either. */
@@ -8918,6 +8985,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.skippedEntityTicks.get(),
                 this.fallbackEntityTicks.get(),
                 this.deferredEntityTicks.get(),
+                this.truncatedEntityTicks.get(),
                 RegionEntityOwnershipScope.allowedMutationCount(),
                 RegionEntityOwnershipScope.rejectedMutationCount(),
                 RegionEntityOwnershipScope.allowedQueryCount(),

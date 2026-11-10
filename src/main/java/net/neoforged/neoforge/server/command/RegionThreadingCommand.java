@@ -10,9 +10,11 @@ import com.mojang.brigadier.builder.ArgumentBuilder;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.server.threading.RegionThreadingCompatReport;
 import net.neoforged.neoforge.server.threading.RegionThreadingCompatibility;
@@ -36,13 +38,21 @@ final class RegionThreadingCommand {
     static ArgumentBuilder<CommandSourceStack, ?> register() {
         return Commands.literal("regionthreading")
                 .requires(source -> source.hasPermission(2))
-                .then(Commands.literal("status").executes(context -> {
-                    final CommandSourceStack source = context.getSource();
-                    RegionThreadingHooks.diagnostics().ifPresentOrElse(
-                            diagnostics -> sendDiagnostics(source, diagnostics),
-                            () -> sendNotInstalled(source));
-                    return 1;
-                }))
+                .then(Commands.literal("status")
+                        .executes(context -> {
+                            final CommandSourceStack source = context.getSource();
+                            RegionThreadingHooks.diagnostics().ifPresentOrElse(
+                                    diagnostics -> sendStatus(source, diagnostics),
+                                    () -> sendNotInstalled(source));
+                            return 1;
+                        })
+                        .then(Commands.literal("raw").executes(context -> {
+                            final CommandSourceStack source = context.getSource();
+                            RegionThreadingHooks.diagnostics().ifPresentOrElse(
+                                    diagnostics -> sendRawDiagnostics(source, diagnostics),
+                                    () -> sendNotInstalled(source));
+                            return 1;
+                        })))
                 .then(Commands.literal("compat").executes(context -> sendCompatibility(context.getSource())))
                 .then(Commands.literal("regions")
                         .executes(context -> sendRegionListing(context.getSource(), DEFAULT_LISTED_REGIONS))
@@ -71,7 +81,181 @@ final class RegionThreadingCommand {
         return 1;
     }
 
-    private static void sendDiagnostics(CommandSourceStack source, RegionThreadingDiagnostics diagnostics) {
+    /**
+     * Sends the human-readable status: one coloured line per category, and a zero counter stays out of the line,
+     * so a clean run is short and a broken one is red where it broke.
+     * <p>
+     * This is the default because the raw dump is one line of about 150 fields - readable by a script, not by an
+     * operator looking for the one number that moved. {@code status raw} keeps the unchanged machine-readable
+     * lines for scripts, logs and bug reports.
+     */
+    private static void sendStatus(CommandSourceStack source, RegionThreadingDiagnostics diagnostics) {
+        final boolean enabled = ForgiaConfig.SERVER.enableRegionThreadingBridge.get();
+        statusLine("Region threading", ChatFormatting.GOLD)
+                .add(enabled ? "on" : "off", enabled ? ChatFormatting.GREEN : ChatFormatting.RED)
+                .add(diagnostics.regionPolicy() + "/" + diagnostics.regionChunkSize() + "ch", ChatFormatting.GRAY)
+                .add(diagnostics.workerThreadCount() + " workers", ChatFormatting.GRAY)
+                .add(diagnostics.regionCount() + " regions", ChatFormatting.GRAY)
+                .add(diagnostics.loadedChunkCount() + " chunks", ChatFormatting.GRAY)
+                .add(diagnostics.trackedEntityCount() + " entities", ChatFormatting.GRAY)
+                .send(source);
+
+        statusLine("Slices", ChatFormatting.GOLD)
+                .chip("entity", diagnostics.entityTickWorkerExecutionEnabled(), diagnostics.entityTickWorkerExecutionEnabled())
+                .chip("blockEntity", diagnostics.blockEntityTickWorkerExecutionEnabled(), diagnostics.blockEntityTickWorkerExecutionEnabled())
+                .chip("chunk", diagnostics.chunkTickWorkerExecutionEnabled(), diagnostics.chunkTickWorkerDispatchEffective())
+                .chip("spawn", diagnostics.spawnWorkerExecutionEnabled(), diagnostics.spawnWorkerDispatchEffective())
+                .chip("scheduled", diagnostics.scheduledTickWorkerExecutionEnabled(), diagnostics.scheduledTickWorkerDispatchEffective())
+                .send(source);
+
+        statusLine("Entities", ChatFormatting.GOLD)
+                .add("workers", diagnostics.entityTicksOnWorkers(), ChatFormatting.GREEN)
+                .nonZero("serverThread", diagnostics.serverThreadOnlyEntityTicks(), ChatFormatting.YELLOW)
+                .nonZero("truncated", diagnostics.truncatedEntityTicks(), ChatFormatting.YELLOW)
+                .nonZero("fallback", diagnostics.fallbackEntityTicks(), ChatFormatting.GRAY)
+                .nonZero("skipped", diagnostics.skippedEntityTicks(), ChatFormatting.GRAY)
+                .nonZero("mutationsRejected", diagnostics.entityMutationsRejectedByOwnership(), ChatFormatting.RED)
+                .send(source);
+        if (!diagnostics.serverThreadOnlyEntityTicksByReason().isEmpty()) {
+            statusLine("  reasons", ChatFormatting.DARK_GRAY)
+                    .add(diagnostics.serverThreadOnlyEntityTicksByReason().toString(),
+                            diagnostics.serverThreadOnlyEntityTicksByReason()
+                                    .containsKey(RegionThreadingEngine.CHUNK_UNAVAILABLE_ENTITY_REASON)
+                                            ? ChatFormatting.YELLOW
+                                            : ChatFormatting.GRAY)
+                    .send(source);
+        }
+
+        statusLine("Chunks", ChatFormatting.GOLD)
+                .add("workers", diagnostics.chunkTicksOnWorkers(), ChatFormatting.GREEN)
+                .nonZero("boundary", diagnostics.boundaryChunkTicks(), ChatFormatting.GRAY)
+                .nonZero("unloadedNeighborhood", diagnostics.unloadedNeighborhoodChunkTicks(), ChatFormatting.GRAY)
+                .nonZero("truncated", diagnostics.truncatedChunkTicks(), ChatFormatting.YELLOW)
+                .nonZero("late", diagnostics.lateChunkTicks(), ChatFormatting.YELLOW)
+                .nonZero("unleased", diagnostics.unleasedChunkTicks(), ChatFormatting.YELLOW)
+                .nonZero("fallback", diagnostics.fallbackChunkTicks(), ChatFormatting.GRAY)
+                .send(source);
+
+        statusLine("Block entities", ChatFormatting.GOLD)
+                .add("workers", diagnostics.blockEntityTicksOnWorkers(), ChatFormatting.GREEN)
+                .nonZero("fallback", diagnostics.fallbackBlockEntityTicks(), ChatFormatting.YELLOW)
+                .nonZero("noTickers", diagnostics.nonTickingBlockEntityChunks(), ChatFormatting.GRAY)
+                .nonZero("staleSnapshots", diagnostics.staleBlockEntityChunkSnapshots(), ChatFormatting.RED)
+                .send(source);
+
+        statusLine("Spawn", ChatFormatting.GOLD)
+                .add("workers", diagnostics.spawnChunksOnWorkers(), ChatFormatting.GREEN)
+                .nonZero("truncated", diagnostics.truncatedSpawnChunks(), ChatFormatting.YELLOW)
+                .nonZero("gateRefused", diagnostics.gateRefusedSpawnChunks(), ChatFormatting.GRAY)
+                .nonZero("refusedAdditions", diagnostics.refusedSpawnAdditions(), ChatFormatting.GRAY)
+                .nonZero("skipped", diagnostics.skippedSpawnChunks(), ChatFormatting.YELLOW)
+                .send(source);
+
+        // The one line an operator should read first: anything red here is a correctness problem, not a cost.
+        final long problems = diagnostics.tickFailures().total() + diagnostics.ownershipViolationCount()
+                + diagnostics.rejectedWorkerTaskCount() + diagnostics.failedQueuedTaskCount()
+                + diagnostics.entityAddRejectedOnWorker() + diagnostics.droppedDeferredEntityAdditions();
+        statusLine("Health", problems == 0L ? ChatFormatting.GREEN : ChatFormatting.RED)
+                .add(problems == 0L ? "clean" : "CHECK", problems == 0L ? ChatFormatting.GREEN : ChatFormatting.RED)
+                .nonZero("tickFailures", diagnostics.tickFailures().total(), ChatFormatting.RED)
+                .nonZero("ownershipViolations", diagnostics.ownershipViolationCount(), ChatFormatting.RED)
+                .nonZero("rejectedTasks", diagnostics.rejectedWorkerTaskCount(), ChatFormatting.RED)
+                .nonZero("failedTasks", diagnostics.failedQueuedTaskCount(), ChatFormatting.RED)
+                .nonZero("droppedAdditions", diagnostics.droppedDeferredEntityAdditions(), ChatFormatting.RED)
+                .nonZero("droppedSectionUpdates", diagnostics.droppedDeferredEntitySectionUpdates(), ChatFormatting.YELLOW)
+                .nonZero("droppedRemovals", diagnostics.droppedDeferredEntityRemovals(), ChatFormatting.YELLOW)
+                .send(source);
+
+        statusLine("Timing", ChatFormatting.GOLD)
+                .add("global " + millis(diagnostics.globalLastTickDurationNanos()), ChatFormatting.GRAY)
+                .add("worstRegion " + millis(diagnostics.maxRegionLastTickDurationNanos()),
+                        diagnostics.maxRegionLastTickDurationNanos() > 50_000_000L ? ChatFormatting.RED : ChatFormatting.GRAY)
+                .add("regionTicks", diagnostics.totalRegionTickCount(), ChatFormatting.GRAY)
+                .nonZero("cappedDrains", diagnostics.cappedDrainCount(), ChatFormatting.RED)
+                .send(source);
+
+        final long queries = diagnostics.entityQueriesAllowedByLease() + diagnostics.entityQueriesTruncatedByLease()
+                + diagnostics.entityQueriesRejected();
+        if (queries > 0L) {
+            statusLine("Entity queries", ChatFormatting.GOLD)
+                    .add("lease", diagnostics.entityQueriesAllowedByLease(), ChatFormatting.GREEN)
+                    .nonZero("truncated", diagnostics.entityQueriesTruncatedByLease(), ChatFormatting.YELLOW)
+                    .nonZero("refused", diagnostics.entityQueriesRejected(), ChatFormatting.RED)
+                    .add("snapshots", diagnostics.playerSnapshotsPublished(), ChatFormatting.GRAY)
+                    .send(source);
+        }
+
+        final int unsupported = RegionThreadingCompatibility.unsupportedMods().size();
+        final int required = RegionThreadingCompatibility.requiredMods().size();
+        final int conflicts = RegionThreadingCompatReport.conflictCount();
+        statusLine("Compat", ChatFormatting.GOLD)
+                .add(RegionThreadingCompatibility.defaultSupport().toString(), ChatFormatting.GRAY)
+                .add("unsupported " + unsupported, unsupported > 0 ? ChatFormatting.YELLOW : ChatFormatting.GRAY)
+                .add("required " + required, required > 0 ? ChatFormatting.RED : ChatFormatting.GRAY)
+                .add("conflicts " + conflicts, conflicts > 0 ? ChatFormatting.RED : ChatFormatting.GRAY)
+                .send(source);
+
+        source.sendSuccess(() -> Component.literal("full dump: /neoforge regionthreading status raw")
+                .withStyle(ChatFormatting.DARK_GRAY), false);
+    }
+
+    /** {@return nanosecond count as milliseconds with two decimals} */
+    private static String millis(long nanos) {
+        return String.format(Locale.ROOT, "%.2fms", nanos / 1_000_000.0D);
+    }
+
+    private static StatusLine statusLine(String title, ChatFormatting titleColour) {
+        return new StatusLine(title, titleColour);
+    }
+
+    /**
+     * One rendered line of the human-readable status.
+     * <p>
+     * The title carries the category and every value after it carries the verdict of that number, so the colour
+     * says whether the number is a cost, a loss or a correctness problem. {@link #nonZero} keeps a clean counter
+     * out of the line entirely: the operator sees what is happening rather than the whole counter space.
+     */
+    private static final class StatusLine {
+        private final MutableComponent text = Component.empty();
+
+        private StatusLine(String title, ChatFormatting titleColour) {
+            this.text.append(Component.literal(title).withStyle(titleColour));
+        }
+
+        private StatusLine add(String value, ChatFormatting colour) {
+            this.text.append(Component.literal("  "));
+            this.text.append(Component.literal(value).withStyle(colour));
+            return this;
+        }
+
+        private StatusLine add(String label, long value, ChatFormatting colour) {
+            return this.add(label + " " + value, colour);
+        }
+
+        /** Adds {@code label value} only when the number is not zero. */
+        private StatusLine nonZero(String label, long value, ChatFormatting colour) {
+            return value == 0L ? this : this.add(label + " " + value, colour);
+        }
+
+        /**
+         * Adds one slice chip. The state word is part of the text as well as the colour, so a log that lost the
+         * colours (the server console does) still says whether the slice runs on workers.
+         */
+        private StatusLine chip(String name, boolean requested, boolean effective) {
+            if (!requested) {
+                return this.add(name + " off", ChatFormatting.DARK_GRAY);
+            }
+            return this.add(name + (effective ? " on" : " notEffective"),
+                    effective ? ChatFormatting.GREEN : ChatFormatting.YELLOW);
+        }
+
+        private void send(CommandSourceStack source) {
+            final Component line = this.text;
+            source.sendSuccess(() -> line, false);
+        }
+    }
+
+    private static void sendRawDiagnostics(CommandSourceStack source, RegionThreadingDiagnostics diagnostics) {
         source.sendSuccess(() -> Component.literal("Region threading diagnostics: enabled=" + ForgiaConfig.SERVER.enableRegionThreadingBridge.get()
                 + ", regions=" + diagnostics.regionCount()
                 + ", runningRegions=" + diagnostics.runningRegionCount()
@@ -102,6 +286,7 @@ final class RegionThreadingCommand {
                 + ", skippedEntityTicks=" + diagnostics.skippedEntityTicks()
                 + ", fallbackEntityTicks=" + diagnostics.fallbackEntityTicks()
                 + ", deferredEntityTicks=" + diagnostics.deferredEntityTicks()
+                + ", truncatedEntityTicks=" + diagnostics.truncatedEntityTicks()
                 + ", entityMutationsAllowedByOwnership=" + diagnostics.entityMutationsAllowedByOwnership()
                 + ", entityMutationsRejectedByOwnership=" + diagnostics.entityMutationsRejectedByOwnership()
                 + ", entityQueriesAllowedByLease=" + diagnostics.entityQueriesAllowedByLease()

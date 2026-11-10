@@ -183,10 +183,17 @@ class RegionWorkerChunkGuardTest {
         }).when(entity).tick();
         final var plan = plan(level);
         assertTrue(plan.accept(entity));
-        if (mode.equals("missing") || mode.equals("failure")) {
+        if (mode.equals("missing")) {
+            // A chunk refusal is truncated, not reported: the tick is lost and counted, never replayed, and
+            // the class is declared server-thread-only so the next tick of it runs where the read is legal.
+            plan.executeAndAwait();
+            assertEquals(0, after.get());
+            assertEquals(1L, this.engine.diagnostics().truncatedEntityTicks());
+        } else if (mode.equals("failure")) {
+            // A provider failure is not a chunk refusal: it keeps the fail-closed path and is reported.
             final var reported = assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait);
             assertEquals(0, after.get());
-            if (mode.equals("failure")) assertSame(failure, reported.getCause());
+            assertSame(failure, reported.getCause());
         } else {
             plan.executeAndAwait();
             assertSame(supplied, result.get());
@@ -243,7 +250,7 @@ class RegionWorkerChunkGuardTest {
     }
 
     @Test
-    void missingChunkAfterInventoryAndDropEffectsIsReportedWithoutReplayingTheTick() {
+    void missingChunkAfterInventoryAndDropEffectsIsTruncatedWithoutReplayingTheTick() {
         this.installEngine();
         final ServerLevel level = mockLevel(true);
         final Entity entity = mockEntity(level, new BlockPos(1, 64, 1));
@@ -269,8 +276,9 @@ class RegionWorkerChunkGuardTest {
         try {
             final RegionEntityTickPlan plan = plan(level);
             assertTrue(plan.accept(entity));
-            assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait,
-                    "an unadapted partial tick must fail normally, never rerun or pretend it completed");
+            plan.executeAndAwait();
+            assertEquals(1L, this.engine.diagnostics().truncatedEntityTicks(),
+                    "the refused tick is lost and counted, never rerun and never pretended complete");
         } finally {
             net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(before);
             net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(after);
@@ -285,7 +293,7 @@ class RegionWorkerChunkGuardTest {
     }
 
     @Test
-    void entityWhoseTickRefusesAChunkIsReportedWithoutReplayingIt() {
+    void entityWhoseTickRefusesAChunkIsTruncatedWithoutReplayAndTheGroupContinues() {
         this.installEngine();
         final ServerLevel level = mockLevel(true);
         final Entity refusing = mockEntity(level, new BlockPos(1, 64, 1));
@@ -308,14 +316,15 @@ class RegionWorkerChunkGuardTest {
         final RegionEntityTickPlan plan = plan(level);
         assertTrue(plan.accept(refusing));
         assertTrue(plan.accept(healthy));
-        assertThrows(net.minecraft.ReportedException.class, plan::executeAndAwait);
+        plan.executeAndAwait();
 
         assertEquals(1, refusingTickThreads.size(), refusingTickThreads.toString());
         assertTrue(refusingTickThreads.getFirst().startsWith(WORKER_THREAD_PREFIX), refusingTickThreads.toString());
         verify(refusing, times(1)).tick();
-        assertEquals(0, healthyTickThreads.size(), "the failed group stops at its first failing entity, like vanilla");
+        assertEquals(1, healthyTickThreads.size(), "a truncated tick does not stop the group's remaining entities");
+        assertEquals(1L, this.engine.diagnostics().truncatedEntityTicks());
+        assertEquals(1L, this.engine.diagnostics().entityTicksOnWorkers(), "only the healthy entity completed a worker tick");
         assertEquals(0L, this.engine.diagnostics().chunkFallbackEntityTicks());
-        assertEquals(0L, this.engine.diagnostics().entityTicksOnWorkers());
         assertEquals(0L, this.engine.diagnostics().chunkPreloadRefusedEntityTicks());
         assertEquals(0L, this.engine.diagnostics().fallbackEntityTicks());
         assertEquals(0, this.engine.diagnostics().runningRegionCount());

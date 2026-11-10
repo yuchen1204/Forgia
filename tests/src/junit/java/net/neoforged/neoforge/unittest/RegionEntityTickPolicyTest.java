@@ -46,6 +46,7 @@ import net.minecraft.world.entity.raid.Raider;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
 import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionEntityTickPlan;
@@ -53,6 +54,7 @@ import net.neoforged.neoforge.server.threading.region.RegionPolicy;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingDiagnostics;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
 import net.neoforged.neoforge.server.threading.region.RegionTickBarrier;
+import net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -302,6 +304,52 @@ class RegionEntityTickPolicyTest {
         }
         assertEquals(1, cowThreads.size());
         assertTrue(cowThreads.get(0).startsWith("NeoForge Region Worker"));
+    }
+
+    /**
+     * A worker tick that reaches a chunk the lease does not hold is truncated instead of failing the batch.
+     * <p>
+     * Every crash of this class stopped the 178-mod pack with {@code ReportedException: Ticking entity}, because
+     * vanilla answers a throwing entity tick that way and {@code Level#getChunk} on a worker cannot load. The
+     * body has already written entity fields when the read fails, so the tick is lost rather than replayed; the
+     * class is declared server-thread-only in the same step, which is why the loss happens once per class.
+     */
+    @Test
+    void aChunkRefusalInsideAWorkerTickTruncatesOnceAndPinsTheClassToTheServerThread() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        this.engine.addRegionSection(level, 0, 0);
+        final Cow cow = this.entity(Cow.class, level, new BlockPos(1, 64, 1));
+        this.tickList.add(cow);
+        final List<String> tickThreads = new CopyOnWriteArrayList<>();
+        final AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            tickThreads.add(Thread.currentThread().getName());
+            if (calls.incrementAndGet() == 1) {
+                throw RegionWorkerChunkUnavailableException.forChunk(11, -4, ChunkStatus.FULL);
+            }
+            return null;
+        }).when(cow).tick();
+
+        // The first tick is refused by the worker and truncated: the batch completes and nothing is reported.
+        this.plan(level).executeAndAwait();
+
+        final RegionThreadingDiagnostics first = this.engine.diagnostics();
+        assertEquals(1L, first.truncatedEntityTicks(), "the refused tick is counted, not reported");
+        assertEquals(0L, first.entityTicksOnWorkers(), "the truncated tick did not complete on a worker");
+        assertEquals(0L, first.serverThreadOnlyEntityTicks(), "the decision is taken for the next tick, not this one");
+
+        // The declaration the truncation installed moves the next tick of the class to the server thread.
+        this.plan(level).executeAndAwait();
+
+        assertEquals(2, tickThreads.size());
+        assertTrue(tickThreads.get(0).startsWith("NeoForge Region Worker"), tickThreads.get(0));
+        assertFalse(tickThreads.get(1).startsWith("NeoForge Region Worker"),
+                "the class is pinned to the server thread after the truncated tick: " + tickThreads.get(1));
+        final RegionThreadingDiagnostics second = this.engine.diagnostics();
+        assertEquals(Map.of(RegionThreadingEngine.CHUNK_UNAVAILABLE_ENTITY_REASON, 1L),
+                second.serverThreadOnlyEntityTicksByReason());
+        assertEquals(1L, second.truncatedEntityTicks(), "the loss happens once per class, not once per tick");
     }
 
     private RegionEntityTickPlan plan(ServerLevel level) {
