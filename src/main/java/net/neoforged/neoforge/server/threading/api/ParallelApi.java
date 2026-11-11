@@ -34,7 +34,9 @@ public final class ParallelApi {
 
     public enum Capability {
         EXECUTION_CONTEXT,
-        NATURAL_SPAWN_PREPARATION
+        NATURAL_SPAWN_PREPARATION,
+        NATURAL_SPAWN_PLAN_PREPARATION,
+        NATURAL_SPAWN_CLAIMS
     }
 
     /** Phase describes execution, not permission to mutate arbitrary objects. */
@@ -61,6 +63,15 @@ public final class ParallelApi {
     /** Registration is only valid inside the registration event, on its server thread. */
     public interface Registrar {
         <S> void register(int apiMajorVersion, DataKey<S> key, NaturalSpawnPreparation<S> preparation);
+
+        /**
+         * Claims only the natural-spawn restriction for a mod. The registered preparation must conservatively
+         * return ServerRequired for every unsupported configuration. Verification runs before activation; a
+         * false result aborts registration. This is an adapter author's explicit contract, not a safety proof.
+         */
+        default void claimNaturalSpawning(DataKey<?> key, String modId, java.util.function.BooleanSupplier verified) {
+            throw new UnsupportedOperationException("This registrar does not support natural-spawn claims");
+        }
     }
 
     /** Key identifies one adapter and its snapshot type. An id may be registered only once per server. */
@@ -85,8 +96,22 @@ public final class ParallelApi {
         }
     }
 
+    public record SpawnPlan(ResourceKey<Level> dimension, long gameTime) {
+        public SpawnPlan {
+            Objects.requireNonNull(dimension);
+        }
+    }
+
     @FunctionalInterface
     public interface NaturalSpawnPreparation<S> {
+        /**
+         * Before cap/state construction. ServerRequired keeps the entire native serial plan. Ready freezes
+         * data for every unit, including serial fallback bodies; PerUnit preserves the per-unit protocol.
+         */
+        default Preparation<S> preparePlan(SpawnPlan plan) {
+            return new PerUnit<>();
+        }
+
         /**
          * Runs before this unit's body, on the quiescent server thread. Capture a version of your own immutable
          * rules here. All adapters must return Ready for worker admission; an explicit ServerRequired keeps the
@@ -95,7 +120,9 @@ public final class ParallelApi {
         Preparation<S> prepare(SpawnUnit unit);
     }
 
-    public sealed interface Preparation<S> permits Ready, ServerRequired {}
+    public sealed interface Preparation<S> permits Ready, ServerRequired, PerUnit {}
+
+    public record PerUnit<S>() implements Preparation<S> {}
 
     /**
      * Snapshot must be deeply immutable and detached from live world objects. Runtime type checking cannot
@@ -114,12 +141,13 @@ public final class ParallelApi {
         }
     }
 
-    public record AdapterStatus(ResourceLocation id, long preparedUnits, long serialUnits, long preparationNanos,
+    public record AdapterStatus(ResourceLocation id, long preparedUnits, long serialUnits, long serialPlans, long preparationNanos,
             Optional<ResourceLocation> lastSerialReason) {}
 
     /**
      * Read prepared data only during the matching natural-spawn body (including its synchronous events).
-     * Empty on vanilla/off paths, serial fallback, other threads and after the body. Presence does NOT mean a
+     * Empty on native/off paths, other threads and after the body. Per-unit fallback discards per-unit data;
+     * plan-wide Ready data is retained for that plan's serial fallback bodies. Presence does NOT mean a
      * filter already ran or authorize skipping another listener. Never use this as an event-cancellation flag.
      */
     public static <S> Optional<S> prepared(DataKey<S> key) {

@@ -80,10 +80,12 @@ public final class RegionSpawnPlan {
      * and no region can take the last slot of the level twice.
      */
     private final LevelSpawnCapCounter capCounter;
+    private final ParallelAdapterRuntime.PreparedSpawnPlan preparedPlan;
     private boolean executed;
 
     RegionSpawnPlan(RegionThreadingEngine engine, ServerLevel level, RegionSpawnSource source, boolean spawnFriendlies,
-            boolean spawnEnemies, boolean spawnPersistent, RegionTickBarrier barrier) {
+            boolean spawnEnemies, boolean spawnPersistent, RegionTickBarrier barrier, ParallelAdapterRuntime.PreparedSpawnPlan preparedPlan) {
+        this.preparedPlan = preparedPlan;
         this.engine = engine;
         this.level = level;
         this.source = source;
@@ -135,7 +137,7 @@ public final class RegionSpawnPlan {
             this.spawnInline(chunk);
             return;
         }
-        final ParallelAdapterRuntime.PreparedSpawn prepared = ParallelAdapterRuntime.prepare(this.level, chunkPos.x, chunkPos.z);
+        final ParallelAdapterRuntime.PreparedSpawn prepared = ParallelAdapterRuntime.prepare(this.level, chunkPos.x, chunkPos.z, this.preparedPlan);
         if (!prepared.workerReady()) {
             this.spawnInline(chunk);
             return;
@@ -179,7 +181,8 @@ public final class RegionSpawnPlan {
      * body a worker truncated. The vanilla state is built once per level tick on the first such chunk.
      */
     void spawnInline(LevelChunk chunk) {
-        ParallelAdapterRuntime.runSerial(() -> NaturalSpawner.spawnForChunk(this.level, chunk, this.fallbackState(),
+        final ChunkPos position = chunk.getPos();
+        this.preparedPlan.runSerial(this.level, position.x, position.z, () -> NaturalSpawner.spawnForChunk(this.level, chunk, this.fallbackState(),
                 this.spawnFriendlies, this.spawnEnemies, this.spawnPersistent));
     }
 

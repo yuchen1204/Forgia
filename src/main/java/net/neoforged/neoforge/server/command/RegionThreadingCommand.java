@@ -72,7 +72,8 @@ final class RegionThreadingCommand {
                     + "; preparation registrations do not override compatibility restrictions"), false);
             for (final var adapter : api.adapters()) {
                 source.sendSuccess(() -> Component.literal("  " + adapter.id() + ": ready=" + adapter.preparedUnits()
-                        + ", serial=" + adapter.serialUnits() + ", prepareMs=" + millis(adapter.preparationNanos())
+                        + ", serial=" + adapter.serialUnits() + ", serialPlans=" + adapter.serialPlans()
+                        + ", prepareMs=" + millis(adapter.preparationNanos())
                         + adapter.lastSerialReason().map(reason -> ", lastSerialReason=" + reason).orElse("")), false);
             }
         });

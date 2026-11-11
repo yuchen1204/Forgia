@@ -61,6 +61,8 @@ The full remaining plan is in [region-threading/STATUS.md](region-threading/STAT
 The experimental public mod integration API and compile-only facade are described in
 [the parallel API guide](region-threading/MOD-PARALLEL-API.md). Broader preparation and parallel-spawn filter
 contracts are proposed in [the API RFC](region-threading/MOD-PARALLEL-API-RFC.md); those later stages are not yet implemented.
+An [experimental MobSpawnController adapter](adapters/mobspawncontroller/README.md) provides frozen rules and
+verified natural-spawn admission for 1.2.3; world-dependent rule configurations retain complete serial spawning.
 
 ## Configuration
 

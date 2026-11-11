@@ -766,8 +766,10 @@ class RegionSpawnTest {
     }
 
     private RegionSpawnPlan beginPlan(ServerLevel level, Set<Long> spawnableChunks) {
-        final RegionSpawnPlan plan = this.engine.beginSpawnPlan(level, source(level, spawnableChunks, 0),
-                true, true, false, PARKING_BARRIER);
+        final var prepared = new java.util.concurrent.atomic.AtomicReference<RegionSpawnPlan>();
+        this.engine.runInGlobalRegion(() -> prepared.set(this.engine.beginSpawnPlan(level, source(level, spawnableChunks, 0),
+                true, true, false, PARKING_BARRIER)));
+        final RegionSpawnPlan plan = prepared.get();
         assertNotNull(plan, "natural spawning worker execution must be enabled");
         return plan;
     }

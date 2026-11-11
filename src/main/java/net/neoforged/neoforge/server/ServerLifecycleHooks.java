@@ -116,6 +116,18 @@ public class ServerLifecycleHooks {
         NeoForge.EVENT_BUS.post(new ServerAboutToStartEvent(server));
         net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.initialize(server,
                 registrar -> NeoForge.EVENT_BUS.post(new RegisterParallelAdaptersEvent(server, registrar)));
+        final var claims = net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.naturalSpawnClaims(server);
+        if (!claims.isEmpty() && RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine) {
+            final var previous = RegionThreadingCompatReport.state();
+            final var adapted = RegionThreadingConflicts.plan(previous.requested(),
+                    ForgiaConfig.SERVER.enableRegionThreadingEntityTicks.get(), ForgiaConfig.SERVER.enableRegionThreadingSpawning.get(),
+                    modId -> net.neoforged.fml.ModList.get().isLoaded(modId),
+                    ForgiaConfig.SERVER.regionThreadingForceWithKnownConflicts.get(),
+                    RegionThreadingConflicts.withNaturalSpawnAdapters(claims));
+            engine.configureStartupSpawnWorkers(adapted.spawnWorkers());
+            RegionThreadingCompatReport.record(previous.requested(), previous.engineInstalled(), previous.blockedBy(), adapted, previous.declarations());
+            LOGGER.info(SERVERHOOKS, "Verified natural-spawn adapters activated for {}; spawn workers={}", claims, adapted.spawnWorkers());
+        }
     }
 
     /**

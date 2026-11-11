@@ -143,6 +143,20 @@ class RegionThreadingConflictsTest {
     }
 
     @Test
+    void verifiedAdapterCanReplaceOnlyTheClaimedSpawnRestriction() {
+        final var table = RegionThreadingConflicts.withNaturalSpawnAdapters(Set.of("mobspawncontroller", "c2me"));
+        final var plan = RegionThreadingConflicts.plan(true, true, true, loaded("mobspawncontroller"), false, table);
+        assertTrue(plan.installEngine());
+        assertTrue(plan.entityTickWorkers());
+        assertTrue(plan.spawnWorkers());
+        assertTrue(plan.leftOffSlices().isEmpty());
+        final var blocked = RegionThreadingConflicts.plan(true, true, true, loaded("c2me", "mobspawncontroller"), false, table);
+        assertFalse(blocked.installEngine(), "a spawning claim must never bypass a chunk-source conflict");
+        final var disabled = RegionThreadingConflicts.plan(true, true, false, loaded("mobspawncontroller"), false, table);
+        assertFalse(disabled.spawnWorkers(), "administrator's disabled slice stays disabled");
+    }
+
+    @Test
     void aSliceTheConfigurationDidNotAskForIsNotReportedAsLeftOff() {
         final RegionThreadingConflicts.Plan plan = RegionThreadingConflicts.plan(true, false, false, loaded("create"),
                 false, List.of(new RegionThreadingConflicts.Conflict("create",

@@ -131,6 +131,76 @@ class ParallelApiTest {
     }
 
     @Test
+    void naturalSpawnClaimsRequireRegisteredKeysSuccessfulVerificationAndFreeze() {
+        this.setup();
+        assertThrows(IllegalArgumentException.class, () -> ParallelAdapterRuntime.initialize(this.server,
+                registrar -> registrar.claimNaturalSpawning(KEY, "mobspawncontroller", () -> true)));
+        assertTrue(ParallelAdapterRuntime.naturalSpawnClaims(this.server).isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> ParallelAdapterRuntime.initialize(this.server, registrar -> {
+            registrar.register(1, KEY, unit -> new ParallelApi.Ready<>("data"));
+            registrar.claimNaturalSpawning(KEY, "mobspawncontroller", () -> false);
+        }));
+        ParallelAdapterRuntime.initialize(this.server, registrar -> {
+            registrar.register(1, KEY, unit -> new ParallelApi.Ready<>("data"));
+            registrar.claimNaturalSpawning(KEY, "mobspawncontroller", () -> true);
+            assertTrue(ParallelAdapterRuntime.naturalSpawnClaims(this.server).isEmpty());
+        });
+        assertEquals(java.util.Set.of("mobspawncontroller"), ParallelAdapterRuntime.naturalSpawnClaims(this.server));
+        ParallelAdapterRuntime.close(this.server);
+        assertTrue(ParallelAdapterRuntime.naturalSpawnClaims(this.server).isEmpty());
+    }
+
+    @Test
+    void planWideReadyDataIsFrozenAndRetainedForCompleteSerialFallback() {
+        this.setup();
+        final var revision = new AtomicReference<>("old");
+        final var fallbackKey = key("fallback");
+        ParallelAdapterRuntime.initialize(this.server, registrar -> {
+            registrar.register(1, KEY, new ParallelApi.NaturalSpawnPreparation<String>() {
+                @Override
+                public ParallelApi.Preparation<String> preparePlan(ParallelApi.SpawnPlan plan) {
+                    return new ParallelApi.Ready<>(revision.get());
+                }
+
+                @Override
+                public ParallelApi.Preparation<String> prepare(ParallelApi.SpawnUnit unit) {
+                    throw new AssertionError("plan-frozen provider must not be prepared again per chunk");
+                }
+            });
+            registrar.register(1, fallbackKey, unit -> new ParallelApi.ServerRequired<>(ResourceLocation.parse("test:unit_fallback")));
+        });
+        final var plan = ParallelAdapterRuntime.preparePlan(this.level);
+        assertTrue(plan.workerReady());
+        revision.set("new");
+        assertFalse(ParallelAdapterRuntime.prepare(this.level, 0, 0, plan).workerReady());
+        plan.runSerial(this.level, 0, 0, () -> {
+            assertEquals("old", ParallelApi.prepared(KEY).orElseThrow());
+            assertTrue(ParallelApi.prepared(fallbackKey).isEmpty());
+        });
+        assertTrue(ParallelApi.prepared(KEY).isEmpty());
+    }
+
+    @Test
+    void wholePlanRefusalIsDistinctFromAUnitRefusal() {
+        this.setup();
+        ParallelAdapterRuntime.initialize(this.server, registrar -> registrar.register(1, KEY, new ParallelApi.NaturalSpawnPreparation<String>() {
+            @Override
+            public ParallelApi.Preparation<String> preparePlan(ParallelApi.SpawnPlan plan) {
+                return new ParallelApi.ServerRequired<>(ResourceLocation.parse("test:native_caps_required"));
+            }
+
+            @Override
+            public ParallelApi.Preparation<String> prepare(ParallelApi.SpawnUnit unit) {
+                throw new AssertionError("no unit may begin after a whole-plan refusal");
+            }
+        }));
+        assertFalse(ParallelAdapterRuntime.preparePlan(this.level).workerReady());
+        final var status = ParallelApi.forServer(this.server).orElseThrow().adapters().getFirst();
+        assertEquals(1, status.serialPlans());
+        assertEquals(0, status.serialUnits());
+    }
+
+    @Test
     void retainedRegistrarCannotRegisterAfterTheEvent() {
         this.setup();
         final var saved = new AtomicReference<ParallelApi.Registrar>();

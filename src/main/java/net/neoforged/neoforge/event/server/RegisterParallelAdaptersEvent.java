@@ -12,7 +12,8 @@ import org.jetbrains.annotations.ApiStatus;
 /**
  * Fired on NeoForge.EVENT_BUS after biome modifiers and ServerAboutToStartEvent, before worlds tick.
  * Register only during this event. Registration is server-scoped, including when region threading is off.
- * This does not certify other listeners as parallel safe or override a known compatibility restriction.
+ * Preparation registration does not certify other listeners as parallel safe. Only an explicit verified
+ * natural-spawn claim may replace that mod's spawning restriction; other restrictions remain in force.
  */
 @ApiStatus.Experimental
 public final class RegisterParallelAdaptersEvent extends ServerLifecycleEvent {

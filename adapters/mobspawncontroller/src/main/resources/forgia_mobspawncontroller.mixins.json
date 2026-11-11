@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.neoforged.forgia.compat.mobspawncontroller.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "EmptyStructureSelectorsMixin",
+    "RuleSnapshotMixin",
+    "PreparedBoostMixin",
+    "SpawnContextCleanupMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

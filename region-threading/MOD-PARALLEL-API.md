@@ -9,8 +9,11 @@
 - `NATURAL_SPAWN_PREPARATION`：为一个 chunk 的完整自然刷怪调用准备脱离世界的只读数据，或在 body 开始前要求串行执行。
 - `ParallelApi.prepared(key)` / `currentSpawnUnit()`：只在对应 worker 刷怪调用及其同步监听器内取得准备结果，退出后清除。
 - `/neoforge regionthreading compat`：列出注册、ready/serial 次数、累计准备耗时及最近串行原因。
+- `NATURAL_SPAWN_PLAN_PREPARATION`：在核心 cap/state 构造前决定是否保留原生串行计划，或冻结整份计划的规则数据。
+- `NATURAL_SPAWN_CLAIMS`：已注册 preparation 可通过启动验证显式接管某个 mod 的自然刷怪限制；仅注册 preparation 本身不放行。
 
-本阶段没有结构查询快照服务、纯候选过滤器、原监听器自动接管，也不会解除 `mobspawncontroller` 的 `DISABLE_SPAWNING`。仅注册 preparation 不代表它的 FinalizeSpawn 监听器已经安全。
+本阶段没有结构查询快照服务或通用纯候选过滤器。
+[独立适配模块 0.2.0](../adapters/mobspawncontroller/README.md) 已使用准备协议和显式 claim：无适用世界规则时并行，带附近数量/结构等设置时仍完整串行。尚未实现这些世界条件的并行准入。
 
 ## 编译与加载
 
@@ -70,7 +73,15 @@ public static void filter(FinalizeSpawnEvent event) {
 return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structure_data_unavailable"));
 ```
 
-核心会在调用 `NaturalSpawner.spawnForChunk` 前选择完整串行路径，不重复执行 body。回退 body 中 prepared 数据为空，模组应走自己完整的串行判断。普通 NeoForge、引擎/刷怪 worker 关闭、已有邻域/预算回退也均使用原有串行逻辑，不强行提供一个虚构的 snapshot。
+核心会在调用 `NaturalSpawner.spawnForChunk` 前选择完整串行单元，不重复执行 body。该回退丢弃 per-unit 数据，但保留 `preparePlan` 已固定的 Ready 数据。普通 NeoForge、引擎/刷怪 worker 关闭以及整份计划被拒绝时，均走原生路径，prepared 数据为空。
+
+如规则会影响 mob cap 或要求保持完整原生刷怪计划，应覆盖 `preparePlan(SpawnPlan)`：
+
+- 返回 `ServerRequired`：核心在创建自己的 cap counter 前放弃并行计划，使用原生 `NaturalSpawner.createState` 和完整串行路径。
+- 返回 `Ready<S>`：该 snapshot 固定到本计划结束，后续 chunk 不再调用该 provider 的 `prepare`；计划中的主线程回退也读取同一份数据。
+- 默认返回 `PerUnit<S>`：保持下例 lambda 的逐 chunk 准备协议。
+
+`serialPlans` 统计整份计划拒绝，`serialUnits` 统计单个 chunk 回退，两者不能混成生成实体数。
 
 ## 精确执行合同
 
@@ -80,15 +91,15 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 - 注册器只在事件内、服务器线程可用。事件结束冻结；保存注册器稍后调用会失败。
 - id 是适配器身份，建议使用模组自己的 namespace；相同 id 即使 snapshot class 不同也不能重复。
 - API major 不匹配、重复 id、超过 128 个注册都使整次注册失败，不发布半成品服务。即使监听器捕获校验异常，也不放行已被标记失败的注册。
-- 注册按 id 排序，不按事件订阅先后执行。注册不能声明其他监听器已安全，也不能绕过管理员或兼容表收窄策略。
+- 注册按 id 排序，不按事件订阅先后执行。注册不能声明其他监听器已安全。只有显式 `claimNaturalSpawning(key, modId, verified)`、同一 key 已注册、验证成功且注册整体冻结后，核心才可将该 mod 的 DISABLE_SPAWNING 交给逐单元准入；不能解除 DISABLE_ENGINE 或管理员关闭的 slice。claim 是适配作者的合同，不是自动安全证明。
 
 ### 准备与快照
 
-- 目前是 **per-unit**：收集一个已有资格的 chunk 时，调用准备回调；部分串行单元仍在现有 inline 点立即执行。不保证整个 tick 共享一个规则 revision，也不改变原有刷怪 RNG 或全局 cap 协议。
+- `preparePlan` 在任何核心刷怪 cap 构造之前执行。选择 `PerUnit` 时，收集 chunk 才准备该单元；选择 `Ready` 时则冻结整份计划的规则 revision。默认 lambda 仍是 per-unit，不自动保证跨 chunk 的同一 revision。
 - `SpawnUnit` 只包含维度、源 chunk 坐标和 gameTime，不提供 live level 或加载权限。
 - 源 chunk 不代表候选位置一定处于其中。快照需要覆盖自己监听器可能查询的完整范围；无法保证时要求串行。
 - 准备回调禁止游戏 RNG 消耗、实体构造、发事件、修改世界。返回的数据禁止携带 live chunk/entity、可变 NBT 或可变共享容器。Java 泛型/record 不能证明深层不可变，这是适配器实现的责任。
-- 一个适配器返回 ServerRequired 就丢弃该单元已准备的其他快照；没有准备好的部分数据进入串行 body。
+- per-unit 返回 ServerRequired 会丢弃该单元的部分准备结果；只有计划级 Ready 数据继续供本计划串行单元使用。preparePlan 的 ServerRequired 则完全退出核心并行计划，所有 prepared 数据均不进入原生路径。
 - callback 异常、null 结果和错误 snapshot 类型会传播，不转成成功或自动重试。
 - 首版限制注册数，但不抢占 Java 回调，也没有硬性耗时预算或结构数据缓存；耗时由诊断累计。回调必须自行约束工作量。
 
@@ -96,7 +107,7 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 
 - 快照通过当前线程的短生命周期作用域传递，不从监听器调度的新线程继承。
 - 作用域对应完整 `spawnForChunk` 调用，不代表候选已经过滤、mob 已获准加入或任何事件已执行。
-- 串行回退隐藏外层快照；异常退出也会恢复/清空作用域。
+- 串行回退隐藏不属于本计划的外层快照；计划级固定数据在本计划的串行单元中保留。异常退出恢复/清空作用域。
 - 注册服务关闭后，旧 service 查询会抛明确异常，旧 prepared 单元不能再次执行；同一 JVM 再次启服建立独立服务。
 - 有准备数据的单元执行时检查服务器、维度与 gameTime；失效时跳过 body。不得把 prepared 单元当作跨 tick 队列。
 - 公开的 snapshot 值可以作为不可变纯数据保存，但保存数据不能延长所有权或表示未来世界仍处于该状态。
@@ -116,4 +127,5 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 
 `ParallelApiTest` 覆盖注册生命周期、版本、重复、冻结、显式回退、异常、不重放、作用域清理、过期与外部线程。`RegionSpawnTest` 通过实际 spawn plan、worker batch 和真实 NaturalSpawner cap 路径检查数据传递、主线程服务隔离与完整串行单元只执行一次。
 
-这些测试不是 MobSpawnController 的结构过滤验收。下一阶段需要只读结构数据服务，以及原监听器与替代过滤器的原子接管协议；在此之前继续保留其串行保护。首版也未对全量第三方事件监听器提供自动安全认证。
+这些测试不是 MobSpawnController 的结构过滤验收。针对 1.2.3 的实际调用、规则共享、附近数量限制和接管边界，见
+[适配前审查](MOBSPAWNCONTROLLER-ADAPTER-AUDIT.md)。显式启动验证和按配置回退已经实现；结构数据服务、附近数量/倍率的并行协议仍待实现。首版也未对全量第三方事件监听器提供自动安全认证。

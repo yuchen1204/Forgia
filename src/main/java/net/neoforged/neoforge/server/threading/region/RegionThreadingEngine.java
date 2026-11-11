@@ -173,7 +173,7 @@ public final class RegionThreadingEngine implements RegionThreading {
     private final boolean blockEntityTickWorkerExecutionEnabled;
     private final boolean scheduledTickWorkerExecutionEnabled;
     private final boolean chunkTickWorkerExecutionEnabled;
-    private final boolean spawnWorkerExecutionEnabled;
+    private volatile boolean spawnWorkerExecutionEnabled;
     /**
      * Whether a slice leases several regions into one worker task. Off means one task per region, exactly like
      * before packing existed.
@@ -1132,6 +1132,15 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     public RegionThreadingEngine(int workerThreads, boolean workerExecutionEnabled, boolean globalWorkerExecutionEnabled, boolean entityTickWorkerExecutionEnabled, boolean blockEntityTickWorkerExecutionEnabled, boolean scheduledTickWorkerExecutionEnabled, boolean chunkTickWorkerExecutionEnabled, boolean spawnWorkerExecutionEnabled, RegionLayout layout) {
         this(workerThreads, workerExecutionEnabled, globalWorkerExecutionEnabled, entityTickWorkerExecutionEnabled, blockEntityTickWorkerExecutionEnabled, scheduledTickWorkerExecutionEnabled, chunkTickWorkerExecutionEnabled, spawnWorkerExecutionEnabled, layout, RegionEntityStorageMode.MAIN_THREAD_ONLY);
+    }
+
+    /** Only used once during server startup, after adapter verification and before worlds tick. */
+    @ApiStatus.Internal
+    public void configureStartupSpawnWorkers(boolean enabled) {
+        if (this.shutdown || !this.isQuiescentForParallelApi() || !this.activeTickBatches.isEmpty()) {
+            throw new IllegalStateException("Cannot change spawn worker admission while work is active");
+        }
+        this.spawnWorkerExecutionEnabled = enabled;
     }
 
     public RegionPolicy regionPolicy() {
@@ -3497,7 +3506,9 @@ public final class RegionThreadingEngine implements RegionThreading {
             // state that no longer exists.
             return null;
         }
-        return new RegionSpawnPlan(this, level, source, spawnFriendlies, spawnEnemies, spawnPersistent, barrier);
+        final var preparedPlan = net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.preparePlan(level);
+        if (!preparedPlan.workerReady()) return null;
+        return new RegionSpawnPlan(this, level, source, spawnFriendlies, spawnEnemies, spawnPersistent, barrier, preparedPlan);
     }
 
     /**

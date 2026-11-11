@@ -176,6 +176,16 @@ public final class RegionThreadingConflicts {
             new Conflict("mobspawncontroller", Kind.LEVEL_WIDE_STATE,
                     "FinalizeSpawnEvent structure filters synchronously request STRUCTURE_STARTS chunks; keep natural spawning on the server thread so the complete listener runs with normal chunk loading"));
 
+    /** Only a DISABLE_SPAWNING action may be replaced by an explicitly verified preparation adapter. */
+    public static List<Conflict> withNaturalSpawnAdapters(java.util.Set<String> claimedMods) {
+        return KNOWN_CONFLICTS.stream().map(conflict -> conflict.action() == Action.DISABLE_SPAWNING
+                && claimedMods.contains(conflict.modId())
+                        ? new Conflict(conflict.modId(), conflict.kind(), Action.REPORT_ONLY,
+                                "verified adapter owns natural-spawn preparation and pre-body fallback; " + conflict.reason())
+                        : conflict)
+                .toList();
+    }
+
     private RegionThreadingConflicts() {}
 
     /** {@return the known-conflict table, in report order} */

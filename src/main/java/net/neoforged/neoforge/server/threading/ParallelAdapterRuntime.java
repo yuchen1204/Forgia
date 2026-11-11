@@ -38,6 +38,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     private volatile boolean open = true;
     private volatile boolean frozen;
     private boolean invalid;
+    private final Map<String, ParallelApi.DataKey<?>> spawnClaims = new LinkedHashMap<>();
 
     private ParallelAdapterRuntime(MinecraftServer server) {
         this.server = Objects.requireNonNull(server);
@@ -118,6 +119,34 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     }
 
     @Override
+    public void claimNaturalSpawning(ParallelApi.DataKey<?> key, String modId, java.util.function.BooleanSupplier verified) {
+        this.requireServerThread();
+        if (this.frozen) {
+            throw new IllegalStateException("Parallel adapter registration is frozen");
+        }
+        try {
+            final Entry<?> entry = this.entries.get(Objects.requireNonNull(key).id());
+            if (entry == null || !entry.key.equals(key) || modId == null || modId.isBlank()
+                    || this.spawnClaims.containsKey(modId) || !Objects.requireNonNull(verified).getAsBoolean()) {
+                throw new IllegalArgumentException("Unverified, duplicate or unregistered natural-spawn claim: " + modId);
+            }
+            this.spawnClaims.put(modId, key);
+        } catch (RuntimeException | Error failure) {
+            this.invalid = true;
+            throw failure;
+        }
+    }
+
+    /** Resolves claims only after every registration and verification completed successfully. */
+    public static java.util.Set<String> naturalSpawnClaims(MinecraftServer server) {
+        synchronized (SERVERS) {
+            final ParallelAdapterRuntime runtime = SERVERS.get(server);
+            return runtime == null || !runtime.open || !runtime.frozen ? java.util.Set.of()
+                    : java.util.Set.copyOf(runtime.spawnClaims.keySet());
+        }
+    }
+
+    @Override
     public int apiMajorVersion() {
         this.requireOpen();
         return ParallelApi.MAJOR_VERSION;
@@ -126,7 +155,8 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     @Override
     public Set<ParallelApi.Capability> capabilities() {
         this.requireOpen();
-        return Set.of(ParallelApi.Capability.EXECUTION_CONTEXT, ParallelApi.Capability.NATURAL_SPAWN_PREPARATION);
+        return Set.of(ParallelApi.Capability.EXECUTION_CONTEXT, ParallelApi.Capability.NATURAL_SPAWN_PREPARATION,
+                ParallelApi.Capability.NATURAL_SPAWN_PLAN_PREPARATION, ParallelApi.Capability.NATURAL_SPAWN_CLAIMS);
     }
 
     @Override
@@ -157,32 +187,122 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         this.requireOpen();
         final List<ParallelApi.AdapterStatus> result = new ArrayList<>();
         this.entries.values().forEach(entry -> result.add(new ParallelApi.AdapterStatus(entry.key.id(),
-                entry.ready.sum(), entry.serial.sum(), entry.nanos.sum(), Optional.ofNullable(entry.lastReason))));
+                entry.ready.sum(), entry.serial.sum(), entry.serialPlans.sum(), entry.nanos.sum(), Optional.ofNullable(entry.lastReason))));
         return List.copyOf(result);
     }
 
-    /** Empty fast path when no preparation adapters are registered for this server. */
-    public static PreparedSpawn prepare(ServerLevel level, int chunkX, int chunkZ) {
+    /** Before the core constructs its own cap state, an adapter may retain the full native serial plan. */
+    public static PreparedSpawnPlan preparePlan(ServerLevel level) {
         final ParallelAdapterRuntime runtime;
         synchronized (SERVERS) {
             runtime = SERVERS.get(level.getServer());
         }
         if (runtime == null || !runtime.frozen || !runtime.open || runtime.entries.isEmpty()) {
-            return PreparedSpawn.EMPTY;
+            return PreparedSpawnPlan.EMPTY;
         }
         runtime.requireServerThread();
         if (runtime.currentPhase() != ParallelApi.Phase.QUIESCENT_SERVER) {
             throw new IllegalStateException("Cannot prepare parallel spawn data while workers are active");
         }
-        final ParallelApi.SpawnUnit unit = new ParallelApi.SpawnUnit(level.dimension(), chunkX, chunkZ, level.getGameTime());
-        final Map<ParallelApi.DataKey<?>, Object> snapshots = new LinkedHashMap<>();
+        final Map<ParallelApi.DataKey<?>, Object> frozen = new LinkedHashMap<>();
+        final List<Entry<?>> perUnit = new ArrayList<>();
+        final var context = new ParallelApi.SpawnPlan(level.dimension(), level.getGameTime());
         for (final Entry<?> entry : runtime.entries.values()) {
+            final long start = System.nanoTime();
+            try {
+                final var result = Objects.requireNonNull(entry.preparation.preparePlan(context), "Null plan preparation");
+                if (result instanceof ParallelApi.ServerRequired<?> serial) {
+                    entry.serialPlans.increment();
+                    entry.lastReason = serial.reason();
+                    return new PreparedSpawnPlan(runtime, level, context, Map.of(), List.of(), false);
+                } else if (result instanceof ParallelApi.Ready<?> ready) {
+                    frozen.put(entry.key, entry.key.snapshotType().cast(ready.snapshot()));
+                } else {
+                    perUnit.add(entry);
+                }
+            } finally {
+                entry.nanos.add(System.nanoTime() - start);
+            }
+        }
+        return new PreparedSpawnPlan(runtime, level, context, Map.copyOf(frozen), List.copyOf(perUnit), true);
+    }
+
+    /** Convenience for a standalone unit; production plans reuse the same prepared-plan identity. */
+    public static PreparedSpawn prepare(ServerLevel level, int chunkX, int chunkZ) {
+        return prepare(level, chunkX, chunkZ, preparePlan(level));
+    }
+
+    public static PreparedSpawn prepare(ServerLevel level, int chunkX, int chunkZ, PreparedSpawnPlan plan) {
+        if (plan.runtime == null) return PreparedSpawn.EMPTY;
+        plan.requireCurrent(level);
+        final var runtime = plan.runtime;
+        runtime.requireServerThread();
+        if (runtime.currentPhase() != ParallelApi.Phase.QUIESCENT_SERVER) {
+            throw new IllegalStateException("Cannot prepare parallel spawn data while workers are active");
+        }
+        final var unit = new ParallelApi.SpawnUnit(level.dimension(), chunkX, chunkZ, level.getGameTime());
+        if (!plan.workerReady) return new PreparedSpawn(runtime, level, unit, Map.of(), false);
+        final Map<ParallelApi.DataKey<?>, Object> snapshots = new LinkedHashMap<>(plan.frozen);
+        for (final var key : plan.frozen.keySet()) runtime.entries.get(key.id()).ready.increment();
+        for (final Entry<?> entry : plan.perUnit) {
             if (!entry.prepare(unit, snapshots)) {
-                // No body has begun. Discard all partial snapshots; serial execution must use original logic.
                 return new PreparedSpawn(runtime, level, unit, Map.of(), false);
             }
         }
         return new PreparedSpawn(runtime, level, unit, Map.copyOf(snapshots), true);
+    }
+
+    public static final class PreparedSpawnPlan {
+        private static final PreparedSpawnPlan EMPTY = new PreparedSpawnPlan(null, null, null, Map.of(), List.of(), true);
+        @Nullable
+        private final ParallelAdapterRuntime runtime;
+        @Nullable
+        private final ServerLevel level;
+        @Nullable
+        private final ParallelApi.SpawnPlan context;
+        private final Map<ParallelApi.DataKey<?>, Object> frozen;
+        private final List<Entry<?>> perUnit;
+        private final boolean workerReady;
+
+        private PreparedSpawnPlan(@Nullable ParallelAdapterRuntime runtime, @Nullable ServerLevel level,
+                @Nullable ParallelApi.SpawnPlan context, Map<ParallelApi.DataKey<?>, Object> frozen,
+                List<Entry<?>> perUnit, boolean workerReady) {
+            this.runtime = runtime;
+            this.level = level;
+            this.context = context;
+            this.frozen = frozen;
+            this.perUnit = perUnit;
+            this.workerReady = workerReady;
+        }
+
+        public boolean workerReady() {
+            return this.workerReady;
+        }
+
+        private void requireCurrent(ServerLevel level) {
+            if (this.runtime != null && (!this.runtime.open || level != this.level || level.getServer() != this.runtime.server
+                    || level.getGameTime() != this.context.gameTime() || !level.dimension().equals(this.context.dimension()))) {
+                throw new IllegalStateException("Prepared spawn plan has retired");
+            }
+        }
+
+        /** Frozen plan-wide rules also apply to fallback units; per-unit partial preparation is discarded. */
+        public void runSerial(ServerLevel level, int x, int z, Runnable action) {
+            this.requireCurrent(level);
+            if (!this.workerReady) throw new IllegalStateException("A native serial plan is required");
+            if (this.runtime != null && this.runtime.currentPhase() != ParallelApi.Phase.QUIESCENT_SERVER) {
+                throw new IllegalStateException("Serial spawn fallback requires a quiescent server");
+            }
+            if (this.frozen.isEmpty()) {
+                ParallelAdapterRuntime.runSerial(action);
+            } else {
+                if (this.runtime.currentPhase() != ParallelApi.Phase.QUIESCENT_SERVER) {
+                    throw new IllegalStateException("Serial spawn fallback requires a quiescent server");
+                }
+                new PreparedSpawn(this.runtime, level, new ParallelApi.SpawnUnit(level.dimension(), x, z, level.getGameTime()),
+                        this.frozen, true).run(level, action);
+            }
+        }
     }
 
     public static <S> Optional<S> prepared(ParallelApi.DataKey<S> key) {
@@ -273,6 +393,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         private final ParallelApi.NaturalSpawnPreparation<S> preparation;
         private final LongAdder ready = new LongAdder();
         private final LongAdder serial = new LongAdder();
+        private final LongAdder serialPlans = new LongAdder();
         private final LongAdder nanos = new LongAdder();
         @Nullable
         private volatile ResourceLocation lastReason;
@@ -291,7 +412,9 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                     this.ready.increment();
                     return true;
                 }
-                final var serial = (ParallelApi.ServerRequired<S>) result;
+                if (!(result instanceof ParallelApi.ServerRequired<S> serial)) {
+                    throw new IllegalStateException("PerUnit is only valid from preparePlan");
+                }
                 this.lastReason = serial.reason();
                 this.serial.increment();
                 return false;

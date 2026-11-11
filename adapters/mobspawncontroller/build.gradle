@@ -1,0 +1,95 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.licenser'
+    id 'neoforge.formatting-conventions'
+}
+
+evaluationDependsOn(':neoforge')
+apply plugin: net.neoforged.neodev.NeoDevExtraPlugin
+
+version = '0.2.0'
+base.archivesName = 'forgia-mobspawncontroller-adapter'
+java.withSourcesJar()
+
+// The proprietary target jar is supplied by the developer for integration tests only.
+// No upstream classes or sources are bundled into the adapter or checked into this repository.
+def targetJar = providers.gradleProperty('mobSpawnControllerJar').map { rootProject.file(it) }
+def unpackTarget = tasks.register('unpackMobSpawnController', Sync) {
+    onlyIf { targetJar.isPresent() }
+    if (targetJar.isPresent()) {
+        from(zipTree(targetJar.get()))
+    }
+    into(layout.buildDirectory.dir('target-mod'))
+}
+
+sourceSets {
+    targetMod {
+        java.srcDirs = []
+        resources.srcDir(unpackTarget)
+    }
+    junit {}
+}
+
+dependencies {
+    compileOnly project(':neoforge')
+    compileOnly "io.github.llamalad7:mixinextras-neoforge:${project.mixin_extras_version}"
+    junitImplementation project(':neoforge')
+    // Class directory only, never the mod resources: the negative control must resolve adapter classes for
+    // JUnit discovery while NeoForge must not discover the adapter mod itself.
+    junitImplementation files(sourceSets.main.output.classesDirs)
+    junitRuntimeOnly "io.github.llamalad7:mixinextras-neoforge:${project.mixin_extras_version}"
+    junitImplementation(platform("org.junit:junit-bom:${project.jupiter_api_version}"))
+    junitImplementation 'org.junit.jupiter:junit-jupiter-api'
+    junitRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+    junitImplementation "org.mockito:mockito-core:${project.mockito_core}"
+    junitImplementation "net.neoforged.fancymodloader:junit-fml:${project.fancy_mod_loader_version}"
+}
+
+sourceSets.each {
+    configurations.named(it.runtimeClasspathConfigurationName) {
+        attributes {
+            attribute(Attribute.of('net.neoforged.neoforge.includes-minecraft', Boolean), true)
+        }
+    }
+}
+
+// All targets are mod-owned, exact-version methods. They need no Minecraft refmap.
+tasks.named('compileJava', JavaCompile) {
+    options.compilerArgs.add('-proc:none')
+}
+
+neoDev {
+    mods {
+        adapter { sourceSet sourceSets.main }
+        original { sourceSet sourceSets.targetMod }
+        junit { sourceSet sourceSets.junit }
+        coremods { sourceSet project(':neoforge-coremods').sourceSets.main }
+    }
+}
+
+neoDevTest {
+    def loaded = [project(':neoforge').neoDev.mods.minecraft, neoDev.mods.coremods, neoDev.mods.original, neoDev.mods.junit]
+    if (!providers.gradleProperty('mscAdapterNegativeControl').map { it.toBoolean() }.getOrElse(false)) {
+        loaded.add(neoDev.mods.adapter)
+    }
+    loadedMods = loaded
+}
+
+junitTest {
+    onlyIf('provide -PmobSpawnControllerJar=/path/to/1.2.3.jar for target-mod integration tests') {
+        targetJar.isPresent()
+    }
+    useJUnitPlatform()
+    classpath = sourceSets.junit.output + sourceSets.junit.runtimeClasspath
+    testClassesDirs = sourceSets.junit.output.classesDirs
+    systemProperty 'mixin.debug.countInjections', 'true'
+    if (providers.gradleProperty('mscAdapterNegativeControl').map { it.toBoolean() }.getOrElse(false)) {
+        filter { includeTestsMatching '*EmptyStructureSelectorsIntegrationTest' }
+    }
+    outputs.upToDateWhen { false }
+}
+
+license {
+    header = rootProject.file('codeformat/HEADER.txt')
+    include '**/*.java'
+}
