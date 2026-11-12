@@ -30,6 +30,7 @@ import net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnersh
 import net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnership.Claims;
 import net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnership.Identity;
 import net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnership.Scope;
+import net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnership.SharedReads;
 import net.neoforged.neoforge.server.threading.region.BlockEntityWorkPlanner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -414,6 +415,198 @@ class BlockEntityResourceOwnershipTest {
                 expected.get(depth[after]).add(after);
             }
             assertEquals(expected, BlockEntityResourceOwnership.plan(inputs).dependencies().waves(), "seeded case " + iteration);
+        }
+    }
+
+    @Test
+    void sharedReadPublicationIsValidatedOncePerReservationNotCachedAcrossWaves() {
+        final var calls = new AtomicInteger();
+        final var valid = new AtomicBoolean(true);
+        final var publication = SharedReads.capture(this.level, List.of(this.x, this.y), () -> {
+            calls.incrementAndGet();
+            return valid.get();
+        });
+        final var read = Claims.builder(this.level, this.region).sharedReads(publication).build();
+        for (int wave = 0; wave < 2; ++wave) {
+            try (final var owner = this.ownership()) {
+                final var leases = owner.tryAcquireAll(List.of(read, read));
+                assertNotNull(leases);
+                for (final var lease : leases) {
+                    try (final var scope = lease.enter()) {
+                        Scope.require(this.level, this.x, Access.READ);
+                        Scope.require(this.level, this.y, Access.READ);
+                        assertThrows(IllegalStateException.class, () -> Scope.require(this.level, this.x, Access.WRITE));
+                    }
+                }
+            }
+            assertEquals(wave + 1, calls.get());
+        }
+        valid.set(false);
+        try (final var owner = this.ownership()) {
+            assertNull(owner.tryAcquireAll(List.of(read, read)));
+        }
+        assertEquals(3, calls.get(), "each new reservation must validate even an identical immutable footprint");
+    }
+
+    @Test
+    void distinctSharedProofsAndEveryLegacyAttachmentValidatorAreRetained() {
+        final var calls = new AtomicInteger();
+        final var first = SharedReads.capture(this.level, List.of(this.x), () -> {
+            calls.incrementAndGet();
+            return true;
+        });
+        final var second = SharedReads.capture(this.level, List.of(this.x), () -> {
+            calls.incrementAndGet();
+            return false;
+        });
+        final var a = Claims.builder(this.level, this.region).sharedReads(first).build();
+        final var b = Claims.builder(this.level, this.region).sharedReads(second).build();
+        assertTrue(a.sameResources(b));
+        try (final var owner = this.ownership()) {
+            assertNull(owner.tryAcquireAll(List.of(a, a, b)));
+            assertEquals(2, calls.get());
+        }
+        final var duplicateCalls = new AtomicInteger();
+        final var binding = new Binding(new Identity(this.level, this.x), null, () -> {
+            duplicateCalls.incrementAndGet();
+            return true;
+        }, null);
+        final var expanded = Claims.builder(this.level, this.region).claim(binding, Access.READ).claim(binding, Access.READ).build();
+        try (final var owner = this.ownership()) {
+            assertNotNull(owner.tryAcquireAll(List.of(expanded, expanded)));
+        }
+        assertEquals(4, duplicateCalls.get(), "ordinary bindings are never silently converted into a group proof");
+    }
+
+    @Test
+    void groupedReadsPreserveGlobalWriteAliasRefusalIncludingOtherHomesAndExpandedClaims() {
+        final var shared = SharedReads.capture(this.level, List.of(this.x), () -> true);
+        final var read = Claims.builder(this.level, this.region).sharedReads(shared).build();
+        assertFalse(Claims.builder(this.level, this.region).sharedReads(shared).claim(this.binding(this.x), Access.WRITE).build().complete());
+        assertFalse(Claims.builder(this.level, this.region).claim(this.binding(this.x), Access.WRITE).sharedReads(shared).build().complete());
+        final Object otherRegion = new Object();
+        final var write = Claims.builder(this.level, otherRegion)
+                .claim(new Binding(new Identity(this.level, this.x), otherRegion, () -> true, null), Access.WRITE).build();
+        final var independent = this.claims(this.y, Access.WRITE);
+        final var plan = BlockEntityResourceOwnership.plan(List.of(read, independent, write, read));
+        assertFalse(plan.claims().get(0).complete());
+        assertTrue(plan.claims().get(1).complete());
+        assertFalse(plan.claims().get(2).complete());
+        assertFalse(plan.claims().get(3).complete());
+        assertEquals(BlockEntityWorkPlanner.plan(plan.claims().stream().map(Claims::unit).toList()).waves(), plan.dependencies().waves());
+        try (final var owner = new Owner(this.level, Map.of(this.region, () -> true, otherRegion, () -> true), () -> true)) {
+            assertNull(owner.tryAcquireAll(List.of(read, write)));
+            assertNull(owner.tryAcquireAll(List.of(write, read)), "conflict detection cannot depend on group visitation order");
+            assertNotNull(owner.tryAcquireAll(List.of(read, read)));
+        }
+    }
+
+    @Test
+    void immutableGroupedAndExpandedSnapshotsHaveTheSamePermissions() {
+        final List<Object> mutable = new ArrayList<>(List.of(this.x, this.y));
+        final var shared = SharedReads.capture(this.level, mutable, () -> true);
+        final var grouped = Claims.builder(this.level, this.region).sharedReads(shared).build();
+        mutable.clear();
+        mutable.add(new Object());
+        final var expanded = Claims.builder(this.level, this.region)
+                .claim(new Binding(new Identity(this.level, this.x), null, () -> true, null), Access.READ)
+                .claim(new Binding(new Identity(this.level, this.y), null, () -> true, null), Access.READ).build();
+        assertTrue(grouped.sameResources(expanded));
+        assertTrue(expanded.sameResources(grouped));
+        assertEquals(expanded.unit(), grouped.unit());
+        final var changed = Claims.builder(this.level, this.region).sharedReads(SharedReads.capture(this.level, List.of(this.x), () -> true)).build();
+        assertFalse(grouped.sameResources(changed));
+        assertFalse(Claims.builder(new Object(), this.region).sharedReads(shared).build().complete());
+        assertFalse(Claims.builder(this.level, this.region).sharedReads(shared).sharedReads(shared).build().complete());
+    }
+
+    @Test
+    void sharedGroupsStillChargeLogicalDuplicateUnitAndPhaseBudgets() {
+        final var shared = SharedReads.capture(this.level, java.util.Collections.nCopies(BlockEntityResourceOwnership.MAX_RESOURCES_PER_UNIT, this.x), () -> true);
+        final var read = Claims.builder(this.level, this.region).sharedReads(shared).build();
+        assertTrue(read.complete());
+        assertFalse(Claims.builder(this.level, this.region).sharedReads(shared).claim(this.binding(this.y), Access.READ).build().complete());
+        assertFalse(Claims.builder(this.level, this.region).claim(this.binding(this.y), Access.READ).sharedReads(shared).build().complete());
+        final var inputs = java.util.Collections.nCopies(BlockEntityResourceOwnership.MAX_BINDINGS_PER_PHASE / BlockEntityResourceOwnership.MAX_RESOURCES_PER_UNIT + 1, read);
+        assertThrows(IllegalArgumentException.class, () -> BlockEntityResourceOwnership.plan(inputs));
+        try (final var owner = this.ownership()) {
+            assertNull(owner.tryAcquireAll(inputs));
+            assertNotNull(owner.tryAcquireAll(List.of(read)));
+        }
+        final var oversized = SharedReads.capture(this.level, java.util.Collections.nCopies(Integer.MAX_VALUE, this.x), () -> true);
+        assertFalse(Claims.builder(this.level, this.region).sharedReads(oversized).build().complete());
+    }
+
+    @Test
+    void groupedReadsCannotGrantWorldChunkAccessAndStillCheckPostValidationBoundaries() {
+        final var chunk = org.mockito.Mockito.mock(net.minecraft.world.level.chunk.LevelChunk.class);
+        final var held = new AtomicBoolean(true);
+        final var shared = SharedReads.capture(this.level, List.of(chunk), () -> {
+            held.set(false);
+            return true;
+        });
+        final var claims = Claims.builder(this.level, this.region).sharedReads(shared).build();
+        try (final var owner = new Owner(this.level, Map.of(this.region, held::get), () -> true)) {
+            assertNull(owner.tryAcquireAll(List.of(claims)), "all homes must still pass after all validators");
+        }
+        final var valid = Claims.builder(this.level, this.region).sharedReads(SharedReads.capture(this.level, List.of(chunk), () -> true)).build();
+        try (final var owner = this.ownership()) {
+            final var leases = owner.tryAcquireAll(List.of(valid));
+            assertNotNull(leases);
+            try (final var scope = leases.getFirst().enter()) {
+                Scope.require(this.level, chunk, Access.READ);
+                assertThrows(IllegalStateException.class, () -> Scope.checkChunk(chunk, false));
+            }
+        }
+    }
+
+    @Test
+    void aThrowingSharedPublicationProofNeverLeavesPartialAuthority() {
+        final var failure = new IllegalArgumentException("publication changed during proof");
+        final var shared = SharedReads.capture(this.level, List.of(this.x), () -> {
+            throw failure;
+        });
+        final var read = Claims.builder(this.level, this.region).sharedReads(shared).build();
+        try (final var owner = this.ownership()) {
+            assertEquals(failure, assertThrows(IllegalArgumentException.class, () -> owner.tryAcquireAll(List.of(read, read))));
+            assertNotNull(owner.tryAcquireAll(List.of(this.claims(this.y, Access.WRITE))));
+            assertFalse(Scope.active());
+        }
+    }
+
+    @Test
+    void groupedAndExpandedPlansMatchForAThousandSharedReadWriteAliasCases() {
+        final var random = new Random(981371L);
+        final List<Object> resources = List.of(new Object(), new Object(), new Object(), new Object());
+        for (int iteration = 0; iteration < 1000; ++iteration) {
+            final List<Object> reads = resources.subList(0, 1 + random.nextInt(resources.size()));
+            final var shared = SharedReads.capture(this.level, reads, () -> true);
+            final List<Claims> grouped = new ArrayList<>();
+            final List<Claims> expanded = new ArrayList<>();
+            for (int index = 0; index < 20; ++index) {
+                final var a = Claims.builder(this.level, this.region);
+                final var b = Claims.builder(this.level, this.region);
+                if (random.nextBoolean()) {
+                    a.sharedReads(shared);
+                    for (final Object instance : reads) b.claim(new Binding(new Identity(this.level, instance), null, () -> true, null), Access.READ);
+                }
+                final Object resource = resources.get(random.nextInt(resources.size()));
+                final Access mode = random.nextBoolean() ? Access.READ : Access.WRITE;
+                a.claim(this.binding(resource), mode);
+                b.claim(this.binding(resource), mode);
+                if (random.nextInt(6) == 0) {
+                    grouped.add(Claims.fence(this.level, this.region));
+                    expanded.add(Claims.fence(this.level, this.region));
+                } else {
+                    grouped.add(a.build());
+                    expanded.add(b.build());
+                }
+            }
+            final var groupedPlan = BlockEntityResourceOwnership.plan(grouped);
+            final var expandedPlan = BlockEntityResourceOwnership.plan(expanded);
+            assertEquals(expandedPlan.claims().stream().map(Claims::complete).toList(), groupedPlan.claims().stream().map(Claims::complete).toList());
+            assertEquals(expandedPlan.dependencies().waves(), groupedPlan.dependencies().waves(), "seeded shared case " + iteration);
+            assertEquals(BlockEntityWorkPlanner.plan(groupedPlan.claims().stream().map(Claims::unit).toList()).waves(), groupedPlan.dependencies().waves());
         }
     }
 

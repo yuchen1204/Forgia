@@ -10,6 +10,9 @@ can replace the position-key execution footprint with exact object claims and on
 those same Region leases. Set `enableRegionThreadingBlockEntityResources=true` in addition to the existing
 wave flags to test it; default is false. Audited bodies, conservative aliases, unknown serial fences and
 ordered notification commits remain mandatory. The flag does not admit more machine types.
+The [`.58` resource optimization](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md) shares only fresh audited
+READ footprints and uses compact directed execution waves; it adds no cross-tick proof cache and makes
+no whole-server speedup claim. Shadow graph statistics still use the diagnostic planner.
 
 ## Enable and diagnose
 

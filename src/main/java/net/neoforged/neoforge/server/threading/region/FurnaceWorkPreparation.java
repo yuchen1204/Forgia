@@ -52,7 +52,7 @@ final class FurnaceWorkPreparation {
     private static final Set<String> REPORTED_CATALOG_REFUSALS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final boolean VERIFIED_METHODS = unmodifiedMethods();
     private final Map<RecipeType<?>, Boolean> catalogs = new IdentityHashMap<>();
-    private final Map<RecipeType<?>, List<ItemStack>> catalogResources = new IdentityHashMap<>();
+    private final Map<RecipeType<?>, BlockEntityResourceOwnership.SharedReads> catalogResources = new IdentityHashMap<>();
     private final boolean captureResources;
     private final ServerLevel level;
     private final RegionLayout layout;
@@ -130,7 +130,7 @@ final class FurnaceWorkPreparation {
         if (!this.catalogs.computeIfAbsent(source.furnaceWorkRecipeType(), this::pureCatalog)) return this.refuse(FurnaceWorkMetrics.Refusal.CUSTOM_RECIPE);
         if (source.furnaceWorkMayNotify() && !this.inertNotifications(position)) return this.refuse(FurnaceWorkMetrics.Refusal.ACTIVE_NOTIFICATIONS);
         return new Candidate(admission, source, chunk, this.recipes,
-                this.captureResources ? this.catalogResources.get(source.furnaceWorkRecipeType()) : List.of());
+                this.captureResources ? this.catalogResources.get(source.furnaceWorkRecipeType()) : null);
     }
 
     private boolean inertNotifications(net.minecraft.core.BlockPos position) {
@@ -177,7 +177,15 @@ final class FurnaceWorkPreparation {
                     "result " + BuiltInRegistries.ITEM.getKey(result.getItem()) + " class=" + result.getItem().getClass().getName()
                             + " componentPatch=" + !result.isComponentsPatchEmpty());
         }
-        if (reads != null) this.catalogResources.put(type, List.copyOf(reads));
+        if (reads != null) {
+            final List<Object> publication = new java.util.ArrayList<>(reads.size() + 1);
+            publication.add(this.recipes);
+            publication.addAll(reads);
+            // This object belongs only to this fresh preparation pass. Per-wave revalidation constructs a
+            // new preparation and re-audits mutable results/ingredients even when the manager is unchanged.
+            this.catalogResources.put(type, BlockEntityResourceOwnership.SharedReads.capture(this.level, publication,
+                    () -> this.level.getRecipeManager() == this.recipes));
+        }
         return true;
     }
 
@@ -230,7 +238,7 @@ final class FurnaceWorkPreparation {
     }
 
     record Candidate(RegionBlockEntityTickAdmission admission, AbstractFurnaceBlockEntity source, LevelChunk chunk,
-            RecipeManager recipes, List<ItemStack> recipeReads) {}
+            RecipeManager recipes, @Nullable BlockEntityResourceOwnership.SharedReads recipeReads) {}
 
     /** Public inventory references must be exclusive, even if a mod aliases two otherwise vanilla instances. */
     static Set<AbstractFurnaceBlockEntity> aliased(List<RegionBlockEntityTickAdmission> admissions) {

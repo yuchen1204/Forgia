@@ -76,6 +76,68 @@ public final class BlockEntityWorkPlanner {
         }
     }
 
+    /** Execution-only result. Graph links and connected components are computed only by {@link #plan}. */
+    public record ExecutionPlan(List<List<Integer>> waves, int maxWidth) {
+        public ExecutionPlan {
+            waves = waves.stream().map(List::copyOf).toList();
+        }
+    }
+
+    /**
+     * The earliest legal depth needs only the latest writer depth and greatest following reader depth.
+     * A fence follows the global maximum and replaces all earlier resource state with its barrier depth.
+     * No reader/predecessor index sets, union-find or quadratic fence links are needed for execution.
+     */
+    public static ExecutionPlan planExecution(List<Unit> input) {
+        if (input.size() > RegionBlockEntityWorkGraph.MAX_UNITS) throw new IllegalArgumentException("Work graph unit limit exceeded");
+        final Map<Resource, Depths> accesses = new HashMap<>();
+        final List<List<Integer>> waves = new ArrayList<>();
+        int barrier = 0;
+        int maximum = -1;
+        int width = 0;
+        for (int index = 0; index < input.size(); ++index) {
+            final Unit unit = input.get(index);
+            int depth = unit.exclusive() ? maximum + 1 : barrier;
+            if (!unit.exclusive()) {
+                for (final Resource resource : unit.reads()) {
+                    final Depths previous = accesses.get(resource);
+                    if (previous != null) depth = Math.max(depth, previous.writer + 1);
+                }
+                for (final Resource resource : unit.writes()) {
+                    final Depths previous = accesses.get(resource);
+                    if (previous != null) depth = Math.max(depth, Math.max(previous.writer, previous.reader) + 1);
+                }
+            }
+            while (waves.size() <= depth) waves.add(new ArrayList<>());
+            final List<Integer> wave = waves.get(depth);
+            wave.add(index);
+            width = Math.max(width, wave.size());
+            maximum = Math.max(maximum, depth);
+            if (unit.exclusive()) {
+                barrier = depth + 1;
+                accesses.clear();
+            } else {
+                for (final Resource resource : unit.reads()) {
+                    if (!unit.writes().contains(resource)) {
+                        final Depths state = accesses.computeIfAbsent(resource, ignored -> new Depths());
+                        state.reader = Math.max(state.reader, depth);
+                    }
+                }
+                for (final Resource resource : unit.writes()) {
+                    final Depths state = accesses.computeIfAbsent(resource, ignored -> new Depths());
+                    state.writer = depth;
+                    state.reader = -1;
+                }
+            }
+        }
+        return new ExecutionPlan(waves, width);
+    }
+
+    private static final class Depths {
+        private int writer = -1;
+        private int reader = -1;
+    }
+
     public static Plan plan(List<Unit> input) {
         if (input.size() > RegionBlockEntityWorkGraph.MAX_UNITS) throw new IllegalArgumentException("Work graph unit limit exceeded");
         final Map<Resource, Access> accesses = new HashMap<>();

@@ -184,6 +184,9 @@ class FurnaceWorkWavesTest {
         this.tick(this.ticker(first), this.ticker(second));
         assertEquals(2, entries.get());
         assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(1, this.engine.blockEntityResourceMetrics().completedPhases());
+        assertTrue(this.engine.blockEntityResourceMetrics().revalidationNanos() > 0);
+        assertTrue(this.engine.blockEntityResourceMetrics().phaseNanos() >= this.engine.blockEntityResourceMetrics().revalidationNanos());
         assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
         assertFalse(BlockEntityResourceOwnership.Scope.active());
         assertEquals(0, this.engine.diagnostics().runningRegionCount());
@@ -200,6 +203,8 @@ class FurnaceWorkWavesTest {
         assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
         assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
         assertEquals(0, this.engine.blockEntityResourceMetrics().phases());
+        assertEquals(0, this.engine.blockEntityResourceMetrics().completedPhases());
+        assertEquals(0, this.engine.blockEntityResourceMetrics().phaseNanos());
     }
 
     @Test
@@ -453,6 +458,50 @@ class FurnaceWorkWavesTest {
         assertEquals(3, this.engine.furnaceWorkMetrics().serialInvocations());
         assertEquals(99, readCounter(first, "litTime"));
         assertEquals(99, readCounter(second, "litTime"));
+    }
+
+    @Test
+    void serialFenceMutatingTheSameRecipeResultObjectStillReauditsItsComponents() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var result = this.recipes.getAllRecipesFor(net.minecraft.world.item.crafting.RecipeType.SMELTING).getFirst().value()
+                .getResultItem(net.minecraft.core.RegistryAccess.EMPTY);
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(19, 64, 17)).when(fence).getPos();
+        doReturn("example:in_place_result_mutation").when(fence).getType();
+        doAnswer(call -> {
+            result.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal("mutated"));
+            return null;
+        }).when(fence).tick();
+        this.tick(fence, this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(3, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+    }
+
+    @Test
+    void aNewTickNeverReusesASharedReadProofForMutatedRecipeComponents() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        this.tick(firstTick, secondTick);
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        final var result = this.recipes.getAllRecipesFor(net.minecraft.world.item.crafting.RecipeType.SMELTING).getFirst().value()
+                .getResultItem(net.minecraft.core.RegistryAccess.EMPTY);
+        result.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal("next tick"));
+        this.tick(firstTick, secondTick);
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases(), "mutating the same result object must not acquire new leases");
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(98, readCounter(first, "litTime"));
+        assertEquals(98, readCounter(second, "litTime"));
     }
 
     private static int readCounter(AbstractFurnaceBlockEntity source, String name) throws Exception {

@@ -122,7 +122,10 @@ The default-off `enableRegionThreadingBlockEntityResources` option layers
 [general resource identities, READ/WRITE claims, nonblocking leases and scopes](region-threading/GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)
 under the existing Region exclusion and migrates Furnace waves as the first audited consumer.
 It does not admit arbitrary container/capability/mod callbacks or enable cross-region worker transactions;
-large proof footprints currently have substantial allocation/planning costs.
+large proof footprints initially had substantial allocation/planning costs. The
+[`.58` optimization](region-threading/BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md) shares fresh READ
+publications, separates execution planning from diagnostics and reuses immutable permission tables;
+paired mechanism measurements do not establish a whole-server speedup or change the default-off policy.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

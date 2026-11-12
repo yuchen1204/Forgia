@@ -96,6 +96,8 @@ final class RegionThreadingCommand {
                 + ", phases=" + resources.phases() + ", proofs=" + resources.proofs() + ", waves=" + resources.waves()
                 + ", refusedWaves=" + resources.refusedWaves() + ", issuedLeases=" + resources.issuedLeases()
                 + ", proofAndPlan=" + millis(resources.proofAndPlanNanos()) + ", reservation=" + millis(resources.reservationNanos())
+                + ", revalidation=" + millis(resources.revalidationNanos()) + ", completedPhases=" + resources.completedPhases()
+                + ", fullPhase=" + millis(resources.phaseNanos())
                 + "; current-operation proofs under region exclusion, lease counts are not body completions"), false);
         final var snapshot = engine.blockEntityWorkGraph().snapshot();
         source.sendSuccess(() -> Component.literal("Block entity work graph (shadow, partial coverage; no execution/admission changes): remainingPhases="

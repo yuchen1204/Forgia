@@ -75,11 +75,7 @@ final class FurnaceResourcePreparation {
         }
         // A catalog is a shared read publication, not a global write grant. Include its exposed mutable
         // stacks so inventory aliases cannot hide behind the coarse RecipeManager identity.
-        final BooleanSupplier recipesCurrent = () -> this.level.getRecipeManager() == candidate.recipes();
-        builder.claim(new Binding(new Identity(this.level, candidate.recipes()), null, recipesCurrent, null), Access.READ);
-        for (final var stack : candidate.recipeReads()) {
-            builder.claim(new Binding(new Identity(this.level, stack), null, recipesCurrent, null), Access.READ);
-        }
+        builder.sharedReads(java.util.Objects.requireNonNull(candidate.recipeReads()));
         return builder.build();
     }
 

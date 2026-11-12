@@ -5,11 +5,15 @@
 `enableRegionThreadingFurnaceWorkWaves` 继续默认关闭。原版优先，暂不扩展模组机器支持。
 
 后续 P0 已实现 [Work-Stealing Dispatcher](WORK-STEALING-DISPATCHER.md)：批量 runner、未开始区段半量窃取、
-熔炉波次接入与派发专用配对测量。下文保留本方案提出时的证据；紧凑 planner 和证明缓存仍未接入。
+熔炉波次接入与派发专用配对测量。下文保留本方案提出时的证据；证明的跨 tick 缓存仍未接入。
 
 后续 `.57-beta` 增加 [通用 BE 资源所有权基础设施](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)：
 对象 identity、READ/WRITE claims、非阻塞整波 lease 与从属于 Region 的 scope；Furnace 为首个迁移。
 新增开关默认关闭，仍有显著共享资源证明／规划成本，不替代本方案中的优化与整服验收。
+
+`.58-beta` 的 [第二阶段优化](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md) 已接入 compact 执行 planner、
+fresh-pass 共享 READ 与 immutable Claims／lease 表复用，保留诊断 planner 和全部动态审计。
+新的完整阶段前后探针含 fresh revalidation，不与下文历史 `.55`／`.57` 子阶段数据混算；整服验收仍未完成。
 
 ## 已经知道什么
 
@@ -72,7 +76,8 @@ JFR 覆盖了整个测试 JVM，包括启动、夹具创建、预热和两个路
 `A(X), B(X,Y), C(Y)` 仍然是 `[A], [B], [C]`。不能换成无向冲突染色得出的 `[A,C], [B]`。
 执行规划对有界资源访问量近似线性；原始冲突边与组件统计可以在用户启动 shadow observation 时单独计算。
 
-此次提供了[可独立复现的原型](../tools/block-entity-planner-probe/README.md)，尚未接入调度器。它通过了固定种子的
+历史分析提供了[可独立复现的原型](../tools/block-entity-planner-probe/README.md)，当时尚未接入调度器；
+`.58` 现已以独立 `ExecutionPlan` 接入生产执行路径，原诊断 `Plan` 不变。历史原型通过了固定种子的
 10000 组随机读／写／屏障输入：波次与现有生产规划器逐项相同，并额外逐对验证原始有向冲突不被反转。
 也校验了 64/256/1024/2048 单元的独立、全屏障、混合和共享写案例。
 

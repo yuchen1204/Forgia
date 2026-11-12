@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'tools/modpack-matrix'))
 from rcon import Rcon, RconError
 
-VERSION = '21.1.250.57-beta'
+VERSION = '21.1.250.58-beta'
 
 
 def arguments():
@@ -212,8 +212,10 @@ rcon.password={password}
             if issued is None or int(issued.group(1)) != summary['nativeFurnaceBodies'] or refused is None or int(refused.group(1)):
                 raise AssertionError('missing/inconsistent resource lease proof: ' + ownership)
             summary['issuedResourceLeases'] = int(issued.group(1))
-            for field in ['proofAndPlan', 'reservation']:
+            for field in ['proofAndPlan', 'reservation', 'revalidation', 'fullPhase']:
                 timing = re.search(r'\b' + field + r'=([\d.]+)ms', ownership)
+                if timing is None and field in ['revalidation', 'fullPhase'] and args.version != VERSION:
+                    continue  # Older artifacts predate full resource-phase timing.
                 if timing is None:
                     raise AssertionError('missing ownership timing: ' + ownership)
                 summary[field + 'Millis'] = float(timing.group(1))

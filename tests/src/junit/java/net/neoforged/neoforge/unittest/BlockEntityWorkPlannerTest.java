@@ -119,6 +119,9 @@ class BlockEntityWorkPlannerTest {
                 units.add(new Unit(reads, writes, random.nextInt(30) == 0));
             }
             final var plan = BlockEntityWorkPlanner.plan(units);
+            final var execution = BlockEntityWorkPlanner.planExecution(units);
+            assertEquals(plan.waves(), execution.waves());
+            assertEquals(plan.maxWidth(), execution.maxWidth());
             final int[] waveOf = new int[units.size()];
             final Set<Integer> seen = new HashSet<>();
             for (int wave = 0; wave < plan.waves().size(); ++wave) {
@@ -143,6 +146,48 @@ class BlockEntityWorkPlannerTest {
             }
             assertEquals(serial, reordered, "read-dependent writes must agree even after an arbitrary order inside each wave");
         }
+    }
+
+    @Test
+    void executionPlannerMatchesDiagnosticsAcrossTenThousandMixedIdentityAndFenceCases() {
+        final Random random = new Random(20261114L);
+        final Object otherLevel = new String("same label");
+        final List<Resource> resources = new ArrayList<>();
+        for (int index = 0; index < 12; ++index) {
+            final Object instance = new Object();
+            resources.add(new Resource(this.level, instance));
+            resources.add(new Resource(otherLevel, instance));
+            resources.add(this.resource(index));
+            resources.add(new Resource(this.level, Kind.CHUNK, index));
+        }
+        for (int iteration = 0; iteration < 10000; ++iteration) {
+            final List<Unit> units = new ArrayList<>();
+            for (int index = random.nextInt(40); index > 0; --index) {
+                final Set<Resource> reads = new HashSet<>();
+                final Set<Resource> writes = new HashSet<>();
+                for (int count = random.nextInt(8); count > 0; --count) {
+                    (random.nextBoolean() ? reads : writes).add(resources.get(random.nextInt(resources.size())));
+                }
+                units.add(new Unit(reads, writes, random.nextInt(5) == 0));
+            }
+            final var diagnostic = BlockEntityWorkPlanner.plan(units);
+            final var execution = BlockEntityWorkPlanner.planExecution(units);
+            assertEquals(diagnostic.waves(), execution.waves(), "seeded case " + iteration);
+            assertEquals(diagnostic.maxWidth(), execution.maxWidth());
+        }
+    }
+
+    @Test
+    void executionOnlyFencesAreBoundedAndDetachedWithoutDiagnosticLinks() {
+        final var fence = new Unit(Set.of(), Set.of(), true);
+        final var plan = BlockEntityWorkPlanner.planExecution(java.util.Collections.nCopies(RegionBlockEntityWorkGraph.MAX_UNITS, fence));
+        assertEquals(RegionBlockEntityWorkGraph.MAX_UNITS, plan.waves().size());
+        for (int index = 0; index < plan.waves().size(); ++index) assertEquals(List.of(index), plan.waves().get(index));
+        assertEquals(1, plan.maxWidth());
+        assertThrows(UnsupportedOperationException.class, () -> plan.waves().getFirst().add(1));
+        assertThrows(UnsupportedOperationException.class, () -> plan.waves().clear());
+        assertThrows(IllegalArgumentException.class, () -> BlockEntityWorkPlanner.planExecution(java.util.Collections.nCopies(RegionBlockEntityWorkGraph.MAX_UNITS + 1, fence)));
+        assertTrue(BlockEntityWorkPlanner.planExecution(List.of()).waves().isEmpty());
     }
 
     private static boolean conflict(Unit first, Unit second) {

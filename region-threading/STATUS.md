@@ -10,8 +10,10 @@ The `.57-beta` [phase-one resource ownership foundation](GENERAL-BLOCK-ENTITY-RE
 adds object identities, bounded READ/WRITE claims, nonblocking wave reservation and one-shot scopes
 subordinate to the existing Region exclusion. Furnace waves are the first audited consumer; a separate
 `enableRegionThreadingBlockEntityResources` flag remains false by default. This does not admit arbitrary
-container, hopper, capability or Create callbacks. Synthetic proof/planning costs grow substantially with
-replicated shared-resource footprints; no new whole-server speedup is established.
+container, hopper, capability or Create callbacks. The [`.58` performance follow-up](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md)
+shares immutable READ footprints only within fresh audited preparation, separates compact execution waves
+from graph diagnostics and avoids per-lease permission-table copies. Full mechanism paired p50/p95 and
+allocation records include fresh revalidation; they are not server MSPT or a whole-server speedup.
 
 ## Slices
 

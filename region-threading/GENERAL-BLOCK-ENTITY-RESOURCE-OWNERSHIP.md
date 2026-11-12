@@ -1,6 +1,7 @@
-# General Block Entity Resource Ownership — 第一阶段
+# General Block Entity Resource Ownership — 第一阶段与性能改进
 
-版本：`21.1.250.57-beta`。通用资源身份、声明、非阻塞 lease 和线程 scope 已接入 Furnace Work Waves。
+版本：`21.1.250.58-beta`；基础协议交付于 `.57-beta`。通用资源身份、声明、非阻塞 lease 和线程 scope 已接入 Furnace Work Waves。
+本次增加 fresh-pass 共享 READ、compact 执行规划和 lease 表复用，见 [第二阶段实现与前后测量](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md)。
 新增 `enableRegionThreadingBlockEntityResources`，默认 `false`，需重启。
 它还要求既有 BE worker、furnace waves 和 fixed region layout；单独打开本项不会启动任何新机器或 worker 路径。
 
@@ -11,7 +12,7 @@
 | Region Ownership | 粗粒度排他、生命周期、mailbox 与发布屏障 | 是所有细资源 lease 的外层前提；不能由资源声明跳过 |
 | Block Entity Tick Admission | 精确 ticker/delegate、位置、类型、当前绑定 | 保留当前操作准入；原版证明仍要逐次检查 |
 | Shadow Work Graph | 有界、不完整的历史观测 | 不输入权限签发，不用于推断完整 footprint |
-| Directed Dependency Planner | canonical 顺序的 READ/WRITE 依赖、exclusive fence | 增加实例资源键，沿用同一有向算法，没有另写无向着色器 |
+| Directed Dependency Planner | canonical 顺序的 READ/WRITE 依赖、exclusive fence | 实例资源键；执行只计算等价的有向 depth，原图诊断单独保留，没有无向着色器 |
 | Furnace Work Waves | 审计原始正文、异常不重放、join 后有序通知 | 首个内部资源协议使用者；旧 scope 的更窄限制仍保留 |
 | Cross-region Operations | 不透明弱引用、静止主线程／批次完成阶段的完整操作 | 不改成 worker 多 owner 事务，不增加阻塞等待 |
 | Work-Stealing Dispatcher | 一波独立任务的派发与未开始任务窃取 | 沿用现有 runner／lane，不新增线程池 |
@@ -65,6 +66,10 @@ removal 状态、当前 ticker/delegate、实际库存对象，以及配方管�
 一般 identity 使用者可以声明共享可变对象，planner 会按读写排序，而不按 BE 类或位置把它们假定独立。
 第一阶段 Furnace **仍保留既有全 phase 库存 alias 拒绝**；这比仅排序更保守，避免改变该已验证协议的可观测中间状态。
 跨 home alias 以及共享配方结果 alias 也保守串行。
+
+`.58` 的 `SharedReads` 只共享一次 fresh preparation 内的 immutable 身份表与其显式 publication proof。
+它不共享成功验证结果，不跨 wave／tick 缓存，逻辑预算不因底层存一份而降低；普通 Binding 的不同／重复验证器仍全部保留。
+通用 `Plan.dependencies()` 现在返回内部 `ExecutionPlan`（waves/maxWidth），诊断图仍用原 `BlockEntityWorkPlanner.plan`。
 
 初始计划之后，前面的串行 fence／mailbox 可能修改世界。真正进入波次前，会在外层 region 排他内重新准备操作，
 重新建立当前资源集并与原计划比较。资源 identity／访问模式／home 改变则整波在任何正文开始前转完整串行，
@@ -158,6 +163,8 @@ FurnaceWorkScope 继续负责原始正文 entry/success tail、精确 ticker/tas
 - `waves/issuedLeases/refusedWaves`：成功预留波次／签发数／尝试预留后的拒绝数。
 - `proofAndPlan`：初始资源 capture＋通用规划的累计耗时，不含原有实例／配方准备，也不含后续重验证。
 - `reservation`：整波 `tryAcquireAll` 耗时，不含 outer Region leasing、后续 scope 检查、正文或 commit。
+- `.58` 新增 `revalidation` 和 `completedPhases/fullPhase`，覆盖 fresh 证明与完整实验 BE 阶段；具体边界见 [计时说明](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md#6-阶段计时的覆盖范围)。
+  新共享表构造计入原有炉子 `prepare` 和 `fullPhase`，不在 `proofAndPlan` 中；不要跨版本单独比较后者推导收益。
 
 这些计数不是完成正文数、加工件数或节省时间。实际完成继续看 `nativeCompleted/failed/skipped`。
 重验证等未被子指标覆盖的成本仍存在；不能把少量子指标相加当完整 BE 阶段。
@@ -167,6 +174,9 @@ FurnaceWorkScope 继续负责原始正文 entry/success tail、精确 ticker/tas
 每个单元拥有 source/input/output WRITE、共享 chunk READ 与可调共享 READ 资源。scope 每个单元执行五次 require。
 这是单线程机制开销，**不是 Minecraft body 或整服 MSPT 测量**。
 最终数据与具体复现参数见 [性能记录](BLOCK-ENTITY-RESOURCE-OWNERSHIP-PROFILE.json)。
+
+下表保留 `.57` 首次探针的历史结果（没有 fresh revalidation），不代表 `.58` 当前成本。
+`.58` [完整阶段配对数据](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION-PROFILE.json)包含第二次 fresh capture 和资源集比较。
 
 | 单元数 | 每单元 claims | 总开销 p50 ms | 分配 B/phase |
 |---:|---:|---:|---:|
@@ -181,9 +191,9 @@ FurnaceWorkScope 继续负责原始正文 entry/success tail、精确 ticker/tas
 共享资源很多时，逐单元 map/set、重复身份、验证器与既有有向图诊断的分配显著。
 当前交付优先保证闭包和生命周期正确，不把增加并发或签发更多 lease 宣称为性能提升。
 
-## 7. 验证方法与证据
+## 7. 第一阶段 `.57` 历史验证方法与证据
 
-冻结的最终源码验证结果，本地逐次证据在 `tmp/be-resources/`：
+以下为 `.57` 冻结源码验证，本地逐次证据在 `tmp/be-resources/`；`.58` 的测试、产物和安装服结果见 [第二阶段验证](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md#7-正确性与交付验证)。
 
 | 验证 | 结果 |
 |---|---|
@@ -251,7 +261,7 @@ BE 替换、卸载重载、真实 level unload 等待在途 scopes 和有序通�
 
 ## 8. 下一阶段
 
-1. **先减少证明成本**：去重不可变共享 read 集合、压缩 identity/claim 表、将执行规划与重图诊断分离；
+1. **继续减少证明成本**：`.58` 已共享 fresh READ 表、取消执行路径图诊断和 lease 权限复制；局部对象／map、全批 alias 和重复动态目录审计仍存在。
    缓存只能用于有完整失效协议的事实，不能因 manager 身份或上 tick 未变而跳过可变 result/component 检查。
 2. **拓扑／别名生命周期**：给 provider/backing inventory、double chest、capability invalidation 和 chunk 代次建立协议；
    存取真实 provider 可能执行代码，必须在静止准备阶段审计，不能 worker 临时 resolve 后补 claim。

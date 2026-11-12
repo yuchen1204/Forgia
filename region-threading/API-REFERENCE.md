@@ -725,7 +725,7 @@ public static boolean isServerConfigLoaded();
 | `/neoforge regionthreading status` | 可读的 slice、worker、fallback、health 和 region 统计 |
 | `/neoforge regionthreading status raw` | 机器可读详细诊断 |
 | `/neoforge regionthreading compat` | 兼容声明、适配注册、完整 BE 操作结果、scheduled 阶段原因与延迟 |
-| `/neoforge regionthreading workgraph [start <phases>\|stop]` | 有界历史访问观察图、实际熔炉波次正文计数与独立通用资源签发／耗时指标；历史观察不给准入权限 |
+| `/neoforge regionthreading workgraph [start <phases>\|stop]` | 有界历史访问观察图、实际熔炉波次正文计数与独立通用资源签发／耗时指标；`.58` 增加 fresh revalidation 和完整实验 BE phase 计时，见 [计时边界](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md#6-阶段计时的覆盖范围)；历史观察不给准入权限 |
 | `/neoforge regionthreading regions [count]` | 按慢 region 列出指标 |
 | [ContainerLinkExample.java](../examples/parallel-api/ContainerLinkExample.java) | 只依赖公开 facade 的完整 BE 源／目标链接示例 |
 | [模组刷怪 API 指南](MOD-PARALLEL-API.md) | 注册、快照、claim、有序最终化示例 |

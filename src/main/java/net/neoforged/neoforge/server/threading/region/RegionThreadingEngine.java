@@ -5751,6 +5751,7 @@ public final class RegionThreadingEngine implements RegionThreading {
 
     /** Execute current-operation resource waves; the historical shadow graph is diagnostics only. */
     private void tickFurnaceWorkWaves(ServerLevel level, List<RegionBlockEntityTickChunk> chunks, RegionTickBarrier barrier) {
+        final long resourcePhaseStart = this.blockEntityResourcesEnabled ? System.nanoTime() : 0L;
         final FurnaceWorkBatch batch = new FurnaceWorkBatch(level);
         final TickBatchPublication publication = this.publishTickBatch(batch, level);
         if (publication == TickBatchPublication.LEVEL_CLOSED) {
@@ -5805,7 +5806,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 }
                 final long planStart = resources == null ? 0L : System.nanoTime();
                 final var resourcePlan = resources == null ? null : BlockEntityResourceOwnership.plan(claims);
-                final var plan = resourcePlan == null ? BlockEntityWorkPlanner.plan(footprints) : resourcePlan.dependencies();
+                final var plan = resourcePlan == null ? BlockEntityWorkPlanner.planExecution(footprints) : resourcePlan.dependencies();
                 if (resourcePlan != null) {
                     for (int index = 0; index < candidates.size(); ++index) {
                         if (candidates.get(index) != null && !resourcePlan.claims().get(index).complete()) {
@@ -5847,6 +5848,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             batch.finish();
             this.activeTickBatches.remove(batch);
             batch.clearExecutingOnCurrentThread();
+            if (resourcePhaseStart != 0L) this.blockEntityResourceMetrics.finished(System.nanoTime() - resourcePhaseStart);
         }
         if (failure != null) throwUnchecked(failure);
         batch.throwIfFailed();
@@ -5860,6 +5862,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         final ServerLevel level = batch.level();
         final List<RegionState> leased = new ArrayList<>();
         BlockEntityResourceOwnership ownership = null;
+        long revalidationStart = 0L;
         Throwable failure = null;
         try {
             final Set<RegionState> regions = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
@@ -5879,10 +5882,12 @@ public final class RegionThreadingEngine implements RegionThreading {
                     region.endOwnership();
                 }
             }
+            revalidationStart = resources == null ? 0L : System.nanoTime();
             boolean current = !this.shutdown && !this.regionizer.isLevelClosed(level);
             final var preparation = new FurnaceWorkPreparation(level, this.layout, resources != null);
             final var aliases = FurnaceWorkPreparation.aliased(ordered);
             final List<BlockEntityResourceOwnership.Claims> freshClaims = resources == null ? List.of() : new ArrayList<>();
+            final Map<BlockEntityResourceOwnership.SharedReads, BlockEntityResourceOwnership.SharedReads> compared = resources == null ? Map.of() : new java.util.IdentityHashMap<>();
             for (final int index : wave) {
                 final var captured = candidates.get(index);
                 final var verified = preparation.prepare(ordered.get(index));
@@ -5891,8 +5896,12 @@ public final class RegionThreadingEngine implements RegionThreading {
                 if (resources != null) {
                     final var fresh = verified == null ? resources.fence(ordered.get(index)) : resources.capture(verified);
                     freshClaims.add(fresh);
-                    current &= claims.get(index).sameResources(fresh);
+                    current &= claims.get(index).sameResources(fresh, compared);
                 }
+            }
+            if (revalidationStart != 0L) {
+                this.blockEntityResourceMetrics.revalidated(System.nanoTime() - revalidationStart);
+                revalidationStart = 0L;
             }
             List<BlockEntityResourceOwnership.Lease> grants = null;
             if (current && resources != null) {
@@ -5913,6 +5922,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         } catch (Throwable throwable) {
             failure = throwable;
         } finally {
+            if (revalidationStart != 0L) this.blockEntityResourceMetrics.revalidated(System.nanoTime() - revalidationStart);
             failure = runBatchCompletion(failure, () -> this.commitFurnaceWave(level, results, leased));
             if (ownership != null) {
                 final var heldResources = ownership;
