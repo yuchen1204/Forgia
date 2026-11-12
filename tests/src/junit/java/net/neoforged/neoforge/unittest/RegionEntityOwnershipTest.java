@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -218,6 +219,80 @@ class RegionEntityOwnershipTest {
         assertEquals(2L, this.engine.diagnostics().entityTicksOnWorkers());
         assertEquals(1L, this.engine.diagnostics().entityMutationsAllowedByOwnership());
         assertEquals(1L, this.engine.diagnostics().entityMutationsRejectedByOwnership());
+    }
+
+    @Test
+    void installedStorageCallbackWithClearedAddedMarkerStillDefersMovement() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final ServerLevel level = mockLevel();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager();
+        final AtomicReference<Long> workerSection = new AtomicReference<>();
+        final AtomicReference<Boolean> workerMarker = new AtomicReference<>();
+        final TestEntity entity = new TestEntity(level, self -> {
+            workerMarker.set(self.isAddedToLevel());
+            self.setPosRaw(40.0, 64.0, 40.0);
+            workerSection.set(sectionKey(self));
+        });
+        entity.setPos(1.0, 64.0, 1.0);
+        assertTrue(manager.addNewEntityWithoutEvent(entity));
+        entity.onAddedToLevel();
+        // A lifecycle marker and installed storage callback can disagree. The callback, not the marker,
+        // determines whether the upcoming vanilla onMove call reaches server-owned storage.
+        entity.onRemovedFromLevel();
+        assertFalse(entity.isAddedToLevel());
+        final long original = sectionKey(entity);
+        final RegionEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(entity));
+        plan.executeAndAwait();
+        assertEquals(Boolean.FALSE, workerMarker.get());
+        assertEquals(original, workerSection.get());
+        assertEquals(SectionPos.asLong(new BlockPos(40, 64, 40)), sectionKey(entity));
+        assertEquals(new Vec3(40.0, 64.0, 40.0), entity.position());
+        assertFalse(entity.isAddedToLevel(), "the fix must not invent an added lifecycle notification");
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void ownedStoredEntityWithClearedMarkerRemovesAtTheBarrier() {
+        this.installEngine(1, true);
+        final ServerLevel level = mockLevel();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager();
+        final AtomicReference<Boolean> storedOnWorker = new AtomicReference<>();
+        final TestEntity entity = new TestEntity(level, self -> {
+            self.discard();
+            storedOnWorker.set(self.getLevelCallback() != net.minecraft.world.level.entity.EntityInLevelCallback.NULL);
+        });
+        assertTrue(manager.addNewEntityWithoutEvent(entity));
+        entity.onAddedToLevel();
+        entity.onRemovedFromLevel();
+        final RegionEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(entity));
+        plan.executeAndAwait();
+        assertEquals(Boolean.TRUE, storedOnWorker.get(), "the callback must not run on the worker");
+        assertEquals(net.minecraft.world.level.entity.EntityInLevelCallback.NULL, entity.getLevelCallback());
+        assertTrue(entity.isRemoved());
+        assertEquals(1L, this.engine.diagnostics().deferredEntityRemovalsApplied());
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void clearedAddedMarkerDoesNotLetAForeignStoredEntityMasqueradeAsPending() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final ServerLevel level = mockLevel();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager();
+        final TestEntity foreign = new TestEntity(level);
+        foreign.setPos(4096.0, 64.0, 0.0);
+        assertTrue(manager.addNewEntityWithoutEvent(foreign));
+        foreign.onAddedToLevel();
+        foreign.onRemovedFromLevel();
+        final AtomicReference<Throwable> rejected = new AtomicReference<>();
+        final TestEntity source = new TestEntity(level, self -> rejected.set(assertThrows(IllegalStateException.class,
+                () -> foreign.setPosRaw(4097.0, 64.0, 0.0))));
+        final RegionEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(source));
+        plan.executeAndAwait();
+        assertNotNull(rejected.get());
+        assertEquals(4096.0, foreign.getX(), "foreign storage must be rejected before its position changes");
     }
 
     @Test

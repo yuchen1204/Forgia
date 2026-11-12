@@ -419,6 +419,74 @@ public class RegionThreadingGameTests {
         });
     }
 
+    @GameTest(batch = "regionStoredCallback", timeoutTicks = 400)
+    @EmptyTemplate(value = "15x10x15", floor = true)
+    @TestHolder(description = "An installed entity-storage callback remains deferred when the added lifecycle marker is cleared during a native tick")
+    static void storedCallbackWithClearedMarker(final DynamicTest test) {
+        test.onGameTest(helper -> {
+            final ServerLevel level = helper.getLevel();
+            final Optional<RegionThreadingDiagnostics> diagnostics = RegionThreadingHooks.diagnostics();
+            final boolean nativeTicks = entityTickSliceEffective(diagnostics);
+            final BlockPos source = evidenceBlockPos(helper,
+                    diagnostics.map(RegionThreadingDiagnostics::regionPolicy).orElse(RegionPolicy.FIXED_3X3),
+                    diagnostics.map(RegionThreadingDiagnostics::regionChunkSize).orElse(3), 9);
+            final BlockPos target = source.offset(16, 0, 0);
+            final AtomicReference<net.minecraft.world.entity.animal.Cow> cow = new AtomicReference<>();
+            final AtomicReference<Boolean> worker = new AtomicReference<>();
+            final AtomicInteger calls = new AtomicInteger();
+            final java.util.function.Consumer<net.neoforged.neoforge.event.tick.EntityTickEvent.Pre> listener = event -> {
+                if (event.getEntity() != cow.get() || calls.getAndIncrement() != 0) return;
+                final Entity entity = event.getEntity();
+                worker.set(RegionThreadingHooks.isNativeRegionWorkerThread());
+                entity.onRemovedFromLevel();
+                entity.setPosRaw(target.getX() + .5D, target.getY(), target.getZ() + .5D);
+                event.setCanceled(true);
+            };
+            helper.addEndListener(passed -> {
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(listener);
+                if (cow.get() != null) cow.get().discard();
+                releaseForcedChunk(level, source);
+                releaseForcedChunk(level, target);
+            });
+            helper.startSequence()
+                    .thenExecute(() -> {
+                        forceChunk(level, source);
+                        forceChunk(level, target);
+                        level.getChunkAt(source);
+                        level.getChunkAt(target);
+                    })
+                    .thenWaitUntil(() -> helper.assertTrue(level.areEntitiesLoaded(ChunkPos.asLong(source))
+                            && level.areEntitiesLoaded(ChunkPos.asLong(target)), "callback fixture chunks have not loaded"))
+                    .thenExecute(() -> {
+                        final var entity = new net.minecraft.world.entity.animal.Cow(EntityType.COW, level);
+                        entity.setNoAi(true);
+                        entity.setNoGravity(true);
+                        entity.setPersistenceRequired();
+                        entity.moveTo(source.getX() + .5D, source.getY(), source.getZ() + .5D, 0F, 0F);
+                        cow.set(entity);
+                        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                                net.neoforged.neoforge.event.tick.EntityTickEvent.Pre.class, listener);
+                        helper.assertTrue(level.addFreshEntity(entity), "fixture cow admission failed");
+                    })
+                    .thenWaitUntil(() -> helper.assertTrue(worker.get() != null, "the callback fixture did not tick"))
+                    .thenExecute(() -> {
+                        final Entity entity = cow.get();
+                        helper.assertTrue(!entity.isAddedToLevel(), "the fix must not synthesize an added lifecycle event");
+                        helper.assertTrue(entity.blockPosition().equals(target), "movement did not complete");
+                        if (nativeTicks) helper.assertTrue(Boolean.TRUE.equals(worker.get()), "the fixture must execute on a native worker");
+                        try {
+                            final Object callback = entity.getLevelCallback();
+                            final Field key = callback.getClass().getDeclaredField("currentSectionKey");
+                            key.setAccessible(true);
+                            helper.assertTrue(key.getLong(callback) == SectionPos.asLong(target), "the real storage callback did not publish the final section");
+                        } catch (ReflectiveOperationException failure) {
+                            throw new AssertionError("fixture requires a real installed section-manager callback", failure);
+                        }
+                    })
+                    .thenSucceed();
+        });
+    }
+
     @GameTest(batch = "regionOwnerOperations", timeoutTicks = 600)
     @EmptyTemplate(value = "15x10x15", floor = true)
     @TestHolder(description = "A modded source submits one complete cross-region container transfer through the public API")

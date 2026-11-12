@@ -8424,14 +8424,18 @@ public final class RegionThreadingEngine implements RegionThreading {
         Throwable failure = null;
         for (final RegionDeferredEntitySectionUpdates.DeferredSectionUpdate update : updates) {
             final Entity entity = update.entity();
-            if (entity.isRemoved() || entity.level() != level || !entity.isAddedToLevel()) {
+            if (entity.isRemoved() || entity.level() != level
+                    || (!entity.isAddedToLevel() && entity.getLevelCallback() == net.minecraft.world.level.entity.EntityInLevelCallback.NULL)
+                    || entity.getLevelCallback() != update.callback()) {
                 this.droppedDeferredSectionUpdateCount.incrementAndGet();
                 this.droppedDeferredSectionUpdateForRemovedEntityCount.incrementAndGet();
                 continue;
             }
             try {
+                // The callback itself proves installed storage, even if a mod cleared the lifecycle marker.
+                // Revalidate identity so an old callback cannot publish after detachment/replacement.
                 update.callback().onMove();
-                level.getChunk(SectionPos.x(update.targetSection()), SectionPos.z(update.targetSection()));
+                if (entity.isAddedToLevel()) level.getChunk(SectionPos.x(update.targetSection()), SectionPos.z(update.targetSection()));
                 this.appliedDeferredSectionUpdateCount.incrementAndGet();
             } catch (Throwable throwable) {
                 // The entry did not complete, so it is dropped and counted; the remaining entries still run
@@ -8521,8 +8525,8 @@ public final class RegionThreadingEngine implements RegionThreading {
         for (final RegionDeferredEntityRemovals.DeferredRemoval removal : drain.removals()) {
             final Entity entity = removal.entity();
             if (!entity.isRemoved()
-                    || !entity.isAddedToLevel()
                     || entity.level() != level
+                    || removal.callback() == net.minecraft.world.level.entity.EntityInLevelCallback.NULL
                     || entity.getLevelCallback() != removal.callback()) {
                 // The removal was already applied by the server thread (the section manager replaced the
                 // level callback it recorded with the NULL callback), the entity was revived, its level
@@ -8618,6 +8622,15 @@ public final class RegionThreadingEngine implements RegionThreading {
                 Entity rejectedMember = null;
                 boolean admissionFailed = false;
                 for (final Entity member : addition.graph()) {
+                    // Earlier join/onAdded/receipt callbacks may remove, attach or move the suffix to
+                    // another level. Whole-graph preflight cannot authorize that later admission.
+                    final RegionEntityAdmissionDiagnostics.Reason changed = this.deferredEntityAdmissionReason(level, member);
+                    if (changed != null) {
+                        rejectedMember = member;
+                        this.entityAdmissionDiagnostics.record(changed, member, addition.graph().size());
+                        failure = accumulateFailure(failure, addition.complete(member, DeferredEntityAdmissionScope.Result.REJECTED));
+                        continue;
+                    }
                     final boolean admitted;
                     try {
                         admitted = level.addFreshEntity(member);
@@ -8672,15 +8685,20 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     private boolean canAdmitDeferredEntityAddition(ServerLevel level, RegionDeferredEntityAdditions.DeferredEntityAddition addition) {
         for (final Entity member : addition.graph()) {
-            final RegionEntityAdmissionDiagnostics.Reason reason = member.isRemoved() ? RegionEntityAdmissionDiagnostics.Reason.REMOVED
-                    : member.isAddedToLevel() ? RegionEntityAdmissionDiagnostics.Reason.ALREADY_ADDED
-                            : member.level() != level ? RegionEntityAdmissionDiagnostics.Reason.LEVEL_CHANGED : null;
+            final RegionEntityAdmissionDiagnostics.Reason reason = this.deferredEntityAdmissionReason(level, member);
             if (reason != null) {
                 this.entityAdmissionDiagnostics.record(reason, member, addition.graph().size());
                 return false;
             }
         }
         return true;
+    }
+
+    @Nullable
+    private RegionEntityAdmissionDiagnostics.Reason deferredEntityAdmissionReason(ServerLevel level, Entity member) {
+        return member.isRemoved() ? RegionEntityAdmissionDiagnostics.Reason.REMOVED
+                : RegionEntityOwnershipScope.hasLevelEffects(member) ? RegionEntityAdmissionDiagnostics.Reason.ALREADY_ADDED
+                        : member.level() != level ? RegionEntityAdmissionDiagnostics.Reason.LEVEL_CHANGED : null;
     }
 
     /**

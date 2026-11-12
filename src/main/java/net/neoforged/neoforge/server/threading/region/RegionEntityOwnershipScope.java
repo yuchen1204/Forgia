@@ -219,7 +219,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
             ALLOWED_MUTATION_COUNT.incrementAndGet();
             return true;
         }
-        if (scope.coordinate.level() == level && !entity.isAddedToLevel() && !scope.group.owns(entity)) {
+        if (scope.coordinate.level() == level && !hasLevelEffects(entity) && !scope.group.owns(entity)) {
             // The vanilla entity constructor writes the position of a new entity before the entity is added to
             // the level, so a rejected mutation of an entity that is neither in the level nor owned by the lease
             // is a worker-side entity spawn - death loot, an experience orb, a projectile. It is counted
@@ -258,14 +258,14 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
      * {@return true when {@code operation} on {@code entity} is granted under the active lease {@code scope}}
      * <p>
      * A removal is granted when the lease can defer its level callback - an entity that is not added to a
-     * level has no server-owned effect to defer. A field mutation is granted when the entity is not removed
+     * level has no installed callback and no server-owned effect to defer. A field mutation is granted when the entity is not removed
      * and the lease can defer its section publication and target chunk acquisition. Every other operation
      * stays rejected.
      */
     private static boolean grantsOperation(RegionEntityOwnershipScope scope, Entity entity, String operation) {
         if (GRANTABLE_REMOVAL_OPERATIONS.contains(operation)) {
-            // Only a native worker defers, so only a native worker is granted the removal of an added entity.
-            return !entity.isAddedToLevel()
+            // A false lifecycle marker does not make an installed storage callback safe inline.
+            return !hasLevelEffects(entity)
                     || (RegionWorkerScope.isNativeWorkerThread() && scope.group.acceptsDeferredRemovals());
         }
         if (!GRANTABLE_OPERATIONS.contains(operation)) {
@@ -279,7 +279,17 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
             // {@link #skipsSectionUpdateOfRemovedEntity} tells the patched body which case it is.
             return RegionWorkerScope.isNativeWorkerThread();
         }
-        return !entity.isAddedToLevel() || defersSectionUpdate(entity);
+        return !hasLevelEffects(entity) || defersSectionUpdate(entity);
+    }
+
+    /**
+     * The lifecycle marker is not authoritative for an installed level callback. A mod or an intermediate
+     * lifecycle state can clear it while the entity still has a storage callback; vanilla setPosRaw invokes
+     * that callback regardless of the marker. Only a genuinely absent callback is construction-only state.
+     */
+    public static boolean hasLevelEffects(Entity entity) {
+        final EntityInLevelCallback callback = entity.getLevelCallback();
+        return entity.isAddedToLevel() || (callback != null && callback != EntityInLevelCallback.NULL);
     }
 
     /**
@@ -295,7 +305,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
     private static boolean grantsPendingAdmissionMutation(RegionEntityOwnershipScope scope, ServerLevel level, Entity entity, String operation) {
         return scope.coordinate.level() == level
                 && GRANTABLE_PENDING_ADMISSION_OPERATIONS.contains(operation)
-                && !entity.isAddedToLevel()
+                && !hasLevelEffects(entity)
                 && !entity.isRemoved();
     }
 
@@ -327,19 +337,13 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
                 || !RegionWorkerScope.isNativeWorkerThread()
                 || scope.coordinate.level() != level
                 || entity.level() != level
-                || entity.isAddedToLevel()
+                || hasLevelEffects(entity)
                 || entity.isRemoved()
                 || !containsPosition(scope, level, entity.blockPosition())) {
             return false;
         }
         final List<Entity> graph = entity.getSelfAndPassengers().toList();
-        for (final Entity member : graph) {
-            if (member.level() != level || member.isAddedToLevel() || member.isRemoved()) {
-                // Half a graph is never a valid state: refuse the whole admission instead of recording the
-                // members that would be admissible.
-                return false;
-            }
-        }
+        if (!isPendingGraph(level, graph)) return false;
         return scope.group.deferAddition(entity, graph);
     }
 
@@ -368,19 +372,20 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
                 || !RegionWorkerScope.isNativeWorkerThread()
                 || scope.coordinate.level() != level
                 || entity.level() != level
-                || entity.isAddedToLevel()
+                || hasLevelEffects(entity)
                 || entity.isRemoved()) {
             return false;
         }
         final List<Entity> graph = entity.getSelfAndPassengers().toList();
-        for (final Entity member : graph) {
-            if (member.level() != level || member.isAddedToLevel() || member.isRemoved()) {
-                // Half a graph is never a valid state: refuse the whole admission instead of recording the
-                // members that would be admissible.
-                return false;
-            }
-        }
+        if (!isPendingGraph(level, graph)) return false;
         return scope.group.deferAddition(entity, graph);
+    }
+
+    private static boolean isPendingGraph(ServerLevel level, List<Entity> graph) {
+        for (final Entity member : graph) {
+            if (member.level() != level || hasLevelEffects(member) || member.isRemoved()) return false;
+        }
+        return true;
     }
 
     /**
@@ -497,8 +502,8 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
      * would have invoked - and the section of the position this move reached, which is also the target
      * chunk of the acquisition the worker must not run. The barrier applies both effects on the server
      * thread. The record is only queued when the current thread is a native region worker whose active
-     * lease owns {@code entity}, the entity is added to a level and its batch still accepts deferred
-     * section updates.
+     * lease owns {@code entity} and the entity has level effects: an added marker or an installed callback.
+     * A false added marker alone does not make vanilla's unconditional onMove call a construction-only write.
      *
      * @param entity   the moved entity
      * @param callback the entity's level callback, the exact object the inline vanilla move would invoke
@@ -534,7 +539,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
      * {@return true when the current thread defers the section publication of {@code entity} to a barrier}
      * <p>
      * The deferral needs a native region worker thread, an active lease that owns the entity, an entity
-     * that is added to a level and a batch whose barrier still runs and whose section seam is still open. A
+     * installed callback or added marker, and a batch whose barrier still runs and whose section seam is still open. A
      * non-worker caller - the server thread, the client and every ordinary thread - never defers, so it
      * keeps the inline vanilla effect.
      */
@@ -587,7 +592,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
                 || !scope.isActive()
                 || !RegionWorkerScope.isNativeWorkerThread()
                 || !scope.group.owns(entity)
-                || !entity.isAddedToLevel()
+                || !hasLevelEffects(entity)
                 || callback == EntityInLevelCallback.NULL) {
             return false;
         }
@@ -598,7 +603,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
      * {@return the lease of the current thread when it owns the section update of {@code entity}}
      * <p>
      * The ownership part of the deferral decision: a native region worker, an active lease, an entity that
-     * is added to a level and not removed, and a group that owns the entity. Whether the lease can still
+     * has level effects and is not removed, and a group that owns the entity. Whether the lease can still
      * defer is decided by {@link RegionOwnershipLeaseGroup#acceptsDeferredSectionUpdates()}.
      */
     @Nullable
@@ -607,7 +612,7 @@ public final class RegionEntityOwnershipScope implements AutoCloseable {
         if (scope == null
                 || !scope.isActive()
                 || !RegionWorkerScope.isNativeWorkerThread()
-                || !entity.isAddedToLevel()
+                || !hasLevelEffects(entity)
                 || entity.isRemoved()
                 || !scope.group.owns(entity)) {
             return null;

@@ -325,6 +325,23 @@ class RegionEntitySectionDeferralTest {
     }
 
     @Test
+    void replacedCallbackDropsTheOldSectionPublicationBeforeTouchingStorage() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final ServerLevel level = this.mockLevel();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager();
+        final TestEntity entity = new TestEntity(level);
+        admit(manager, entity);
+        final EntityInLevelCallback original = levelCallback(entity);
+        final Object batch = deferredSectionBatch(level, entity, TARGET_POSITION);
+        entity.setLevelCallback(EntityInLevelCallback.NULL);
+        this.applyDeferredSectionUpdates(batch);
+        assertEquals(sectionKeyOf(SOURCE_POSITION), sectionKeyOf(original));
+        assertEquals(List.of(), this.chunkRequests);
+        assertEquals(0L, this.engine.diagnostics().deferredEntitySectionUpdatesApplied());
+        assertEquals(1L, this.engine.diagnostics().droppedDeferredEntitySectionUpdates());
+    }
+
+    @Test
     void aLeaseWhoseBatchAlreadyFinishedKeepsTheRefusal() throws ReflectiveOperationException {
         this.installEngine(1, true);
         final ServerLevel level = this.mockLevel();

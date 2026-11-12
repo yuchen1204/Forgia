@@ -392,6 +392,104 @@ class RegionEntityAdmissionDeferralTest {
     }
 
     @Test
+    void callbackBearingEntityWithClearedMarkerIsNotANewAdmissionOnEitherWorkerPath() {
+        this.installEngine(1, true);
+        final TrackingRecorder recorder = new TrackingRecorder();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity stored = new TestEntity(level);
+        admit(manager, stored, SECTION_POSITION);
+        stored.onRemovedFromLevel();
+        final List<Boolean> decisions = new CopyOnWriteArrayList<>();
+        final TestEntity source = new TestEntity(level, self -> {
+            decisions.add(net.neoforged.neoforge.server.threading.region.RegionEntityOwnershipScope.deferEntityAddition(level, stored));
+            decisions.add(net.neoforged.neoforge.server.threading.region.RegionEntityOwnershipScope.deferSpawnAddition(level, stored));
+        });
+        admit(manager, source, SOURCE_POSITION);
+        this.engine.addRegionEntity(source);
+        final RegionEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(source));
+        plan.executeAndAwait();
+        assertEquals(List.of(false, false), decisions, "an installed callback is not pending construction even with a false added marker");
+        assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsRecorded());
+        assertTrue(manager.isLoaded(stored.getUUID()));
+    }
+
+    @Test
+    void markerFalseStoredPassengerIsRefusedBeforeRecordingOrFallbackHandoff() {
+        this.installEngine(1, true);
+        final TrackingRecorder recorder = new TrackingRecorder();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity passenger = new TestEntity(level);
+        admit(manager, passenger, SECTION_POSITION);
+        passenger.onRemovedFromLevel();
+        final List<String> attempts = new CopyOnWriteArrayList<>();
+        final List<Boolean> decisions = new CopyOnWriteArrayList<>();
+        final TestEntity source = new TestEntity(level, self -> {
+            final TestEntity vehicle = new TestEntity(level);
+            vehicle.setPos(SECTION_POSITION.getX(), SECTION_POSITION.getY(), SECTION_POSITION.getZ());
+            setField(Entity.class, vehicle, "passengers", ImmutableList.of(passenger));
+            setField(Entity.class, passenger, "vehicle", vehicle);
+            decisions.add(net.neoforged.neoforge.server.threading.region.RegionEntityOwnershipScope.deferEntityAddition(level, vehicle));
+            decisions.add(net.neoforged.neoforge.server.threading.region.RegionEntityOwnershipScope.deferSpawnAddition(level, vehicle));
+            recordAttempt(attempts, () -> level.addFreshEntity(vehicle));
+        });
+        admit(manager, source, SOURCE_POSITION);
+        this.engine.addRegionEntity(source);
+        final RegionEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(source));
+        plan.executeAndAwait();
+        assertEquals(List.of(false, false), decisions);
+        assertEquals(1, attempts.size());
+        assertTrue(attempts.getFirst().contains("ServerLevel.addEntity"), attempts.toString());
+        assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsRecorded());
+    }
+
+    @Test
+    void barrierDoesNotReenterVanillaAdmissionForAnInstalledCallbackWithClearedMarker() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final TrackingRecorder recorder = new TrackingRecorder();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity entity = new TestEntity(level);
+        final Object batch = deferredAdditionBatch(level, entity);
+        // The entity becomes attached after capture, then a lifecycle marker is cleared before completion.
+        admit(manager, entity, SECTION_POSITION);
+        entity.onRemovedFromLevel();
+        this.applyDeferredAdditions(batch);
+        org.mockito.Mockito.verify(level, org.mockito.Mockito.never()).addFreshEntity(entity);
+        assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsApplied());
+        assertEquals(1L, this.engine.diagnostics().droppedDeferredEntityAdditions());
+        assertTrue(manager.isLoaded(entity.getUUID()));
+    }
+
+    @Test
+    void ridingGraphSuffixIsRevalidatedAfterEarlierMembersAdmissionCallback() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final TrackingRecorder recorder = new TrackingRecorder();
+        final PersistentEntitySectionManager<Entity> manager = newGuardedManager(recorder);
+        final ServerLevel level = this.mockLevel(manager);
+        final ServerLevel elsewhere = mock(ServerLevel.class);
+        final TestEntity vehicle = new TestEntity(level);
+        final TestEntity passenger = new TestEntity(level);
+        final Object batch = newEntityBatch(level);
+        assertTrue((Boolean) deferAddition(batch, vehicle, List.of(vehicle, passenger)));
+        doAnswer(call -> {
+            final Object admitted = call.callRealMethod();
+            // A synchronous join/onAdded/receipt can change another graph member before its turn.
+            setField(Entity.class, passenger, "level", elsewhere);
+            return admitted;
+        }).when(level).addFreshEntity(vehicle);
+        this.applyDeferredAdditions(batch);
+        assertTrue(manager.isLoaded(vehicle.getUUID()), "the applied prefix must not be rolled back or replayed");
+        org.mockito.Mockito.verify(level, org.mockito.Mockito.never()).addFreshEntity(passenger);
+        assertFalse(manager.isLoaded(passenger.getUUID()), "a foreign-level suffix must not be admitted into the old level");
+        assertEquals(1L, this.engine.diagnostics().droppedDeferredEntityAdditions());
+        assertEquals(0L, this.engine.diagnostics().deferredEntityAdditionsApplied());
+    }
+
+    @Test
     void aGraphWithAnAlreadyAddedMemberIsRefusedWhole() {
         this.installEngine(1, true);
         final TrackingRecorder recorder = new TrackingRecorder();

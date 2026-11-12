@@ -1142,12 +1142,39 @@ class RegionSelfDrivenEntityTickTest {
     }
 
     @Test
+    void queuedOrdinaryAndOwnerInteractionsSkipWhenServerCompletionProofIsLost() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Thread main = Thread.currentThread();
+        final java.util.concurrent.atomic.AtomicBoolean valid = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(level.getServer().isSameThread()).thenAnswer(call -> Thread.currentThread() == main && valid.get());
+        final Entity source = this.entity(level, new BlockPos(1, 64, 1));
+        final Entity target = this.entity(level, new BlockPos(49, 64, 1));
+        final List<EntityInteractionTask> tasks = new CopyOnWriteArrayList<>();
+        final AtomicInteger callbacks = new AtomicInteger();
+        doAnswer(call -> {
+            tasks.add(this.engine.entityInteractions().submit(source, target, (first, second) -> callbacks.incrementAndGet()));
+            tasks.add(this.engine.entityInteractions().submitToOwner(source, target, owner -> callbacks.incrementAndGet()));
+            valid.set(false);
+            return null;
+        }).when(source).tick();
+        this.tickList.add(source);
+        this.plan(level).executeAndAwait();
+        assertEquals(0, callbacks.get());
+        for (final EntityInteractionTask task : tasks) {
+            assertEquals(EntityInteractionTask.State.SKIPPED, task.state());
+            assertEquals(EntityInteractionTask.Reason.INVALID_CONTEXT, task.reason());
+        }
+    }
+
+    @Test
     void interactionApiAllowsQuiescentServerThreadButRejectsAsyncCallersAndClosedLevels() {
         this.installEngine();
         final ServerLevel level = this.mockLevel();
         final Entity source = this.entity(level, new BlockPos(1, 64, 1));
         final Entity target = this.entity(level, new BlockPos(49, 64, 1));
         final AtomicInteger ran = new AtomicInteger();
+        when(level.getServer().isSameThread()).thenReturn(false);
         final EntityInteractionTask rejected = this.engine.entityInteractions().submit(source, target, (actor, victim) -> ran.incrementAndGet());
         assertEquals(EntityInteractionTask.Reason.INVALID_CONTEXT, rejected.reason());
         when(level.getServer().isSameThread()).thenReturn(true);
@@ -1333,6 +1360,7 @@ class RegionSelfDrivenEntityTickTest {
         this.plan(level).executeAndAwait();
         assertEquals(EntityInteractionTask.State.REJECTED, rejected.get().state());
         assertEquals(EntityInteractionTask.Reason.UNOWNED_SOURCE, rejected.get().reason());
+        when(level.getServer().isSameThread()).thenReturn(false);
         final EntityInteractionTask async = this.engine.entityInteractions().submitToOwner(source, foreign, owner -> ran.incrementAndGet());
         assertEquals(EntityInteractionTask.Reason.INVALID_CONTEXT, async.reason());
         when(level.getServer().isSameThread()).thenReturn(true);
@@ -2549,6 +2577,8 @@ class RegionSelfDrivenEntityTickTest {
         doReturn(0L).when(level).getGameTime();
         doReturn(Level.OVERWORLD).when(level).dimension();
         doReturn("test-level").when(level).toString();
+        // This level fixture exposes only the engine tick index, not a real section manager/identity ledger.
+        doReturn(null).when(level).entityIdentityLedger();
         final ServerChunkCache chunkSource = mock(ServerChunkCache.class);
         final LevelChunk loadedChunk = mock(LevelChunk.class);
         when(chunkSource.getChunkNow(anyInt(), anyInt())).thenReturn(loadedChunk);
@@ -2570,6 +2600,8 @@ class RegionSelfDrivenEntityTickTest {
         when(tickRateManager.runsNormally()).thenReturn(true);
         doReturn(tickRateManager).when(level).tickRateManager();
         final MinecraftServer server = mock(MinecraftServer.class);
+        final Thread serverThread = Thread.currentThread();
+        when(server.isSameThread()).thenAnswer(call -> Thread.currentThread() == serverThread);
         when(server.isSpawningAnimals()).thenReturn(false);
         when(server.areNpcsEnabled()).thenReturn(true);
         doReturn(server).when(level).getServer();

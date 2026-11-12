@@ -175,10 +175,22 @@ public final class RegionEntityInteractionTask implements EntityInteractionTask 
                 if (failure == null && reason != Reason.NONE) {
                     result = State.SKIPPED;
                 }
-            } else if (ownerAction != null) {
-                ownerAction.accept(target);
             } else {
-                action.accept(source, target);
+                // Ordinary pair/owner operations need the same quiescent completion proof as loading.
+                // A proof can run lifecycle checks; validate participants again after it returns.
+                reason = lifecycle.get();
+                if (reason == Reason.NONE) {
+                    if ((source != null && source.isRemoved()) || target.isRemoved()) {
+                        reason = Reason.ENTITY_REMOVED;
+                    } else if ((source != null && source.level() != level) || target.level() != level) {
+                        reason = Reason.LEVEL_CHANGED;
+                    } else if (ownerAction != null) {
+                        ownerAction.accept(target);
+                    } else {
+                        action.accept(source, target);
+                    }
+                }
+                if (reason != Reason.NONE) result = State.SKIPPED;
             }
         } catch (Throwable throwable) {
             result = State.FAILED;
