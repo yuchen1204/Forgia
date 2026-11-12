@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'tools/modpack-matrix'))
 from rcon import Rcon, RconError
 
-VERSION = '21.1.250.56-beta'
+VERSION = '21.1.250.57-beta'
 
 
 def arguments():
@@ -27,6 +27,7 @@ def arguments():
     parser.add_argument('--furnace-waves', action='store_true', help='Enable and verify actual fine-grained furnace waves')
     parser.add_argument('--inert-layout', action='store_true', help='Space furnaces four blocks apart without active notification receivers; verify native completion commits')
     parser.add_argument('--furnace-count', type=int, choices=(2, 6), default=2, help='Use six inert furnaces to exercise work stealing within one chunk')
+    parser.add_argument('--resource-ownership', action='store_true', help='Enable and verify general resource claims/leases inside furnace waves')
     parser.add_argument('--persistent-workers', action='store_true', help='Enable persistent workers and verify work-stealing batch dispatch')
     parser.add_argument('--version', default=VERSION, help='Installed core version; defaults to the latest validated fixture version')
     parser.add_argument('--installer', type=Path, help='Installer jar; defaults to the selected version in projects/neoforge/build/libs')
@@ -43,6 +44,8 @@ def main():
     args = arguments()
     root = args.run_dir.resolve()
     installer = args.installer or REPO / f'projects/neoforge/build/libs/neoforge-{args.version}-installer.jar'
+    if args.resource_ownership and not args.furnace_waves:
+        raise ValueError('--resource-ownership requires --furnace-waves')
     if args.furnace_count == 6 and not args.inert_layout:
         raise ValueError('--furnace-count 6 requires --inert-layout')
     positions = [(x, 20) for x in ((20, 24) if args.inert_layout else (20, 22))]
@@ -61,6 +64,7 @@ def main():
         raise RuntimeError(f'private installation exited {result.returncode}; see installer.log')
     (root / 'config').mkdir(exist_ok=True)
     (root / 'config/forgia.toml').write_text(f'''enableRegionThreadingFurnaceWorkWaves = {str(args.furnace_waves).lower()}
+enableRegionThreadingBlockEntityResources = {str(args.resource_ownership).lower()}
 enableRegionThreadingPersistentWorkers = {str(args.persistent_workers).lower()}
 enableRegionThreadingBridge = true
 enableRegionThreadingWorkers = true
@@ -104,7 +108,7 @@ rcon.password={password}
     commands = []
     summary = {'outcome': 'STARTING', 'core': args.version, 'scope': 'same-chunk vanilla furnaces; shadow observation and optional real furnace waves',
                'furnaceWavesEnabled': args.furnace_waves, 'inertLayout': args.inert_layout, 'persistentWorkersEnabled': args.persistent_workers,
-               'furnaceCount': furnace_count}
+               'furnaceCount': furnace_count, 'resourceOwnershipEnabled': args.resource_ownership}
     try:
         deadline = time.monotonic() + 240
         while time.monotonic() < deadline:
@@ -138,6 +142,8 @@ rcon.password={password}
         initial = command('neoforge regionthreading workgraph')
         if 'remainingPhases=0, completedPhases=0' not in initial:
             raise AssertionError('observation did not start disabled')
+        if args.resource_ownership and 'Block entity resource ownership: enabled=true' not in initial:
+            raise AssertionError('general resource ownership was not installed/enabled')
         command('gamerule doMobSpawning false')
         command('gamerule doWeatherCycle false')
         command('gamerule randomTickSpeed 0')
@@ -196,6 +202,23 @@ rcon.password={password}
                 if changes is None or int(changes.group(1)) != 2 * furnace_count:
                     raise AssertionError(f'expected {2 * furnace_count} native processing completion notifications: ' + final_graph)
                 summary['nativeCompletionChanges'] = int(changes.group(1))
+        resource_line = re.search(r'Block entity resource ownership: ([^\n]+)', final_graph)
+        if args.resource_ownership:
+            if resource_line is None or 'enabled=true' not in resource_line.group(1):
+                raise AssertionError('resource ownership diagnostics missing: ' + final_graph)
+            ownership = resource_line.group(1)
+            issued = re.search(r'\bissuedLeases=(\d+)', ownership)
+            refused = re.search(r'\brefusedWaves=(\d+)', ownership)
+            if issued is None or int(issued.group(1)) != summary['nativeFurnaceBodies'] or refused is None or int(refused.group(1)):
+                raise AssertionError('missing/inconsistent resource lease proof: ' + ownership)
+            summary['issuedResourceLeases'] = int(issued.group(1))
+            for field in ['proofAndPlan', 'reservation']:
+                timing = re.search(r'\b' + field + r'=([\d.]+)ms', ownership)
+                if timing is None:
+                    raise AssertionError('missing ownership timing: ' + ownership)
+                summary[field + 'Millis'] = float(timing.group(1))
+        elif resource_line is not None and 'issuedLeases=0' not in resource_line.group(1):
+            raise AssertionError('disabled resource ownership issued leases')
         raw = command('neoforge regionthreading status raw')
         (root / 'diagnostics.raw.txt').write_text(raw)
         if args.persistent_workers:

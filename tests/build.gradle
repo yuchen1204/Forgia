@@ -61,6 +61,7 @@ junitTest {
     systemProperty 'forgia.furnace.testUnverifiedHook', furnaceHookControl.toString()
     // Re-run the original furnace safety/lifecycle suite through persistent work-stealing runners.
     systemProperty 'forgia.furnace.persistentWorkers', providers.gradleProperty('furnacePersistentWorkers').getOrElse('false')
+    systemProperty 'forgia.furnace.resourceOwnership', providers.gradleProperty('furnaceResourceOwnership').getOrElse('false')
     if (furnaceHookControl) {
         filter { includeTestsMatching '*FurnaceWorkWavesTest.unknownActuallyMergedFurnaceMixinKeepsOriginalBodiesSerial' }
     } else {

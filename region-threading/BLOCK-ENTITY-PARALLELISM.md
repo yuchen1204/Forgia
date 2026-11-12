@@ -6,6 +6,9 @@ scheduled callback protocols. The first implemented vanilla work-graph milestone
 [opt-in shadow resource observation and directed wave planning](BLOCK-ENTITY-WORK-GRAPH.md). A separately
 gated [executed vanilla furnace-wave prototype](FURNACE-WORK-WAVES.md), default off, now adds instance-scoped
 parallel original burning ticks inside a region; other types retain serial fences in that experimental mode.
+The next default-off [general resource ownership foundation](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)
+adds object identities, READ/WRITE claims, nonblocking leases and subordinate scopes to those furnace waves;
+its generic planner can express shared resources, but first-phase production admission remains furnace-only.
 The vanilla-first dependency-graph direction, including the reviewed Chorus
 0.23.0 artifact and the ownership/order requirements before adopting waves, is recorded in
 [the Chorus block-entity reference](CHORUS-BLOCK-ENTITY-REFERENCE.md); it is a design investigation, not an

@@ -118,6 +118,12 @@ using it. This does not claim a general wave engine or a measured server speedup
 [cost analysis and optimization plan](region-threading/BLOCK-ENTITY-OPTIMIZATION-PLAN.md) separates the
 verified execution path from the remaining performance work and its acceptance criteria.
 
+The default-off `enableRegionThreadingBlockEntityResources` option layers
+[general resource identities, READ/WRITE claims, nonblocking leases and scopes](region-threading/GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)
+under the existing Region exclusion and migrates Furnace waves as the first audited consumer.
+It does not admit arbitrary container/capability/mod callbacks or enable cross-region worker transactions;
+large proof footprints currently have substantial allocation/planning costs.
+
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
 is silently dropped.

@@ -52,6 +52,8 @@ final class FurnaceWorkPreparation {
     private static final Set<String> REPORTED_CATALOG_REFUSALS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final boolean VERIFIED_METHODS = unmodifiedMethods();
     private final Map<RecipeType<?>, Boolean> catalogs = new IdentityHashMap<>();
+    private final Map<RecipeType<?>, List<ItemStack>> catalogResources = new IdentityHashMap<>();
+    private final boolean captureResources;
     private final ServerLevel level;
     private final RegionLayout layout;
     private final RecipeManager recipes;
@@ -69,15 +71,23 @@ final class FurnaceWorkPreparation {
     }
 
     FurnaceWorkPreparation(ServerLevel level, RegionLayout layout) {
+        this(level, layout, false);
+    }
+
+    FurnaceWorkPreparation(ServerLevel level, RegionLayout layout, boolean captureResources) {
         this.level = level;
         this.layout = layout;
-        this.recipes = level.getRecipeManager();
+        this.captureResources = captureResources;
+        this.recipes = captureResources && (level.getClass() != ServerLevel.class
+                || level.getChunkSource().getClass() != net.minecraft.server.level.ServerChunkCache.class) ? null : level.getRecipeManager();
         this.verified = this.recipes != null && this.recipes.getClass() == RecipeManager.class && VERIFIED_METHODS;
     }
 
     private static boolean unmodifiedMethods() {
         try {
-            for (final Class<?> type : AUDITED_CLASSES) {
+            final Set<Class<?>> audited = new java.util.HashSet<>();
+            for (final Class<?> type : AUDITED_CLASSES) java.util.Collections.addAll(audited, type.getNestMembers());
+            for (final Class<?> type : audited) {
                 for (final var method : type.getDeclaredMethods()) {
                     if (method.getAnnotation(MixinMerged.class) != null) return false;
                 }
@@ -112,13 +122,15 @@ final class FurnaceWorkPreparation {
             return this.refuse(FurnaceWorkMetrics.Refusal.UNKNOWN_INSTANCE);
         final var position = admission.position();
         final LevelChunk chunk = this.level.getChunkSource().getChunkNow(position.getX() >> 4, position.getZ() >> 4);
-        if (chunk == null || !chunk.isLoaded() || chunk.getBlockEntity(position, LevelChunk.EntityCreationType.CHECK) != source
+        if (chunk == null || (this.captureResources && chunk.getClass() != LevelChunk.class) || !chunk.isLoaded()
+                || (this.captureResources ? chunk.getBlockEntities().get(position) : chunk.getBlockEntity(position, LevelChunk.EntityCreationType.CHECK)) != source
                 || chunk.getBlockState(position) != source.getBlockState())
             return this.refuse(FurnaceWorkMetrics.Refusal.UNAVAILABLE_CHUNK);
         for (int slot = 0; slot < 3; ++slot) if (!plain(source.getItem(slot))) return this.refuse(FurnaceWorkMetrics.Refusal.CUSTOM_ITEM);
         if (!this.catalogs.computeIfAbsent(source.furnaceWorkRecipeType(), this::pureCatalog)) return this.refuse(FurnaceWorkMetrics.Refusal.CUSTOM_RECIPE);
         if (source.furnaceWorkMayNotify() && !this.inertNotifications(position)) return this.refuse(FurnaceWorkMetrics.Refusal.ACTIVE_NOTIFICATIONS);
-        return new Candidate(admission, source, chunk);
+        return new Candidate(admission, source, chunk, this.recipes,
+                this.captureResources ? this.catalogResources.get(source.furnaceWorkRecipeType()) : List.of());
     }
 
     private boolean inertNotifications(net.minecraft.core.BlockPos position) {
@@ -140,29 +152,51 @@ final class FurnaceWorkPreparation {
         if (type != RecipeType.SMELTING && type != RecipeType.BLASTING && type != RecipeType.SMOKING) return false;
         final var catalog = this.recipes.getAllRecipesFor((RecipeType) type);
         if (catalog.size() > 4096) return false;
+        final Set<ItemStack> reads = this.captureResources ? java.util.Collections.newSetFromMap(new IdentityHashMap<>()) : null;
         for (final Object entry : catalog) {
             final var recipe = ((net.minecraft.world.item.crafting.RecipeHolder<?>) entry).value();
             if (!RECIPES.contains(recipe.getClass())) return refusedCatalog((net.minecraft.world.item.crafting.RecipeHolder<?>) entry, recipe.getClass().getName());
             for (final var ingredient : recipe.getIngredients()) {
                 if (!plainIngredient(ingredient, 0, new int[] { 256 })) return refusedCatalog((net.minecraft.world.item.crafting.RecipeHolder<?>) entry,
-                        "ingredient " + (ingredient.isCustom() ? ingredient.getCustomIngredient().getClass().getName() : "unverified values"));
+                        "ingredient " + (ingredient.getClass() != Ingredient.class ? ingredient.getClass().getName()
+                                : ingredient.isCustom() ? ingredient.getCustomIngredient().getClass().getName() : "unverified values"));
                 // Audited ordinary ingredient resolution is deterministic; publish its lazy cache before workers.
                 for (final var item : ingredient.getItems()) {
+                    captureRecipeRead(reads, item);
                     if (!item.isEmpty() && (!item.isComponentsPatchEmpty()
                             || !BuiltInRegistries.ITEM.getKey(item.getItem()).getNamespace().equals("minecraft")))
                         return false;
                 }
+                // The OR wrapper's merged cache may deduplicate equal stacks from different children.
+                // matches() still reads each child's own cache, so capture all audited descendants too.
+                if (reads != null) captureIngredientReads(reads, ingredient);
             }
             final var result = recipe.getResultItem(this.level.registryAccess());
+            captureRecipeRead(reads, result);
             if (!plain(result)) return refusedCatalog((net.minecraft.world.item.crafting.RecipeHolder<?>) entry,
                     "result " + BuiltInRegistries.ITEM.getKey(result.getItem()) + " class=" + result.getItem().getClass().getName()
                             + " componentPatch=" + !result.isComponentsPatchEmpty());
         }
+        if (reads != null) this.catalogResources.put(type, List.copyOf(reads));
         return true;
     }
 
+    private static void captureIngredientReads(Set<ItemStack> reads, Ingredient ingredient) {
+        for (final ItemStack stack : ingredient.getItems()) captureRecipeRead(reads, stack);
+        if (ingredient.isCustom()) {
+            for (final Ingredient child : ((net.neoforged.neoforge.common.crafting.CompoundIngredient) ingredient.getCustomIngredient()).children()) {
+                captureIngredientReads(reads, child);
+            }
+        }
+    }
+
+    private static void captureRecipeRead(@Nullable Set<ItemStack> reads, ItemStack stack) {
+        // Keep one overflow witness, then stop allocating. The generic bounded builder refuses this proof.
+        if (reads != null && !stack.isEmpty() && reads.size() <= BlockEntityResourceOwnership.MAX_RESOURCES_PER_UNIT) reads.add(stack);
+    }
+
     private static boolean plainIngredient(Ingredient ingredient, int depth, int[] remaining) {
-        if (depth > 8 || --remaining[0] < 0) return false;
+        if (ingredient.getClass() != Ingredient.class || depth > 8 || --remaining[0] < 0) return false;
         if (ingredient.isCustom()) {
             final var custom = ingredient.getCustomIngredient();
             // NeoForge decodes ordinary vanilla ingredient arrays as this exact OR record.
@@ -195,7 +229,8 @@ final class FurnaceWorkPreparation {
                 && BuiltInRegistries.ITEM.getKey(item).getNamespace().equals("minecraft");
     }
 
-    record Candidate(RegionBlockEntityTickAdmission admission, AbstractFurnaceBlockEntity source, LevelChunk chunk) {}
+    record Candidate(RegionBlockEntityTickAdmission admission, AbstractFurnaceBlockEntity source, LevelChunk chunk,
+            RecipeManager recipes, List<ItemStack> recipeReads) {}
 
     /** Public inventory references must be exclusive, even if a mod aliases two otherwise vanilla instances. */
     static Set<AbstractFurnaceBlockEntity> aliased(List<RegionBlockEntityTickAdmission> admissions) {

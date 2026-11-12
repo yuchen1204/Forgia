@@ -697,6 +697,7 @@ public static boolean isServerConfigLoaded();
 | `enableRegionThreadingEntityTicks` | BooleanValue | false |
 | `enableRegionThreadingBlockEntityTicks` | BooleanValue | false |
 | `enableRegionThreadingFurnaceWorkWaves` | BooleanValue | false；原版燃烧熔炉细粒度波次实验，需重启；见 [范围与限制](FURNACE-WORK-WAVES.md) |
+| `enableRegionThreadingBlockEntityResources` | BooleanValue | false；Furnace 波次使用通用对象资源 claims/lease/scope，需重启并满足旧波次开关；见 [内部资源协议](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md) |
 | `enableRegionThreadingScheduledTicks` | BooleanValue | false |
 | `enableRegionThreadingRandomTicks` | BooleanValue | false |
 | `enableRegionThreadingSpawning` | BooleanValue | false |
@@ -724,7 +725,7 @@ public static boolean isServerConfigLoaded();
 | `/neoforge regionthreading status` | 可读的 slice、worker、fallback、health 和 region 统计 |
 | `/neoforge regionthreading status raw` | 机器可读详细诊断 |
 | `/neoforge regionthreading compat` | 兼容声明、适配注册、完整 BE 操作结果、scheduled 阶段原因与延迟 |
-| `/neoforge regionthreading workgraph [start <phases>\|stop]` | 有界历史访问观察图和独立的实际熔炉波次执行计数；历史观察不给准入权限 |
+| `/neoforge regionthreading workgraph [start <phases>\|stop]` | 有界历史访问观察图、实际熔炉波次正文计数与独立通用资源签发／耗时指标；历史观察不给准入权限 |
 | `/neoforge regionthreading regions [count]` | 按慢 region 列出指标 |
 | [ContainerLinkExample.java](../examples/parallel-api/ContainerLinkExample.java) | 只依赖公开 facade 的完整 BE 源／目标链接示例 |
 | [模组刷怪 API 指南](MOD-PARALLEL-API.md) | 注册、快照、claim、有序最终化示例 |
@@ -754,6 +755,7 @@ worker dispatch 行新增 `dispatchBatches`、`batchedTasks`、`batchRunners`、
 | `RegionAwareRandomSource` | 解析组内 random 的包装；不要构造它作为 worker 安全声明 |
 | `NearbySpawnReservations` | 特定刷怪准备／候选 admission 的内部协作对象 |
 | `ServerEntityStorageOwner` | 保持原版构造形状的内部 owner 桥，不是模组 storage owner 注册器 |
+| `BlockEntityResourceOwnership`／`FurnaceResourcePreparation` | 内部 current-operation claims／lease／scope 签发协议；不提供模组自行声明后取得 worker 权限的公开 API |
 | `server.threading.region.*` | Engine、state、lease、batch、mailbox、POI、日志、metrics、tick plan、测试开关和 failure carrier |
 | Minecraft patch 新增的 chunk/ticker／存储方法 | 承载内部协议和测试，不自动成为长期模组 API |
 | Manager 的 `currentOrNull`／`install`／`clear` | 核心生命周期方法，模组不安装／卸载引擎 |

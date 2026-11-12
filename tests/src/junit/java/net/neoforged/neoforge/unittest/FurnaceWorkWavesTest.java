@@ -56,6 +56,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.furnace.FurnaceFuelBurnTimeEvent;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
+import net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnership;
 import net.neoforged.neoforge.server.threading.region.FurnaceWorkScope;
 import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
@@ -110,6 +111,7 @@ class FurnaceWorkWavesTest {
         doReturn(FullChunkStatus.BLOCK_TICKING).when(chunk).getFullStatus();
         doAnswer(call -> this.world.states.getOrDefault(call.getArgument(0), Blocks.AIR.defaultBlockState())).when(chunk).getBlockState(any());
         doAnswer(call -> this.world.blockEntities.get(call.getArgument(0))).when(chunk).getBlockEntity(any(), any(LevelChunk.EntityCreationType.class));
+        doReturn(this.world.blockEntities).when(chunk).getBlockEntities();
         final var chunkSource = this.level.getChunkSource();
         doReturn(chunk).when(chunkSource).getChunkNow(anyInt(), anyInt());
         NeoForge.EVENT_BUS.addListener(this.fuel);
@@ -117,6 +119,7 @@ class FurnaceWorkWavesTest {
                 persistentWorkers, false, RegionLayout.FIXED_3X3, RegionEntityStorageMode.MAIN_THREAD_ONLY);
         this.engine.setBlockEntityAdmissionCacheEnabledForTesting(false);
         this.engine.setFurnaceWorkWavesEnabledForTesting(true);
+        this.engine.setBlockEntityResourcesEnabledForTesting(Boolean.getBoolean("forgia.furnace.resourceOwnership"));
         RegionThreadingManager.install(this.engine);
     }
 
@@ -136,6 +139,9 @@ class FurnaceWorkWavesTest {
         field(AbstractFurnaceBlockEntity.class, furnace, "litTime", burning);
         field(AbstractFurnaceBlockEntity.class, furnace, "litDuration", 100);
         field(AbstractFurnaceBlockEntity.class, furnace, "cookingTotalTime", 2);
+        final Field used = AbstractFurnaceBlockEntity.class.getDeclaredField("recipesUsed");
+        used.setAccessible(true);
+        ((java.util.Map<?, ?>) used.get(furnace)).clear();
         return furnace;
     }
 
@@ -151,6 +157,308 @@ class FurnaceWorkWavesTest {
         assertNotNull(plan);
         for (final var ticker : entries) assertTrue(plan.accept(ticker));
         plan.executeAndAwait();
+    }
+
+    @Test
+    void genericOwnershipScopesAuthorizeOnlyCurrentCapturedResources() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.SMOKER, 100);
+        final var entries = new AtomicInteger();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            assertTrue(BlockEntityResourceOwnership.Scope.active());
+            BlockEntityResourceOwnership.Scope.require(this.level, source, BlockEntityResourceOwnership.Access.WRITE);
+            BlockEntityResourceOwnership.Scope.require(this.level, source.getItem(0), BlockEntityResourceOwnership.Access.WRITE);
+            BlockEntityResourceOwnership.Scope.require(this.level, this.recipes, BlockEntityResourceOwnership.Access.READ);
+            RegionThreadingHooks.observeBlockEntityReference(this.level, source.getBlockPos());
+            final var chunk = this.level.getChunkSource().getChunkNow(1, 1);
+            assertTrue(BlockEntityResourceOwnership.Scope.checkChunk(chunk, false));
+            assertThrows(IllegalStateException.class, () -> BlockEntityResourceOwnership.Scope.checkChunk(chunk, true));
+            assertThrows(IllegalStateException.class, () -> RegionThreadingHooks.observeBlockEntityReference(this.level, source == first ? SECOND : FIRST));
+            assertThrows(IllegalStateException.class, () -> BlockEntityResourceOwnership.Scope.rejectEffect("unknown container callback"));
+            assertThrows(IllegalStateException.class, () -> BlockEntityResourceOwnership.Scope.require(this.level, this.recipes, BlockEntityResourceOwnership.Access.WRITE));
+            assertThrows(IllegalStateException.class, () -> BlockEntityResourceOwnership.Scope.require(this.level, new Object(), BlockEntityResourceOwnership.Access.READ));
+            entries.incrementAndGet();
+        });
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, entries.get());
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertFalse(BlockEntityResourceOwnership.Scope.active());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void resourceFlagOffRetainsExistingFurnacePathWithoutIssuingLeases() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(false);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        this.engine.setFurnaceBodyObserverForTesting(source -> assertFalse(BlockEntityResourceOwnership.Scope.active()));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.blockEntityResourceMetrics().phases());
+    }
+
+    @Test
+    void inventoryAliasOfSharedRecipeResultIsSerialBeforeOtherOriginalBodies() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var third = this.furnace(new BlockPos(23, 64, 17), Blocks.FURNACE, 100);
+        final ItemStack shared = this.recipes.getAllRecipesFor(net.minecraft.world.item.crafting.RecipeType.SMELTING).getFirst().value().getResultItem(net.minecraft.core.RegistryAccess.EMPTY);
+        first.setItem(2, shared);
+        for (final var source : List.of(first, second, third)) field(AbstractFurnaceBlockEntity.class, source, "cookingProgress", 1);
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            assertFalse(source == first, "writing into a shared catalog object must be a complete serial operation");
+            assertEquals(2, shared.getCount(), "the earlier serial operation must commit before catalog readers");
+        });
+        this.tick(this.ticker(first), this.ticker(second), this.ticker(third));
+        for (final var source : List.of(first, second, third)) {
+            assertEquals(2, source.getItem(0).getCount());
+            assertEquals(2, source.getItem(2).getCount());
+        }
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(1, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+    }
+
+    @Test
+    void blockEntityReplacementAtTheSamePositionCannotInheritAPlannedResourceProof() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        final var replacement = new net.minecraft.world.level.block.entity.FurnaceBlockEntity(FIRST, first.getBlockState());
+        replacement.setLevel(this.level);
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(19, 64, 17)).when(fence).getPos();
+        doReturn("example:replacement").when(fence).getType();
+        doAnswer(call -> {
+            first.setRemoved();
+            this.world.blockEntities.put(FIRST, replacement);
+            return null;
+        }).when(fence).tick();
+        this.tick(fence, firstTick, secondTick);
+        assertSame(replacement, this.world.blockEntities.get(FIRST));
+        assertEquals(100, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        assertEquals(0, readCounter(replacement, "litTime"));
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void chunkUnloadRefusesPlannedResourcesAndReloadRequiresANewProof() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        final var chunk = this.level.getChunkSource().getChunkNow(1, 1);
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(19, 64, 17)).when(fence).getPos();
+        doReturn("example:unload").when(fence).getType();
+        doAnswer(call -> {
+            doReturn(false).when(chunk).isLoaded();
+            doReturn(FullChunkStatus.INACCESSIBLE).when(chunk).getFullStatus();
+            return null;
+        }).when(fence).tick();
+        this.tick(fence, firstTick, secondTick);
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(100, readCounter(first, "litTime"));
+        assertEquals(100, readCounter(second, "litTime"));
+        doReturn(true).when(chunk).isLoaded();
+        doReturn(FullChunkStatus.BLOCK_TICKING).when(chunk).getFullStatus();
+        this.tick(firstTick, secondTick);
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+    }
+
+    @Test
+    void aTickerBoundToAnOldChunkCannotAcquireTheReloadedChunksResources() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        final var replacement = mock(LevelChunk.class, org.mockito.Mockito.withSettings().stubOnly());
+        field(LevelChunk.class, replacement, "level", this.level);
+        doReturn(this.level).when(replacement).getLevel();
+        doReturn(new net.minecraft.world.level.ChunkPos(1, 1)).when(replacement).getPos();
+        doReturn(true).when(replacement).isLoaded();
+        doReturn(FullChunkStatus.BLOCK_TICKING).when(replacement).getFullStatus();
+        doAnswer(call -> this.world.states.getOrDefault(call.getArgument(0), Blocks.AIR.defaultBlockState())).when(replacement).getBlockState(any());
+        doAnswer(call -> this.world.blockEntities.get(call.getArgument(0))).when(replacement).getBlockEntity(any(), any(LevelChunk.EntityCreationType.class));
+        doReturn(this.world.blockEntities).when(replacement).getBlockEntities();
+        final var chunkSource = this.level.getChunkSource();
+        doReturn(replacement).when(chunkSource).getChunkNow(anyInt(), anyInt());
+        assertFalse(LevelChunk.furnaceWorkMatchesChunk(firstTick, replacement));
+        this.tick(firstTick, secondTick);
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        final var freshFirst = this.ticker(first);
+        assertTrue(LevelChunk.furnaceWorkMatchesChunk(freshFirst, replacement));
+        this.tick(freshFirst, this.ticker(second));
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void levelUnloadWaitsForResourceScopesAndOrderedNotificationCommits() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        field(AbstractFurnaceBlockEntity.class, first, "cookingProgress", 1);
+        field(AbstractFurnaceBlockEntity.class, second, "cookingProgress", 1);
+        final var entered = new java.util.concurrent.CountDownLatch(2);
+        final var release = new java.util.concurrent.CountDownLatch(1);
+        final var unloading = new java.util.concurrent.CountDownLatch(1);
+        final var closed = new java.util.concurrent.CountDownLatch(1);
+        final var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            assertTrue(BlockEntityResourceOwnership.Scope.active());
+            assertThrows(IllegalStateException.class, () -> this.engine.clearLevelRegionTasks(this.level));
+            entered.countDown();
+            await(release);
+            BlockEntityResourceOwnership.Scope.require(this.level, source, BlockEntityResourceOwnership.Access.WRITE);
+        });
+        final Thread closer = new Thread(() -> {
+            try {
+                await(entered);
+                unloading.countDown();
+                this.engine.clearLevelRegionTasks(this.level);
+            } catch (Throwable problem) {
+                failure.set(problem);
+            } finally {
+                closed.countDown();
+            }
+        }, "resource-level-unload-test");
+        closer.start();
+        final var plan = this.engine.beginBlockEntityTickPlan(this.level, done -> {
+            await(unloading);
+            assertEquals(1, closed.getCount());
+            release.countDown();
+            BARRIER.await(done);
+        });
+        assertNotNull(plan);
+        assertTrue(plan.accept(this.ticker(first)));
+        assertTrue(plan.accept(this.ticker(second)));
+        try {
+            plan.executeAndAwait();
+        } finally {
+            release.countDown();
+            closer.join(10_000L);
+        }
+        assertFalse(closer.isAlive());
+        assertNull(failure.get());
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().committedChanges());
+        assertEquals(1, first.getItem(2).getCount());
+        assertEquals(1, second.getItem(2).getCount());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void deduplicatedCompoundIngredientChildrenRetainTheirOwnSharedReadIdentities() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final Ingredient firstChild = Ingredient.of(Items.IRON_ORE);
+        final Ingredient secondChild = Ingredient.of(Items.IRON_ORE);
+        final Ingredient compound = net.neoforged.neoforge.common.crafting.CompoundIngredient.of(firstChild, secondChild);
+        final ItemStack hidden = secondChild.getItems()[0];
+        assertEquals(1, compound.getItems().length);
+        assertFalse(compound.getItems()[0] == hidden, "fixture must hide the second cache entry in the merged cache");
+        this.recipes.replaceRecipes(List.of(new RecipeHolder<>(ResourceLocation.parse("test:deduplicated_or"),
+                new SmeltingRecipe("", CookingBookCategory.MISC, compound, new ItemStack(Items.IRON_INGOT), 0, 2))));
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        this.engine.setFurnaceBodyObserverForTesting(source -> BlockEntityResourceOwnership.Scope.require(this.level, hidden, BlockEntityResourceOwnership.Access.READ));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+    }
+
+    @Test
+    void unknownChunkSourceImplementationCannotAcquireResourceBodyPermission() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        final var chunk = this.level.getChunkSource().getChunkNow(1, 1);
+        final var unknown = mock(net.minecraft.server.level.ServerChunkCache.class,
+                org.mockito.Mockito.withSettings().extraInterfaces(Runnable.class).stubOnly());
+        assertFalse(unknown.getClass() == net.minecraft.server.level.ServerChunkCache.class);
+        doReturn(chunk).when(unknown).getChunkNow(anyInt(), anyInt());
+        doReturn(unknown).when(this.level).getChunkSource();
+        this.tick(firstTick, secondTick);
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+    }
+
+    @Test
+    void resourceBudgetOverflowKeepsCompleteSerialCookingTicks() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final List<RecipeHolder<?>> catalog = new ArrayList<>();
+        for (int index = 0; index < 600; ++index) catalog.add(new RecipeHolder<>(ResourceLocation.parse("test:resource_" + index),
+                new SmeltingRecipe("", CookingBookCategory.MISC, Ingredient.of(Items.IRON_ORE), new ItemStack(Items.IRON_INGOT), 0, 2)));
+        this.recipes.replaceRecipes(catalog);
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        assertTrue(this.engine.furnaceWorkMetrics().refusals().containsKey(net.neoforged.neoforge.server.threading.region.FurnaceWorkMetrics.Refusal.RESOURCE_PROOF));
+    }
+
+    @Test
+    void serialFenceReplacingOrdinaryRecipeObjectsInvalidatesThePlannedResourceSet() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var fence = mock(TickingBlockEntity.class);
+        org.mockito.Mockito.when(fence.getPos()).thenReturn(new BlockPos(19, 64, 17));
+        org.mockito.Mockito.when(fence.getType()).thenReturn("example:ordinary_reload");
+        doAnswer(call -> {
+            this.recipes.replaceRecipes(List.of(new RecipeHolder<>(ResourceLocation.parse("test:new_ordinary"),
+                    new SmeltingRecipe("", CookingBookCategory.MISC, Ingredient.of(Items.IRON_ORE), new ItemStack(Items.IRON_INGOT), 0, 2))));
+            return null;
+        }).when(fence).tick();
+        this.tick(fence, this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(3, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+    }
+
+    private static int readCounter(AbstractFurnaceBlockEntity source, String name) throws Exception {
+        final Field counter = AbstractFurnaceBlockEntity.class.getDeclaredField(name);
+        counter.setAccessible(true);
+        return counter.getInt(source);
     }
 
     @Test
@@ -317,6 +625,34 @@ class FurnaceWorkWavesTest {
     }
 
     @Test
+    void unknownIngredientCannotRunHiddenResolutionDuringResourcePreflight() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var matches = new AtomicInteger();
+        final var resolutions = new AtomicInteger();
+        final var custom = mock(net.neoforged.neoforge.common.crafting.ICustomIngredient.class);
+        org.mockito.Mockito.when(custom.getItems()).thenAnswer(call -> {
+            assertSame(FurnaceWorkWavesTest.this.main, Thread.currentThread());
+            resolutions.incrementAndGet();
+            return java.util.stream.Stream.of(new ItemStack(Items.IRON_ORE));
+        });
+        org.mockito.Mockito.when(custom.test(any())).thenAnswer(call -> {
+            assertSame(FurnaceWorkWavesTest.this.main, Thread.currentThread());
+            matches.incrementAndGet();
+            return true;
+        });
+        this.recipes.replaceRecipes(List.of(new RecipeHolder<>(ResourceLocation.parse("test:ingredient_unknown"),
+                new SmeltingRecipe("", CookingBookCategory.MISC, new Ingredient(custom), new ItemStack(Items.IRON_INGOT), 0, 2))));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(0, resolutions.get(), "proof collection must reject the class before executing its resolver");
+        assertEquals(2, matches.get(), "both complete original serial ticks must still execute");
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases());
+    }
+
+    @Test
     void unknownRecipeIsNeverEvaluatedAsPartOfWorkerPreflightOrWorkerBody() throws Exception {
         this.setup();
         final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
@@ -475,20 +811,25 @@ class FurnaceWorkWavesTest {
         assertEquals(2, matches.get());
     }
 
-    @Test
-    void completeTickTraceMatchesSerialThroughInputOutputAndFuelChanges() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.MethodSource("furnaceFamilies")
+    void completeTickTraceMatchesSerialThroughInputOutputAndFuelChanges(Block family) throws Exception {
         this.setup();
-        final var first = this.furnace(FIRST, Blocks.FURNACE, 0);
+        final var first = this.furnace(FIRST, family, 0);
         final var second = this.furnace(SECOND, Blocks.SMOKER, 0);
         final var firstTick = this.ticker(first);
         final var secondTick = this.ticker(second);
         final List<String> parallel = this.scenario(first, second, firstTick, secondTick, true);
         this.engine.setFurnaceBodyObserverForTesting(null);
-        final var serialFirst = this.furnace(FIRST, Blocks.FURNACE, 0);
+        final var serialFirst = this.furnace(FIRST, family, 0);
         final var serialSecond = this.furnace(SECOND, Blocks.SMOKER, 0);
         final List<String> serial = this.scenario(serialFirst, serialSecond, this.ticker(serialFirst), this.ticker(serialSecond), false);
         assertEquals(serial, parallel, "full inventory, state, burn/cook counters and pending schedule trace must match each tick");
         assertTrue(this.engine.furnaceWorkMetrics().nativeCompletions() > 0);
+    }
+
+    private static java.util.stream.Stream<Block> furnaceFamilies() {
+        return java.util.stream.Stream.of(Blocks.FURNACE, Blocks.BLAST_FURNACE, Blocks.SMOKER);
     }
 
     private List<String> scenario(AbstractFurnaceBlockEntity first, AbstractFurnaceBlockEntity second,
@@ -531,6 +872,9 @@ class FurnaceWorkWavesTest {
                     counter.setAccessible(true);
                     state.append('|').append(counter.get(furnace));
                 }
+                final Field used = AbstractFurnaceBlockEntity.class.getDeclaredField("recipesUsed");
+                used.setAccessible(true);
+                state.append('|').append(used.get(furnace));
             }
             state.append(this.world.pendingTicks());
             trace.add(state.toString());
@@ -658,8 +1002,8 @@ class FurnaceWorkWavesTest {
         this.tick(this.ticker(first), this.ticker(second));
         assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
         assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
-        assertEquals(99, read(first, "litTime"));
-        assertEquals(99, read(second, "litTime"));
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
         assertTrue(this.engine.furnaceWorkMetrics().refusals().containsKey(
                 net.neoforged.neoforge.server.threading.region.FurnaceWorkMetrics.Refusal.UNVERIFIED_RUNTIME));
     }
@@ -750,12 +1094,6 @@ class FurnaceWorkWavesTest {
             }
             for (final var machine : machines) assertEquals(3, machine.getItem(0).getCount());
         }
-    }
-
-    private static int read(AbstractFurnaceBlockEntity furnace, String name) throws Exception {
-        final Field field = AbstractFurnaceBlockEntity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.getInt(furnace);
     }
 
     private static void await(java.util.concurrent.CountDownLatch latch) {

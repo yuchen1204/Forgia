@@ -62,6 +62,11 @@ BlockEntityOperations.Task<ExchangeResult> task = operations.submit(sourceRef, t
 
 一个 BE 批次的执行顺序是：worker 结束 → 边界传播 → 发布延迟 block/light 效果 → 实体移除 → 若有完整操作，先发布 worker 已排队的 scheduled mutations → 完整操作 → 原有串行 fallback → 剩余 scheduled mutations → 批次结束。完整操作运行时，所有 worker 已返回；它没有获得多个 region 的并行 lease。当前跨区操作在这个完成阶段串行化，独立机器的原有 tick 仍按 region 并行。没有 worker `join/get` 或隐藏的同步跨区等待接口。
 
+`.57-beta` 的 [通用资源所有权第一阶段](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md) 为已有 Furnace 波次增加
+内部 claims／lease／scope，不改变本服务的完成阶段。长期弱引用 `Reference` 与当前 phase 的资源 identity
+生命周期不同，不能直接把持有 Reference 当作已取得 READ/WRITE lease；即使引用解析成功也没有完整操作闭包证明。
+Furnace 的资源 scope 不因此获得提交任意跨区回调的源权限，`ParallelApi` capability 和 major version 均未扩张。
+
 句柄状态为 `QUEUED → RUNNING → COMPLETED / SKIPPED / FAILED`，排队时还能变成 `CANCELLED`；未受理是 `REJECTED`。只有 `COMPLETED` 的非 null 返回值出现在 `result()`；空 result 不能单独表示未完成，必须读取 state。`cancel()` 成功保证回调未开始且以后不会调用，RUNNING 后取消失败。没有注册任意线程上的完成回调；在自己下一次安全的 tick 中检查句柄并处理脱离世界的结果。
 
 执行前验证双方原始世界身份、不可变位置、类型、实例和已加载 chunk，目标替换不会自动转给新机器。卸载、关闭、源/目标移除、世界变化、队列满、上下文无权均有独立 Reason。引用不自动加载 chunk。跨维度的双 owner 操作暂不受理。

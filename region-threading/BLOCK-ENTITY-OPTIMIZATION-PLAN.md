@@ -7,6 +7,10 @@
 后续 P0 已实现 [Work-Stealing Dispatcher](WORK-STEALING-DISPATCHER.md)：批量 runner、未开始区段半量窃取、
 熔炉波次接入与派发专用配对测量。下文保留本方案提出时的证据；紧凑 planner 和证明缓存仍未接入。
 
+后续 `.57-beta` 增加 [通用 BE 资源所有权基础设施](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)：
+对象 identity、READ/WRITE claims、非阻塞整波 lease 与从属于 Region 的 scope；Furnace 为首个迁移。
+新增开关默认关闭，仍有显著共享资源证明／规划成本，不替代本方案中的优化与整服验收。
+
 ## 已经知道什么
 
 - 当前完整源树推送前回归：**1155 项核心测试通过**，无失败、错误或跳过；root/tests 格式与许可证检查通过。

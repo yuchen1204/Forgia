@@ -4,6 +4,15 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
+## General block-entity resource ownership
+
+The `.57-beta` [phase-one resource ownership foundation](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)
+adds object identities, bounded READ/WRITE claims, nonblocking wave reservation and one-shot scopes
+subordinate to the existing Region exclusion. Furnace waves are the first audited consumer; a separate
+`enableRegionThreadingBlockEntityResources` flag remains false by default. This does not admit arbitrary
+container, hopper, capability or Create callbacks. Synthetic proof/planning costs grow substantially with
+replicated shared-resource footprints; no new whole-server speedup is established.
+
 ## Slices
 
 | Workload | Off (server thread) | Regionized | Speedup |

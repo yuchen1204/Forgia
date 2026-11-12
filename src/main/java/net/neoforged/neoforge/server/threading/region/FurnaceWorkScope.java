@@ -28,6 +28,8 @@ public final class FurnaceWorkScope implements AutoCloseable {
     private final LevelChunk chunk;
     private final Consumer<AbstractFurnaceBlockEntity> bodyObserver;
     private final Runnable bodyEndObserver;
+    @Nullable
+    private final BlockEntityResourceOwnership.Scope resources;
     private boolean changed;
     private boolean bodyStarted;
     private boolean bodyEnded;
@@ -35,13 +37,15 @@ public final class FurnaceWorkScope implements AutoCloseable {
     private boolean closed;
 
     private FurnaceWorkScope(RegionBlockEntityTickAdmission admission, AbstractFurnaceBlockEntity source,
-            LevelChunk chunk, Consumer<AbstractFurnaceBlockEntity> bodyObserver, Runnable bodyEndObserver) {
+            LevelChunk chunk, Consumer<AbstractFurnaceBlockEntity> bodyObserver, Runnable bodyEndObserver,
+            @Nullable BlockEntityResourceOwnership.Lease lease) {
         if (CURRENT.get() != null) throw new IllegalStateException("Nested furnace work scopes are not allowed");
         this.admission = admission;
         this.source = source;
         this.chunk = chunk;
         this.bodyObserver = bodyObserver;
         this.bodyEndObserver = bodyEndObserver;
+        this.resources = lease == null ? null : lease.enter();
         CURRENT.set(this);
     }
 
@@ -50,8 +54,9 @@ public final class FurnaceWorkScope implements AutoCloseable {
     }
 
     static FurnaceWorkScope open(RegionBlockEntityTickAdmission admission, AbstractFurnaceBlockEntity source,
-            LevelChunk chunk, Consumer<AbstractFurnaceBlockEntity> bodyObserver, Runnable bodyEndObserver) {
-        return new FurnaceWorkScope(admission, source, chunk, bodyObserver, bodyEndObserver);
+            LevelChunk chunk, Consumer<AbstractFurnaceBlockEntity> bodyObserver, Runnable bodyEndObserver,
+            @Nullable BlockEntityResourceOwnership.Lease resources) {
+        return new FurnaceWorkScope(admission, source, chunk, bodyObserver, bodyEndObserver, resources);
     }
 
     public static boolean active() {
@@ -82,6 +87,14 @@ public final class FurnaceWorkScope implements AutoCloseable {
         if (level != scope.admission.level() || source != scope.source || scope.bodyStarted) {
             throw new IllegalStateException("Furnace work attempted an unrelated or repeated original body");
         }
+        if (scope.resources != null) {
+            BlockEntityResourceOwnership.Scope.require(level, source, BlockEntityResourceOwnership.Access.WRITE);
+            for (int slot = 0; slot < 3; ++slot) {
+                final var stack = source.getItem(slot);
+                if (!stack.isEmpty()) BlockEntityResourceOwnership.Scope.require(level, stack, BlockEntityResourceOwnership.Access.WRITE);
+            }
+            BlockEntityResourceOwnership.Scope.require(level, level.getRecipeManager(), BlockEntityResourceOwnership.Access.READ);
+        }
         scope.bodyStarted = true;
         scope.bodyObserver.accept(source);
     }
@@ -109,6 +122,7 @@ public final class FurnaceWorkScope implements AutoCloseable {
         if (level != scope.admission.level() || !position.equals(scope.admission.position()) || state != scope.source.getBlockState()) {
             throw new IllegalStateException("Furnace work attempted a foreign block-entity notification");
         }
+        if (scope.resources != null) BlockEntityResourceOwnership.Scope.require(level, scope.source, BlockEntityResourceOwnership.Access.WRITE);
         scope.changed = true;
         return true;
     }
@@ -149,6 +163,7 @@ public final class FurnaceWorkScope implements AutoCloseable {
         } finally {
             this.closed = true;
             CURRENT.remove();
+            if (this.resources != null) this.resources.close();
         }
     }
 }

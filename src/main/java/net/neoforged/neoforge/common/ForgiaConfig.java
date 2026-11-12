@@ -45,6 +45,8 @@ public final class ForgiaConfig {
 
         public final BooleanValue enableRegionThreadingFurnaceWorkWaves;
 
+        public final BooleanValue enableRegionThreadingBlockEntityResources;
+
         public final BooleanValue enableRegionThreadingScheduledTicks;
 
         public final BooleanValue enableRegionThreadingRandomTicks;
@@ -119,6 +121,11 @@ public final class ForgiaConfig {
                     .comment("EXPERIMENTAL, default off: execute verified already-burning vanilla furnace-family ticks in directed resource waves, including independent instances in one chunk/region. Requires the block-entity worker slice and a fixed layout. Fuel/re-light/extinguish, unverified recipes/items/tickers and all other machines keep complete serial ticks in canonical order. Notifications commit on the server after each wave; no general region, entity or chunk mutation permission is granted. This is a narrow vanilla protocol, not arbitrary mod parallelism.")
                     .worldRestart()
                     .define("enableRegionThreadingFurnaceWorkWaves", false);
+
+            enableRegionThreadingBlockEntityResources = builder
+                    .comment("EXPERIMENTAL, default off: use current-operation object resource identities, READ/WRITE claims and nonblocking leases inside existing furnace work waves. Requires enableRegionThreadingFurnaceWorkWaves, the block-entity worker slice and a fixed layout. Resource scopes remain subordinate to held region leases; unknown/overflowed/stale proofs retain complete serial ticks. Does not admit additional machine types, arbitrary callbacks or cross-region worker transactions.")
+                    .worldRestart()
+                    .define("enableRegionThreadingBlockEntityResources", false);
 
             enableRegionThreadingScheduledTicks = builder
                     .comment("EXPERIMENTAL: Requests the bounded scheduled block and fluid tick slice. Requires enableRegionThreadingBridge. Production admits only complete block phases of vanilla redstone-lamp callbacks whose radius-two signal/shape footprint is loaded, contained in one fixed region and contains only audited inert vanilla blocks. Other block callbacks, fluids, unsafe footprints and over-budget phases retain the original serial LevelTicks loop and ordering. Diagnostics separate collected/admitted callbacks, native/serial completions, failures, skips, refusal reasons and timing. Default off.")

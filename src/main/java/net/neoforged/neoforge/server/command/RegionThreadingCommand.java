@@ -91,6 +91,12 @@ final class RegionThreadingCommand {
                 + ", prepare=" + millis(furnace.preparationNanos()) + ", executeAwait=" + millis(furnace.executionNanos())
                 + ", commit=" + millis(furnace.commitNanos()) + ", refusals=" + furnace.refusals()
                 + "; original burning furnace bodies only, other operations are serial fences"), false);
+        final var resources = engine.blockEntityResourceMetrics();
+        source.sendSuccess(() -> Component.literal("Block entity resource ownership: enabled=" + engine.blockEntityResourcesEnabled()
+                + ", phases=" + resources.phases() + ", proofs=" + resources.proofs() + ", waves=" + resources.waves()
+                + ", refusedWaves=" + resources.refusedWaves() + ", issuedLeases=" + resources.issuedLeases()
+                + ", proofAndPlan=" + millis(resources.proofAndPlanNanos()) + ", reservation=" + millis(resources.reservationNanos())
+                + "; current-operation proofs under region exclusion, lease counts are not body completions"), false);
         final var snapshot = engine.blockEntityWorkGraph().snapshot();
         source.sendSuccess(() -> Component.literal("Block entity work graph (shadow, partial coverage; no execution/admission changes): remainingPhases="
                 + snapshot.remainingPhases() + ", completedPhases=" + snapshot.completedPhases()), false);

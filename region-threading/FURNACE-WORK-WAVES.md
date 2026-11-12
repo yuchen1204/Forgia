@@ -5,6 +5,12 @@ opt-in execution path for verified original vanilla furnace-family ticks. Indepe
 at the same time **inside one chunk and one existing region**. The historical observed graph never grants
 admission. This is not general Create/mod ticking, whole-hopper networks or all vanilla block entities.
 
+In `.57-beta`, the separately gated [general resource ownership foundation](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)
+can replace the position-key execution footprint with exact object claims and one-shot resource scopes under
+those same Region leases. Set `enableRegionThreadingBlockEntityResources=true` in addition to the existing
+wave flags to test it; default is false. Audited bodies, conservative aliases, unknown serial fences and
+ordered notification commits remain mandatory. The flag does not admit more machine types.
+
 ## Enable and diagnose
 
 With the usual bridge/workers/block-entity slice enabled and a fixed region layout, add to the effective

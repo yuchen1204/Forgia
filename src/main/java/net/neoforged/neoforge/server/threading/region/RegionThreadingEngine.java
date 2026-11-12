@@ -597,6 +597,9 @@ public final class RegionThreadingEngine implements RegionThreading {
     private final AtomicLong blockEntityFallbackUntrackedNeighborhood = new AtomicLong();
     private final RegionBlockEntityWorkGraph blockEntityWorkGraph = new RegionBlockEntityWorkGraph();
     private final FurnaceWorkMetrics furnaceWorkMetrics = new FurnaceWorkMetrics();
+    private final BlockEntityResourceMetrics blockEntityResourceMetrics = new BlockEntityResourceMetrics();
+    private volatile boolean blockEntityResourcesEnabled = net.neoforged.neoforge.common.ForgiaConfig.isServerConfigLoaded()
+            && net.neoforged.neoforge.common.ForgiaConfig.SERVER.enableRegionThreadingBlockEntityResources.get();
     private volatile boolean furnaceWorkWavesEnabled = net.neoforged.neoforge.common.ForgiaConfig.isServerConfigLoaded()
             && net.neoforged.neoforge.common.ForgiaConfig.SERVER.enableRegionThreadingFurnaceWorkWaves.get();
     @Nullable
@@ -5544,6 +5547,19 @@ public final class RegionThreadingEngine implements RegionThreading {
         return this.furnaceWorkWavesEnabled;
     }
 
+    public boolean blockEntityResourcesEnabled() {
+        return this.blockEntityResourcesEnabled;
+    }
+
+    public BlockEntityResourceMetrics.Snapshot blockEntityResourceMetrics() {
+        return this.blockEntityResourceMetrics.snapshot();
+    }
+
+    @org.jetbrains.annotations.VisibleForTesting
+    public void setBlockEntityResourcesEnabledForTesting(boolean enabled) {
+        this.blockEntityResourcesEnabled = enabled;
+    }
+
     public FurnaceWorkMetrics.Snapshot furnaceWorkMetrics() {
         return this.furnaceWorkMetrics.snapshot();
     }
@@ -5759,10 +5775,13 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.OVERSIZED_PHASE);
                 for (final var admission : ordered) this.tickFurnaceSerial(level, admission, graph);
             } else {
-                final var preparation = new FurnaceWorkPreparation(level, this.layout);
+                final var resources = this.blockEntityResourcesEnabled ? new FurnaceResourcePreparation(level, this.layout) : null;
+                final var preparation = new FurnaceWorkPreparation(level, this.layout, resources != null);
                 final var aliased = FurnaceWorkPreparation.aliased(ordered);
                 final List<FurnaceWorkPreparation.Candidate> candidates = new ArrayList<>();
                 final List<BlockEntityWorkPlanner.Unit> footprints = new ArrayList<>();
+                final List<BlockEntityResourceOwnership.Claims> claims = resources == null ? List.of() : new ArrayList<>();
+                long proofNanos = 0L;
                 int admitted = 0;
                 for (final var admission : ordered) {
                     final var candidate = preparation.prepare(admission);
@@ -5771,11 +5790,32 @@ public final class RegionThreadingEngine implements RegionThreading {
                     else if (!eligible) this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.SHARED_INVENTORY);
                     candidates.add(eligible ? candidate : null);
                     if (eligible) ++admitted;
-                    footprints.add(new BlockEntityWorkPlanner.Unit(
-                            Set.of(new BlockEntityWorkPlanner.Resource(level, BlockEntityWorkPlanner.Kind.CHUNK, ChunkPos.asLong(admission.position()))),
-                            Set.of(new BlockEntityWorkPlanner.Resource(level, BlockEntityWorkPlanner.Kind.BLOCK_ENTITY, admission.position().asLong())), !eligible));
+                    if (resources == null) {
+                        footprints.add(new BlockEntityWorkPlanner.Unit(
+                                Set.of(new BlockEntityWorkPlanner.Resource(level, BlockEntityWorkPlanner.Kind.CHUNK, ChunkPos.asLong(admission.position()))),
+                                Set.of(new BlockEntityWorkPlanner.Resource(level, BlockEntityWorkPlanner.Kind.BLOCK_ENTITY, admission.position().asLong())), !eligible));
+                    } else {
+                        final long proofStart = System.nanoTime();
+                        claims.add(eligible ? resources.captureForPlan(candidate) : resources.fence(admission));
+                        proofNanos += System.nanoTime() - proofStart;
+                    }
                 }
-                final var plan = BlockEntityWorkPlanner.plan(footprints);
+                if (resources != null && resources.budgetExceeded()) {
+                    for (int index = 0; index < ordered.size(); ++index) claims.set(index, resources.fence(ordered.get(index)));
+                }
+                final long planStart = resources == null ? 0L : System.nanoTime();
+                final var resourcePlan = resources == null ? null : BlockEntityResourceOwnership.plan(claims);
+                final var plan = resourcePlan == null ? BlockEntityWorkPlanner.plan(footprints) : resourcePlan.dependencies();
+                if (resourcePlan != null) {
+                    for (int index = 0; index < candidates.size(); ++index) {
+                        if (candidates.get(index) != null && !resourcePlan.claims().get(index).complete()) {
+                            candidates.set(index, null);
+                            --admitted;
+                            this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.RESOURCE_PROOF);
+                        }
+                    }
+                    this.blockEntityResourceMetrics.prepared(admitted, proofNanos + System.nanoTime() - planStart);
+                }
                 this.furnaceWorkMetrics.prepared(admitted, System.nanoTime() - prepareStart);
                 for (final var wave : plan.waves()) {
                     if (wave.size() == 1 || candidates.get(wave.getFirst()) == null) {
@@ -5787,7 +5827,8 @@ public final class RegionThreadingEngine implements RegionThreading {
                     final List<FurnaceWorkResult> results = new ArrayList<>();
                     try {
                         batch.externalWaveActive(true);
-                        this.runRegionBatch(level, () -> this.executeFurnaceWave(batch, ordered, candidates, wave, results, sample, barrier));
+                        this.runRegionBatch(level, () -> this.executeFurnaceWave(batch, ordered, candidates, wave, results, sample, barrier,
+                                resources, resourcePlan == null ? List.of() : resourcePlan.claims()));
                     } finally {
                         batch.externalWaveActive(false);
                     }
@@ -5814,9 +5855,11 @@ public final class RegionThreadingEngine implements RegionThreading {
     /** Outer region exclusion spans preparation, actual bodies and canonical notification commits. */
     private void executeFurnaceWave(FurnaceWorkBatch batch, List<RegionBlockEntityTickAdmission> ordered,
             List<FurnaceWorkPreparation.Candidate> candidates, List<Integer> wave, List<FurnaceWorkResult> results,
-            @Nullable RegionBlockEntityWorkGraph.Phase sample, RegionTickBarrier barrier) {
+            @Nullable RegionBlockEntityWorkGraph.Phase sample, RegionTickBarrier barrier,
+            @Nullable FurnaceResourcePreparation resources, List<BlockEntityResourceOwnership.Claims> claims) {
         final ServerLevel level = batch.level();
         final List<RegionState> leased = new ArrayList<>();
+        BlockEntityResourceOwnership ownership = null;
         Throwable failure = null;
         try {
             final Set<RegionState> regions = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
@@ -5837,23 +5880,44 @@ public final class RegionThreadingEngine implements RegionThreading {
                 }
             }
             boolean current = !this.shutdown && !this.regionizer.isLevelClosed(level);
-            final var preparation = new FurnaceWorkPreparation(level, this.layout);
+            final var preparation = new FurnaceWorkPreparation(level, this.layout, resources != null);
             final var aliases = FurnaceWorkPreparation.aliased(ordered);
+            final List<BlockEntityResourceOwnership.Claims> freshClaims = resources == null ? List.of() : new ArrayList<>();
             for (final int index : wave) {
                 final var captured = candidates.get(index);
                 final var verified = preparation.prepare(ordered.get(index));
                 current &= verified != null && !aliases.contains(captured.source())
                         && captured.source() == verified.source() && captured.chunk() == verified.chunk();
+                if (resources != null) {
+                    final var fresh = verified == null ? resources.fence(ordered.get(index)) : resources.capture(verified);
+                    freshClaims.add(fresh);
+                    current &= claims.get(index).sameResources(fresh);
+                }
+            }
+            List<BlockEntityResourceOwnership.Lease> grants = null;
+            if (current && resources != null) {
+                ownership = resources.underHeldRegions(leased, () -> !this.shutdown && !this.regionizer.isLevelClosed(level));
+                final long reservationStart = System.nanoTime();
+                grants = ownership.tryAcquireAll(freshClaims);
+                this.blockEntityResourceMetrics.reserved(grants == null ? -1 : grants.size(), System.nanoTime() - reservationStart);
+                current = grants != null;
+                if (!current) this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.RESOURCE_PROOF);
             }
             if (current) {
                 this.furnaceWorkMetrics.wave();
-                for (final int index : wave) results.add(new FurnaceWorkResult(candidates.get(index)));
+                for (int offset = 0; offset < wave.size(); ++offset) {
+                    results.add(new FurnaceWorkResult(candidates.get(wave.get(offset)), grants == null ? null : grants.get(offset)));
+                }
                 this.submitFurnaceWave(batch, results, sample, barrier);
             }
         } catch (Throwable throwable) {
             failure = throwable;
         } finally {
             failure = runBatchCompletion(failure, () -> this.commitFurnaceWave(level, results, leased));
+            if (ownership != null) {
+                final var heldResources = ownership;
+                failure = runBatchCompletion(failure, heldResources::close);
+            }
             for (int index = leased.size() - 1; index >= 0; --index) {
                 final var region = leased.get(index);
                 failure = runBatchCompletion(failure, () -> this.releaseRegionLease(region));
@@ -5946,10 +6010,13 @@ public final class RegionThreadingEngine implements RegionThreading {
 
     private static final class FurnaceWorkResult {
         private final FurnaceWorkPreparation.Candidate candidate;
+        @Nullable
+        private final BlockEntityResourceOwnership.Lease resources;
         private boolean changed;
 
-        private FurnaceWorkResult(FurnaceWorkPreparation.Candidate candidate) {
+        private FurnaceWorkResult(FurnaceWorkPreparation.Candidate candidate, @Nullable BlockEntityResourceOwnership.Lease resources) {
             this.candidate = candidate;
+            this.resources = resources;
         }
     }
 
@@ -5961,14 +6028,15 @@ public final class RegionThreadingEngine implements RegionThreading {
             return;
         }
         final boolean nativeWorker = RegionWorkerScope.isNativeWorkerThread();
-        final FurnaceWorkScope scope = FurnaceWorkScope.open(admission, candidate.source(), candidate.chunk(), source -> {
-            if (nativeWorker) this.furnaceWorkMetrics.bodyStarted();
-            final var observer = this.furnaceBodyObserverForTesting;
-            if (observer != null) observer.accept(source);
-        }, () -> {
-            if (nativeWorker) this.furnaceWorkMetrics.bodyEnded();
-        });
+        FurnaceWorkScope scope = null;
         try {
+            scope = FurnaceWorkScope.open(admission, candidate.source(), candidate.chunk(), source -> {
+                if (nativeWorker) this.furnaceWorkMetrics.bodyStarted();
+                final var observer = this.furnaceBodyObserverForTesting;
+                if (observer != null) observer.accept(source);
+            }, () -> {
+                if (nativeWorker) this.furnaceWorkMetrics.bodyEnded();
+            }, result.resources);
             if (graph == null) admission.ticker().tick();
             else graph.run(admission.ticker(), nativeWorker);
             if (scope.bodyStarted()) {
@@ -5981,8 +6049,10 @@ public final class RegionThreadingEngine implements RegionThreading {
             this.furnaceWorkMetrics.failed();
             this.recordWorkerTickFailure(batch, this.layout.regionAt(batch.level(), admission.position()), null, throwable);
         } finally {
-            result.changed = scope.changed();
-            scope.close();
+            if (scope != null) {
+                result.changed = scope.changed();
+                scope.close();
+            }
         }
     }
 

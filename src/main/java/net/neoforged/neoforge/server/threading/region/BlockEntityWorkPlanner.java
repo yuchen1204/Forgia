@@ -27,27 +27,39 @@ public final class BlockEntityWorkPlanner {
         private final Object domain;
         private final Kind kind;
         private final long key;
+        private final Object instance;
 
         public Resource(Object domain, Kind kind, long key) {
             this.domain = Objects.requireNonNull(domain);
             this.kind = Objects.requireNonNull(kind);
+            if (kind == Kind.INSTANCE) throw new IllegalArgumentException("Instance keys require an actual object");
             this.key = key;
+            this.instance = null;
+        }
+
+        /** Current-operation object key. Historical position keys remain a separate diagnostic form. */
+        public Resource(Object domain, Object instance) {
+            this.domain = Objects.requireNonNull(domain);
+            this.kind = Kind.INSTANCE;
+            this.key = 0L;
+            this.instance = Objects.requireNonNull(instance);
         }
 
         @Override
         public boolean equals(Object other) {
             return other instanceof Resource resource && this.domain == resource.domain
-                    && this.kind == resource.kind && this.key == resource.key;
+                    && this.kind == resource.kind && this.key == resource.key && this.instance == resource.instance;
         }
 
         @Override
         public int hashCode() {
-            return 31 * (31 * System.identityHashCode(this.domain) + this.kind.hashCode()) + Long.hashCode(this.key);
+            return 31 * (31 * (31 * System.identityHashCode(this.domain) + this.kind.hashCode()) + Long.hashCode(this.key))
+                    + System.identityHashCode(this.instance);
         }
     }
 
     public enum Kind {
-        BLOCK_ENTITY, CHUNK
+        BLOCK_ENTITY, CHUNK, INSTANCE
     }
 
     public record Unit(Set<Resource> reads, Set<Resource> writes, boolean exclusive) {
