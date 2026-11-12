@@ -96,6 +96,8 @@ abstract class RegionTickBatch {
     private final Set<MainThreadWork<?>> pendingMainThreadWork = new LinkedHashSet<>();
     private boolean mainThreadWorkClosed;
     private boolean submitted;
+    private volatile boolean externalWaves;
+    private volatile boolean externalWaveActive;
     @Nullable
     private RegionSpawnAdmissionBarrier spawnAdmissions;
     private final ThreadLocal<RegionSpawnAdmissionBarrier.Worker> admissionWorker = new ThreadLocal<>();
@@ -425,7 +427,15 @@ abstract class RegionTickBatch {
      * {@return true when every worker group finished}
      */
     final boolean isGroupsComplete() {
-        return this.groupBarrier.isComplete();
+        return this.groupBarrier.isComplete() || (this.externalWaves && !this.externalWaveActive);
+    }
+
+    final void enableExternalWaves() {
+        this.externalWaves = true;
+    }
+
+    final void externalWaveActive(boolean active) {
+        this.externalWaveActive = active;
     }
 
     /**
@@ -516,6 +526,18 @@ abstract class RegionTickBatch {
             }
             throw new IllegalStateException("Region tick barrier failed", barrierFailure);
         }
+    }
+
+    /**
+     * Closes the lifecycle permit of externally sequenced waves. Each wave must already have joined all
+     * its tasks; keeping this permit open across them makes unload/shutdown await the whole phase.
+     */
+    final void completeExternalWaves() {
+        synchronized (this) {
+            if (this.submitted) throw new IllegalStateException("External waves already completed or submitted");
+            this.submitted = true;
+        }
+        this.groupBarrier.setupComplete();
     }
 
     /**

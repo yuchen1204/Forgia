@@ -48,6 +48,14 @@
      }
  
      public final CompoundTag saveWithFullMetadata(HolderLookup.Provider p_323767_) {
+@@ -187,6 +_,7 @@
+     }
+ 
+     protected static void setChanged(Level p_155233_, BlockPos p_155234_, BlockState p_155235_) {
++        if (net.neoforged.neoforge.server.threading.region.FurnaceWorkScope.deferChanged(p_155233_, p_155234_, p_155235_)) return;
+         p_155233_.blockEntityChanged(p_155234_);
+         if (!p_155235_.isAir()) {
+             p_155233_.updateNeighbourForOutputSignal(p_155234_, p_155235_.getBlock());
 @@ -216,10 +_,14 @@
  
      public void setRemoved() {

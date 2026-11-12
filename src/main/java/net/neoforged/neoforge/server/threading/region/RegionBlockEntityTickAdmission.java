@@ -61,7 +61,8 @@ public record RegionBlockEntityTickAdmission(
 
     /** {@return true when the compatibility declaration admits this ticker to a region worker} */
     public boolean isAdmitted() {
-        return this.decision == Decision.ADMITTED || this.decision == Decision.ADMITTED_WITH_BORDER_UPDATES;
+        return this.decision == Decision.ADMITTED || this.decision == Decision.ADMITTED_WITH_BORDER_UPDATES
+                || this.decision == Decision.ADAPTER_GUARDED;
     }
     /** The bound delegate is distinct from the level's wrapper; rebinding invalidates this capture. */
     public record Binding(TickingBlockEntity delegate, BooleanSupplier isCurrent) {}
@@ -81,6 +82,8 @@ public record RegionBlockEntityTickAdmission(
          * does not authorize reading or mutating a foreign container.
          */
         ADMITTED_WITH_BORDER_UPDATES,
+        /** Interior candidate only; an adapter must revalidate the exact instance before every body. */
+        ADAPTER_GUARDED,
         /**
          * The ticker's type is not declared region-safe, so its chunk keeps all its tickers on the server
          * thread after the batch, including otherwise admitted tickers sharing that chunk.

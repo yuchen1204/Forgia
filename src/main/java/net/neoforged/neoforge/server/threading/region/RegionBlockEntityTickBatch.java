@@ -127,6 +127,18 @@ final class RegionBlockEntityTickBatch extends RegionTickBatch {
         }
     }
 
+    @Nullable
+    private RegionBlockEntityWorkGraph.Phase workGraph;
+
+    void setWorkGraph(@Nullable RegionBlockEntityWorkGraph.Phase workGraph) {
+        this.workGraph = workGraph;
+    }
+
+    @Nullable
+    RegionBlockEntityWorkGraph.Phase workGraph() {
+        return this.workGraph;
+    }
+
     RegionBlockEntityTickBatch(ServerLevel level, int blockUpdateEntryBudget) {
         super(level, RegionTickSlice.BLOCK_ENTITY_TICK, blockUpdateEntryBudget);
     }

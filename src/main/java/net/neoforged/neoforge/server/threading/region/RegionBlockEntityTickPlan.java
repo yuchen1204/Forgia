@@ -158,7 +158,7 @@ public final class RegionBlockEntityTickPlan {
                 position,
                 type,
                 LevelChunk.captureBlockEntityTickBinding(ticker, this.level),
-                RegionTickCompatibility.decideBlockEntityTick(type,
+                RegionTickCompatibility.decideBlockEntityTick(this.level, type,
                         cache != null ? cache.interiorChunk() : this.engine.isInteriorRegionChunk(new ChunkPos(chunkX, chunkZ)),
                         this.engine.borderUpdatesEnabled()),
                 this.explicitSequence++);

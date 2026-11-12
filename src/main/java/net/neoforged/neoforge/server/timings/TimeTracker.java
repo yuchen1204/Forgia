@@ -50,6 +50,11 @@ public class TimeTracker<T> {
         return builder.build();
     }
 
+    /** Shared per-instance timing state cannot be used concurrently by fine-grained worker bodies. */
+    public boolean isEnabled() {
+        return this.enabled;
+    }
+
     /**
      * Resets the tracker (clears timings and stops any in-progress timings)
      */

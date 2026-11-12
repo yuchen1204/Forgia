@@ -23,11 +23,13 @@ import net.minecraft.world.level.entity.LevelEntityGetter;
 import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.ticks.LevelTicks;
+import net.neoforged.neoforge.server.threading.region.FurnaceWorkScope;
 import net.neoforged.neoforge.server.threading.region.LevelTickPhase;
 import net.neoforged.neoforge.server.threading.region.RegionAwareEntityGetter;
 import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickAttribution;
 import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickScope;
+import net.neoforged.neoforge.server.threading.region.RegionBlockEntityWorkGraph;
 import net.neoforged.neoforge.server.threading.region.RegionChunkTickAttribution;
 import net.neoforged.neoforge.server.threading.region.RegionChunkTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionCoordinate;
@@ -178,7 +180,7 @@ public final class RegionThreadingHooks {
      * another level, another position, another region - keeps the guarded read.
      */
     public static boolean isAdmittedBlockEntityTick(ServerLevel level, @Nullable TickingBlockEntity ticker, BlockPos pos) {
-        return RegionBlockEntityTickScope.isAdmitted(level, ticker, pos);
+        return FurnaceWorkScope.admitted(level, ticker, pos) || RegionBlockEntityTickScope.isAdmitted(level, ticker, pos);
     }
 
     /**
@@ -265,11 +267,11 @@ public final class RegionThreadingHooks {
     }
 
     /**
-     * {@return true when one of the passengers of {@code entity} is already added to a level}
+     * {@return true when a passenger already has level effects, regardless of its added marker}
      */
     private static boolean hasAddedPassenger(Entity entity) {
         for (final Entity passenger : entity.getPassengers()) {
-            if (passenger.isAddedToLevel() || hasAddedPassenger(passenger)) {
+            if (RegionEntityOwnershipScope.hasLevelEffects(passenger) || hasAddedPassenger(passenger)) {
                 return true;
             }
         }
@@ -443,6 +445,8 @@ public final class RegionThreadingHooks {
      *         entity instead
      */
     public static boolean deferEntityAddition(ServerLevel level, Entity entity) {
+        FurnaceWorkScope.rejectEffect("entity admission");
+        RegionBlockEntityWorkGraph.opaqueEffect();
         return RegionEntityOwnershipScope.deferEntityAddition(level, entity);
     }
 
@@ -658,6 +662,8 @@ public final class RegionThreadingHooks {
      */
     @Nullable
     public static List<Entity> queryEntitiesInLeasedRegion(ServerLevel level, @Nullable Entity excluded, AABB box, Predicate<? super Entity> predicate) {
+        FurnaceWorkScope.rejectEffect("entity query");
+        RegionBlockEntityWorkGraph.opaqueEffect();
         return RegionScopedEntityQuery.tryQuery(level, excluded, box, predicate);
     }
 
@@ -671,6 +677,7 @@ public final class RegionThreadingHooks {
      */
     public static <T extends Entity> boolean queryEntitiesInLeasedRegion(
             ServerLevel level, EntityTypeTest<Entity, T> typeTest, AABB box, Predicate<? super T> predicate, List<? super T> result, int max) {
+        RegionBlockEntityWorkGraph.opaqueEffect();
         return RegionScopedEntityQuery.tryQuery(level, typeTest, box, predicate, result, max);
     }
 
@@ -1007,6 +1014,8 @@ public final class RegionThreadingHooks {
      * @return {@code true} when the change was recorded for the target region's fixpoint pass
      */
     public static boolean deferBorderBlockEntityChange(net.minecraft.world.level.Level level, BlockPos pos) {
+        FurnaceWorkScope.rejectEffect("direct shared-chunk dirty marking");
+        RegionBlockEntityWorkGraph.writeChunk(level, net.minecraft.world.level.ChunkPos.asLong(pos));
         if (!(level instanceof ServerLevel serverLevel)) {
             return false;
         }
@@ -1031,6 +1040,8 @@ public final class RegionThreadingHooks {
      */
     public static boolean deferBorderBlockWrite(net.minecraft.world.level.Level level, BlockPos pos,
             net.minecraft.world.level.block.state.BlockState state, int flags, int recursionLeft) {
+        RegionBlockEntityWorkGraph.writeChunk(level, net.minecraft.world.level.ChunkPos.asLong(pos));
+        RegionBlockEntityWorkGraph.blockEntityReference(level, pos);
         if (!(level instanceof ServerLevel serverLevel)) {
             return false;
         }
@@ -1108,6 +1119,8 @@ public final class RegionThreadingHooks {
      */
     public static boolean deferBlockUpdate(net.minecraft.core.BlockPos pos, net.minecraft.world.level.block.state.BlockState oldState,
             net.minecraft.world.level.block.state.BlockState newState, int flags) {
+        FurnaceWorkScope.rejectEffect("block update publication");
+        RegionBlockEntityWorkGraph.opaqueEffect();
         final RegionThreading threading = RegionThreadingManager.currentOrNull();
         return threading instanceof RegionThreadingEngine engine && engine.deferBlockUpdate(pos, oldState, newState, flags);
     }
@@ -1121,6 +1134,8 @@ public final class RegionThreadingHooks {
      */
     @Nullable
     public static java.util.Queue<Runnable> regionTickMutationQueue() {
+        FurnaceWorkScope.rejectEffect("scheduled tick mutation");
+        RegionBlockEntityWorkGraph.opaqueEffect();
         final RegionThreading threading = RegionThreadingManager.currentOrNull();
         if (threading instanceof RegionThreadingEngine engine) {
             return engine.regionTickMutationQueue();
@@ -1257,6 +1272,8 @@ public final class RegionThreadingHooks {
 
     /** Foreign scalar reads use a bounded seqlock; a refusal never replays a partially executed callback. */
     public static boolean requiresStableForeignRead(net.minecraft.world.level.chunk.LevelChunk chunk) {
+        if (FurnaceWorkScope.checkChunk(chunk, false)) return false;
+        RegionBlockEntityWorkGraph.chunkAccess(chunk, false);
         return isNativeRegionWorkerThread() && !isRegionTickOwnedByCurrentThread(chunk.getLevel(), chunk.getPos().getWorldPosition());
     }
 
@@ -1289,6 +1306,8 @@ public final class RegionThreadingHooks {
     }
 
     public static boolean refuseForeignChunkMutation(net.minecraft.world.level.chunk.ChunkAccess chunk) {
+        FurnaceWorkScope.checkChunk(chunk, true);
+        RegionBlockEntityWorkGraph.chunkAccess(chunk, true);
         if (!isNativeRegionWorkerThread()) {
             return false;
         }
@@ -1300,6 +1319,12 @@ public final class RegionThreadingHooks {
         // beyond their lease before any mutation, without replaying their already-applied effects.
         net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.countForeignWriteRefusal();
         return true;
+    }
+
+    /** Shadow resource observation only; does not change the lookup or grant ownership. */
+    public static void observeBlockEntityReference(net.minecraft.world.level.Level level, BlockPos pos) {
+        FurnaceWorkScope.checkReference(level, pos);
+        RegionBlockEntityWorkGraph.blockEntityReference(level, pos);
     }
 
     /**
@@ -1805,6 +1830,7 @@ public final class RegionThreadingHooks {
      * {@link Optional} of {@link RegionThreadingManager#get()}.
      */
     public static void runBlockTickTask(ServerLevel level, BlockPos pos, Runnable task) {
+        if (FurnaceWorkScope.runTask(level, pos, task)) return;
         final RegionThreading threading = RegionThreadingManager.currentOrNull();
         if (threading instanceof RegionThreadingEngine engine) {
             engine.runInBlockRegion(level, pos, task);

@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.neoforged.forgia.compat.create.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "SmartBlockEntityAccessor",
+    "KineticBlockEntityAccessor",
+    "KineticEffectHandlerAccessor",
+    "TorquePropagatorAccessor"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

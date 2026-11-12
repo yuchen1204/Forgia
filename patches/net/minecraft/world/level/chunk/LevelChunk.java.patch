@@ -225,7 +225,7 @@
          }
      }
  
-@@ -324,9 +_,39 @@
+@@ -324,9 +_,40 @@
          return this.getBlockEntity(p_62912_, LevelChunk.EntityCreationType.CHECK);
      }
  
@@ -254,6 +254,7 @@
 +
      @Nullable
      public BlockEntity getBlockEntity(BlockPos p_62868_, LevelChunk.EntityCreationType p_62869_) {
++        net.neoforged.neoforge.server.threading.RegionThreadingHooks.observeBlockEntityReference(this.level, p_62868_);
 +        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.requiresStableForeignRead(this)) {
 +            return this.foreignBlockEntityOrNull(p_62868_, p_62869_);
 +        }
@@ -511,7 +512,7 @@
          BlockState blockstate = p_156407_.getBlockState();
          BlockEntityTicker<T> blockentityticker = blockstate.getTicker(this.level, (BlockEntityType<T>)p_156407_.getType());
          if (blockentityticker == null) {
-@@ -656,33 +_,180 @@
+@@ -656,33 +_,189 @@
                      }
                  );
          }
@@ -548,6 +549,15 @@
 +            return bound.captureBinding(level);
 +        }
 +        return new net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickAdmission.Binding(ticker, () -> true);
++    }
++
++    /** Neo: only the originally issued vanilla cooking function can receive a fine-grained work lease. */
++    @Nullable
++    public static net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity furnaceWorkSource(TickingBlockEntity ticker) {
++        if (ticker instanceof LevelChunk.RebindableTickingBlockEntityWrapper wrapper) return furnaceWorkSource(wrapper.ticker);
++        return ticker instanceof LevelChunk.BoundTickingBlockEntity<?> bound
++            && bound.ticker == net.neoforged.neoforge.server.threading.region.FurnaceWorkScope.ticker()
++            && bound.blockEntity instanceof net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity furnace ? furnace : null;
 +    }
 +
 +    /** Neo: exact source identity for a captured bound ticker; a same-position replacement is not its source. */

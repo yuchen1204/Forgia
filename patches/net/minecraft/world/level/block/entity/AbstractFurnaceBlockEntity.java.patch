@@ -87,7 +87,7 @@
          this.litDuration = this.getBurnDuration(this.items.get(1));
          CompoundTag compoundtag = p_155025_.getCompound("RecipesUsed");
  
-@@ -240,9 +_,9 @@
+@@ -240,16 +_,32 @@
      @Override
      protected void saveAdditional(CompoundTag p_187452_, HolderLookup.Provider p_323656_) {
          super.saveAdditional(p_187452_, p_323656_);
@@ -100,6 +100,29 @@
          ContainerHelper.saveAllItems(p_187452_, this.items, p_323656_);
          CompoundTag compoundtag = new CompoundTag();
          this.recipesUsed.forEach((p_187449_, p_187450_) -> compoundtag.putInt(p_187449_.toString(), p_187450_));
+         p_187452_.put("RecipesUsed", compoundtag);
+     }
+ 
++    /** Neo: read-only branch metadata; no recipe/fuel callbacks are evaluated here. */
++    public final boolean supportsFurnaceWorkTick() {
++        return this.litTime > 1;
++    }
++
++    /** Neo: conservative notification boundary; no recipe callback is evaluated. */
++    public final boolean furnaceWorkMayNotify() {
++        return this.cookingProgress + 1 == this.cookingTotalTime;
++    }
++
++    /** Neo: used only by quiescent work-wave preparation. */
++    public final RecipeType<?> furnaceWorkRecipeType() {
++        return this.recipeType;
++    }
++
+     public static void serverTick(Level p_155014_, BlockPos p_155015_, BlockState p_155016_, AbstractFurnaceBlockEntity p_155017_) {
++        net.neoforged.neoforge.server.threading.region.FurnaceWorkScope.beforeBody(p_155014_, p_155017_);
+         boolean flag = p_155017_.isLit();
+         boolean flag1 = false;
+         if (p_155017_.isLit()) {
 @@ -269,28 +_,30 @@
              }
  
@@ -136,8 +159,11 @@
                          p_155017_.setRecipeUsed(recipeholder);
                      }
  
-@@ -314,9 +_,9 @@
+@@ -312,11 +_,12 @@
+         if (flag1) {
+             setChanged(p_155014_, p_155015_, p_155016_);
          }
++        net.neoforged.neoforge.server.threading.region.FurnaceWorkScope.afterBody(p_155014_, p_155017_);
      }
  
 -    private static boolean canBurn(RegistryAccess p_266924_, @Nullable RecipeHolder<?> p_301107_, NonNullList<ItemStack> p_155007_, int p_155008_) {

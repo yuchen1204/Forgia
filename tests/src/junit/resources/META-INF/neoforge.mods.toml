@@ -11,3 +11,6 @@ modId="startup_config_test"
 [[mods]]
 modId="custom_feature_flags_test"
 featureFlags="feature_flags.json"
+
+[[mixins]]
+config="forgia_furnace_hook_test.mixins.json"

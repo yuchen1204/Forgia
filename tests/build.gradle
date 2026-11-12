@@ -56,6 +56,14 @@ junitTest {
     classpath = sourceSets.junit.output + sourceSets.junit.runtimeClasspath
     testClassesDirs = sourceSets.junit.output.classesDirs
     outputs.upToDateWhen { false }
+    exclude '**/furnacehooks/**'
+    def furnaceHookControl = providers.gradleProperty('furnaceUnverifiedHookControl').map { it.toBoolean() }.getOrElse(false)
+    systemProperty 'forgia.furnace.testUnverifiedHook', furnaceHookControl.toString()
+    if (furnaceHookControl) {
+        filter { includeTestsMatching '*FurnaceWorkWavesTest.unknownActuallyMergedFurnaceMixinKeepsOriginalBodiesSerial' }
+    } else {
+        filter { excludeTestsMatching '*FurnaceWorkWavesTest.unknownActuallyMergedFurnaceMixinKeepsOriginalBodiesSerial' }
+    }
     // The randomized redstone soak takes its scale from system properties; a Gradle property of the same name
     // forwards it to the test JVM, so a shorter or a longer run is one flag away:
     //   ./gradlew :tests:junitTest --tests '*RegionRandomizedRedstoneSoakTest' -PsoakShortSeeds=2 -PsoakShortTicks=100
@@ -72,6 +80,7 @@ junitTest {
 tasks.register("junitBenchmark", Test) { benchmark ->
     group = "verification"
     description = "Runs the region engine benchmark harness (JUnit tag 'benchmark')."
+    exclude '**/furnacehooks/**'
     useJUnitPlatform {
         includeTags "benchmark"
     }

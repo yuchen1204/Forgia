@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.neoforged.forgia.compat.create.tests.hooks",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "net.neoforged.forgia.compat.create.tests.hooks.UnknownHookPlugin",
+  "mixins": ["UnknownKineticMixin"],
+  "injectors": {"defaultRequire": 1}
+}

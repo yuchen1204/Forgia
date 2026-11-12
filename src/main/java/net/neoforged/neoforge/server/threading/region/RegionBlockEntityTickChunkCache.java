@@ -112,7 +112,7 @@ public final class RegionBlockEntityTickChunkCache {
                     ticker.getPos(),
                     type,
                     LevelChunk.captureBlockEntityTickBinding(ticker, level),
-                    RegionTickCompatibility.decideBlockEntityTick(type, interiorChunk, borderUpdatesEnabled),
+                    RegionTickCompatibility.decideBlockEntityTick(level, type, interiorChunk, borderUpdatesEnabled),
                     LevelChunk.blockEntityTickerSequence(ticker)));
         }
         return new RegionBlockEntityTickChunkCache(layout, tickerRevision, interiorChunk, borderUpdatesEnabled, List.copyOf(admissions));

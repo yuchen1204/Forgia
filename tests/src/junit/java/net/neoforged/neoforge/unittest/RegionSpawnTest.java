@@ -548,7 +548,7 @@ class RegionSpawnTest {
             assertSame(this.engine, RegionThreadingManager.getOrThrow());
             // The FML harness also drains the installed engine on its real server thread. Own the global
             // phase while preparing, just as production does, rather than racing that background drain.
-            this.engine.runInGlobalRegion(() -> {
+            this.runInGlobalPhase(() -> {
                 assertTrue(this.engine.isQuiescentForParallelApi(), () -> this.engine.diagnostics().toString());
                 plan.accept(chunk, true);
             });
@@ -588,7 +588,7 @@ class RegionSpawnTest {
                             bodies.incrementAndGet();
                             return null;
                         });
-                this.engine.runInGlobalRegion(() -> plan.accept(chunk, true));
+                this.runInGlobalPhase(() -> plan.accept(chunk, true));
                 assertEquals(1, bodies.get(), "the complete serial body executes at the existing inline fallback point");
                 assertTrue(plan.collectedChunks().isEmpty());
                 plan.executeAndAwait(PARKING_BARRIER);
@@ -779,9 +779,25 @@ class RegionSpawnTest {
         this.engine = created;
     }
 
+    /** The live FML harness may briefly own the installed engine between test calls. */
+    private void runInGlobalPhase(Runnable action) {
+        final AtomicBoolean executed = new AtomicBoolean();
+        final long deadline = System.nanoTime() + 5_000_000_000L;
+        do {
+            this.engine.runInGlobalRegion(() -> {
+                // Set before invocation: an assertion/exception must propagate and must never replay work.
+                executed.set(true);
+                action.run();
+            });
+            if (executed.get()) return;
+            LockSupport.parkNanos(100_000L);
+        } while (System.nanoTime() < deadline);
+        assertTrue(executed.get(), "the live FML harness never released the global phase for this test");
+    }
+
     private RegionSpawnPlan beginPlan(ServerLevel level, Set<Long> spawnableChunks) {
         final var prepared = new java.util.concurrent.atomic.AtomicReference<RegionSpawnPlan>();
-        this.engine.runInGlobalRegion(() -> prepared.set(this.engine.beginSpawnPlan(level, source(level, spawnableChunks, 0),
+        this.runInGlobalPhase(() -> prepared.set(this.engine.beginSpawnPlan(level, source(level, spawnableChunks, 0),
                 true, true, false, PARKING_BARRIER)));
         final RegionSpawnPlan plan = prepared.get();
         assertNotNull(plan, "natural spawning worker execution must be enabled");

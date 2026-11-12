@@ -39,6 +39,7 @@ public final class ParallelApi {
         NATURAL_SPAWN_CLAIMS,
         ORDERED_SPAWN_FINALIZATION,
         BLOCK_ENTITY_OPERATIONS,
+        BLOCK_ENTITY_TICK_ADMISSION,
         SCHEDULED_TICK_DIAGNOSTICS
     }
 
@@ -67,6 +68,11 @@ public final class ParallelApi {
             throw new UnsupportedOperationException("This server does not support block entity operations");
         }
 
+        /** Per-instance native ticker admission diagnostics; registration does not enable any engine switch. */
+        default List<BlockEntityTickAdapter.Status> blockEntityTickAdapters() {
+            return List.of();
+        }
+
         /** Empty when no region engine is installed; collected/accepted/completed units remain distinct. */
         default List<ScheduledTickStatus> scheduledTicks() {
             return List.of();
@@ -81,6 +87,16 @@ public final class ParallelApi {
         }
 
         <S> void register(int apiMajorVersion, DataKey<S> key, NaturalSpawnPreparation<S> preparation);
+
+        /**
+         * Registers disjoint block-entity type ids for audited, interior-only original worker ticks. A
+         * server-thread-only declaration takes precedence. The predicate runs afresh before each body;
+         * a refusal retains the full original server tick. Duplicate ids/types invalidate registration.
+         */
+        default void registerBlockEntityTicks(int apiMajorVersion, ResourceLocation id, Set<ResourceLocation> types,
+                BlockEntityTickAdapter adapter) {
+            throw new UnsupportedOperationException("This registrar does not support native block-entity admission");
+        }
 
         /**
          * Claims only the natural-spawn restriction for a mod. The registered preparation must conservatively

@@ -62,6 +62,8 @@ Forgia is not a finished Folia replacement. The honest list:
   instead of a per-tick barrier) are designed but not built.
 
 The full remaining plan is in [region-threading/STATUS.md](region-threading/STATUS.md#roadmap).
+The complete Forgia API inventory, including public types, method signatures, schedulers, operation handles,
+compatibility declarations and configuration fields, is in [the API reference](region-threading/API-REFERENCE.md).
 The experimental public mod integration API and compile-only facade are described in
 [the parallel API guide](region-threading/MOD-PARALLEL-API.md). Complete cross-region operations and
 scheduled callback admission/metrics are documented in [the operation guide](region-threading/CROSS-REGION-OPERATIONS.md). Broader preparation and parallel-spawn filter
@@ -70,6 +72,9 @@ An [experimental MobSpawnController adapter](adapters/mobspawncontroller/README.
 verified admission for 1.2.3. The ordered nearby/chance experiment is **opt-in and off by default**:
 local pack validation found truncated work and no proven speedup. Default natural spawning stays serial;
 unsupported world filters, multipliers and unverified native hooks also retain the complete serial plan.
+An [experimental Create 6.0.10 adapter](adapters/create/README.md) runs audited steady transmission,
+water-wheel and millstone ticks on native workers after whole-network preflight; topology changes and
+processing callbacks keep their complete serial ticks. It requires the new block-entity admission capability.
 
 ## Configuration
 
@@ -103,6 +108,12 @@ regionThreadingWorkerThreads = 4
 
 `regionThreadingWorkerThreads = 0` means "one less than the CPU count". Entity ticks, spawning and POI
 require the fixed layout; everything else degrades to the vanilla path when its requirement is missing.
+
+A separate, default-off `enableRegionThreadingFurnaceWorkWaves` experiment executes verified burning
+vanilla furnace-family bodies in resource waves, including independent instances inside one chunk/region.
+Unknown/fuel/notification operations are complete serial fences; other BE types are also serial in this mode.
+See [the exact admission, ownership and validation limits](region-threading/FURNACE-WORK-WAVES.md) before
+using it. This does not claim a general wave engine or a measured server speedup.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

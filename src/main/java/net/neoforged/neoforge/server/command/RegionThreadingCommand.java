@@ -53,11 +53,62 @@ final class RegionThreadingCommand {
                                     () -> sendNotInstalled(source));
                             return 1;
                         })))
+                .then(Commands.literal("workgraph")
+                        .executes(context -> sendWorkGraph(context.getSource()))
+                        .then(Commands.literal("start")
+                                .executes(context -> startWorkGraph(context.getSource(), 20))
+                                .then(Commands.argument("phases", IntegerArgumentType.integer(1, 200))
+                                        .executes(context -> startWorkGraph(context.getSource(), IntegerArgumentType.getInteger(context, "phases")))))
+                        .then(Commands.literal("stop").executes(context -> {
+                            if (RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine) engine.blockEntityWorkGraph().stop();
+                            return sendWorkGraph(context.getSource());
+                        })))
                 .then(Commands.literal("compat").executes(context -> sendCompatibility(context.getSource())))
                 .then(Commands.literal("regions")
                         .executes(context -> sendRegionListing(context.getSource(), DEFAULT_LISTED_REGIONS))
                         .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_LISTED_REGIONS))
                                 .executes(context -> sendRegionListing(context.getSource(), IntegerArgumentType.getInteger(context, "count")))));
+    }
+
+    private static int startWorkGraph(CommandSourceStack source, int phases) {
+        if (RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine) {
+            engine.blockEntityWorkGraph().start(phases);
+        }
+        return sendWorkGraph(source);
+    }
+
+    private static int sendWorkGraph(CommandSourceStack source) {
+        if (!(RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine)) {
+            sendNotInstalled(source);
+            return 0;
+        }
+        final var furnace = engine.furnaceWorkMetrics();
+        source.sendSuccess(() -> Component.literal("Executed furnace work waves: enabled=" + engine.furnaceWorkWavesEnabled()
+                + ", phases=" + furnace.phases() + ", waves=" + furnace.waves() + ", candidates=" + furnace.candidates()
+                + ", nativeCompleted=" + furnace.nativeCompletions() + ", serial=" + furnace.serialInvocations()
+                + ", skipped=" + furnace.skipped() + ", failed=" + furnace.failed() + ", changes=" + furnace.committedChanges()
+                + ", rejectedTasks=" + furnace.rejectedTasks() + ", maxSimultaneousBodies=" + furnace.maxSimultaneousBodies()
+                + ", prepare=" + millis(furnace.preparationNanos()) + ", executeAwait=" + millis(furnace.executionNanos())
+                + ", commit=" + millis(furnace.commitNanos()) + ", refusals=" + furnace.refusals()
+                + "; original burning furnace bodies only, other operations are serial fences"), false);
+        final var snapshot = engine.blockEntityWorkGraph().snapshot();
+        source.sendSuccess(() -> Component.literal("Block entity work graph (shadow, partial coverage; no execution/admission changes): remainingPhases="
+                + snapshot.remainingPhases() + ", completedPhases=" + snapshot.completedPhases()), false);
+        snapshot.latest().ifPresent(sample -> {
+            source.sendSuccess(() -> Component.literal("  " + sample.dimension() + " tick=" + sample.gameTime()
+                    + ": planned=" + sample.plannedUnits() + ", invoked=" + sample.invokedUnits()
+                    + ", native=" + sample.nativeInvocations() + ", serial=" + sample.serialInvocations()
+                    + ", failed=" + sample.failedInvocations() + ", repeated=" + sample.repeatedInvocations()
+                    + ", omitted=" + sample.omittedUnits() + ", overflowed=" + sample.overflowedUnits()
+                    + ", exclusive=" + sample.exclusiveUnits() + ", resourceAccesses=" + sample.resources()), false);
+            source.sendSuccess(() -> Component.literal("  Observed dependencies only: waves=" + sample.waveDepth()
+                    + ", maxWidth=" + sample.maxWaveWidth() + ", components=" + sample.components()
+                    + ", largestComponent=" + sample.largestComponent() + ", links=" + sample.dependencyLinks()
+                    + ", invocationSum=" + millis(sample.invocationNanos()) + ", prepare=" + millis(sample.preparationNanos())
+                    + ", plan=" + millis(sample.planningNanos())
+                    + "; raw fields, cached capabilities and arbitrary callbacks are not fully tracked; this is not safe parallel capacity or speedup"), false);
+        });
+        return 1;
     }
 
     /**
@@ -86,6 +137,13 @@ final class RegionThreadingCommand {
                         + ", completion=" + millis(scheduled.timings().completionNanos())
                         + ", p50/p95/p99=" + millis(scheduled.latency().p50Nanos()) + "/" + millis(scheduled.latency().p95Nanos())
                         + "/" + millis(scheduled.latency().p99Nanos()) + " (last " + scheduled.latency().samples() + " nonempty phases)"), false);
+            }
+            for (final var tickerAdapter : api.blockEntityTickAdapters()) {
+                source.sendSuccess(() -> Component.literal("Block entity tick adapter " + tickerAdapter.id()
+                        + ": types=" + tickerAdapter.types() + ", checks=" + tickerAdapter.checks()
+                        + ", refused=" + tickerAdapter.refusals() + ", nativeCompleted=" + tickerAdapter.workerCompletions()
+                        + ", prepareMs=" + millis(tickerAdapter.preparationNanos())
+                        + ", checkMs=" + millis(tickerAdapter.checkNanos()) + ", reasons=" + tickerAdapter.reasons()), false);
             }
             for (final var adapter : api.adapters()) {
                 source.sendSuccess(() -> Component.literal("  " + adapter.id() + ": ready=" + adapter.preparedUnits()

@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.server.level.ServerLevel;
+import net.neoforged.neoforge.server.threading.ParallelAdapterRuntime;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
@@ -205,6 +207,16 @@ public final class RegionTickCompatibility {
         return borderUpdatesEnabled && BORDER_SAFE_BLOCK_ENTITY_TYPES.contains(type)
                 ? RegionBlockEntityTickAdmission.Decision.ADMITTED_WITH_BORDER_UPDATES
                 : RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK;
+    }
+
+    /** Adapter candidacy is cached; its instance predicate is still mandatory before every native body. */
+    public static RegionBlockEntityTickAdmission.Decision decideBlockEntityTick(ServerLevel level, @Nullable String type,
+            boolean interiorChunk, boolean borderUpdatesEnabled) {
+        if (type != null && !serverThreadOnlyTypes.containsKey(type) && ParallelAdapterRuntime.hasBlockEntityTickAdapter(level, type)) {
+            return interiorChunk ? RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
+                    : RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK;
+        }
+        return decideBlockEntityTick(type, interiorChunk, borderUpdatesEnabled);
     }
 
     /** Records one ticker of {@code type} that no declaration admits. */

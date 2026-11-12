@@ -40,6 +40,8 @@ project(":tests").projectDir = file("tests")
 include ':testframework'
 include ':mobspawncontroller-adapter'
 project(':mobspawncontroller-adapter').projectDir = file('adapters/mobspawncontroller')
+include ':create-adapter'
+project(':create-adapter').projectDir = file('adapters/create')
 include ':coremods'
 // Ensure a unique artifact id within JIJ that does not conflict with net.neoforged:coremods, which is
 // another external dependency.

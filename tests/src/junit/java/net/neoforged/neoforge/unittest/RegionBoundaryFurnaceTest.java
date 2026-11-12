@@ -122,7 +122,17 @@ class RegionBoundaryFurnaceTest {
         assertEquals(serial, parallel, "inventory, furnace state, comparator state and scheduled ticks must agree each tick");
     }
 
+    @ParameterizedTest
+    @MethodSource("boundaries")
+    void observingRealFurnaceBodiesDoesNotChangeInventoriesComparatorsOrScheduledTicks(Block block, BlockPos position, Direction outward) throws ReflectiveOperationException {
+        assertEquals(this.run(true, block, position, outward), this.run(true, block, position, outward, true));
+    }
+
     private List<String> run(boolean parallel, Block block, BlockPos position, Direction outward) throws ReflectiveOperationException {
+        return this.run(parallel, block, position, outward, false);
+    }
+
+    private List<String> run(boolean parallel, Block block, BlockPos position, Direction outward, boolean observe) throws ReflectiveOperationException {
         RegionThreadingManager.clear();
         final AtomicLong gameTime = new AtomicLong();
         final RegionRedstoneWorld world = new RegionRedstoneWorld(gameTime);
@@ -182,6 +192,7 @@ class RegionBoundaryFurnaceTest {
             RegionThreadingManager.install(engine);
             engine.addRegionSection(level, chunk.getPos().x, chunk.getPos().z);
             engine.addRegionSection(level, comparator.getX() >> 4, comparator.getZ() >> 4);
+            if (observe) engine.blockEntityWorkGraph().start(10);
         } else {
             engine = null;
         }
@@ -218,6 +229,14 @@ class RegionBoundaryFurnaceTest {
                 assertEquals(0L, engine.diagnostics().ownershipViolationCount());
                 assertTrue(engine.diagnostics().borderUpdates().applied() > 0L, "real furnace effects must traverse the border fixpoint");
                 assertEquals(0, engine.diagnostics().runningRegionCount());
+                if (observe) {
+                    final var sample = engine.blockEntityWorkGraph().snapshot();
+                    assertEquals(10, sample.completedPhases());
+                    assertEquals(0, sample.remainingPhases());
+                    assertEquals(1, sample.latest().orElseThrow().nativeInvocations());
+                    assertEquals(0, sample.latest().orElseThrow().failedInvocations());
+                    assertTrue(sample.latest().orElseThrow().resources() > 0);
+                }
             }
             return trace;
         } finally {

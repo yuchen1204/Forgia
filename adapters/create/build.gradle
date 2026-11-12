@@ -1,0 +1,107 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.licenser'
+    id 'neoforge.formatting-conventions'
+}
+
+evaluationDependsOn(':neoforge')
+apply plugin: net.neoforged.neodev.NeoDevExtraPlugin
+
+version = '0.1.0'
+base.archivesName = 'forgia-create-adapter'
+java.withSourcesJar()
+
+// Supply the audited original jar locally. It and its embedded dependencies are never redistributed.
+def targetJar = providers.gradleProperty('createJar').map { rootProject.file(it) }
+def unpackTarget = tasks.register('unpackCreate', Sync) {
+    onlyIf { targetJar.isPresent() }
+    if (targetJar.isPresent()) {
+        from(zipTree(targetJar.get()))
+    }
+    into(layout.buildDirectory.dir('target-mod'))
+}
+def embeddedJars = files([
+    'flywheel-neoforge-1.21.1-1.0.6.jar',
+    'ponder-neoforge-1.0.82+mc1.21.1.jar',
+    'Registrate-MC1.21-1.3.0+67.jar'
+].collect { layout.buildDirectory.file("target-mod/META-INF/jarjar/${it}") }).builtBy(unpackTarget)
+
+sourceSets {
+    targetMod {
+        java.srcDirs = []
+        resources.srcDir(unpackTarget)
+    }
+    junit {}
+}
+
+dependencies {
+    compileOnly project(':neoforge')
+    if (targetJar.isPresent()) {
+        compileOnly files(targetJar.get())
+        junitImplementation files(targetJar.get())
+    }
+    compileOnly embeddedJars
+    junitImplementation embeddedJars
+    junitImplementation project(':neoforge')
+    junitImplementation files(sourceSets.main.output.classesDirs)
+    junitImplementation(platform("org.junit:junit-bom:${project.jupiter_api_version}"))
+    junitImplementation 'org.junit.jupiter:junit-jupiter-api'
+    junitRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+    junitImplementation "org.mockito:mockito-core:${project.mockito_core}"
+    junitImplementation "net.neoforged.fancymodloader:junit-fml:${project.fancy_mod_loader_version}"
+    junitRuntimeOnly "io.github.llamalad7:mixinextras-neoforge:${project.mixin_extras_version}"
+    junitCompileOnly "io.github.llamalad7:mixinextras-neoforge:${project.mixin_extras_version}"
+}
+
+sourceSets.each {
+    configurations.named(it.runtimeClasspathConfigurationName) {
+        attributes {
+            attribute(Attribute.of('net.neoforged.neoforge.includes-minecraft', Boolean), true)
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    onlyIf('provide -PcreateJar=/path/to/create-1.21.1-6.0.10.jar') { targetJar.isPresent() }
+    options.compilerArgs.add('-proc:none')
+}
+tasks.withType(Jar).configureEach {
+    onlyIf('provide the audited Create jar to build the adapter') { targetJar.isPresent() }
+}
+
+neoDev {
+    mods {
+        adapter { sourceSet sourceSets.main }
+        original { sourceSet sourceSets.targetMod }
+        junit { sourceSet sourceSets.junit }
+        coremods { sourceSet project(':neoforge-coremods').sourceSets.main }
+    }
+}
+neoDevTest {
+    def loaded = [project(':neoforge').neoDev.mods.minecraft, neoDev.mods.coremods, neoDev.mods.original, neoDev.mods.junit]
+    if (!providers.gradleProperty('createAdapterNegativeControl').map { it.toBoolean() }.getOrElse(false)) {
+        loaded.add(neoDev.mods.adapter)
+    }
+    loadedMods = loaded
+}
+junitTest {
+    onlyIf('provide the original Create 6.0.10 jar for transformed integration tests') { targetJar.isPresent() }
+    useJUnitPlatform()
+    classpath = sourceSets.junit.output + sourceSets.junit.runtimeClasspath
+    testClassesDirs = sourceSets.junit.output.classesDirs
+    systemProperty 'mixin.debug.countInjections', 'true'
+    exclude '**/tests/hooks/**'
+    def unknownHook = providers.gradleProperty('createAdapterUnverifiedHookControl').map { it.toBoolean() }.getOrElse(false)
+    systemProperty 'forgia.create.testUnverifiedHook', unknownHook.toString()
+    if (unknownHook) {
+        filter { includeTestsMatching '*UnknownCreateHookIntegrationTest' }
+    } else {
+        filter { excludeTestsMatching '*UnknownCreateHookIntegrationTest' }
+    }
+    outputs.upToDateWhen { false }
+}
+
+license {
+    header = rootProject.file('codeformat/HEADER.txt')
+    include '**/*.java'
+}

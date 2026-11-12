@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="LGPL-2.1-only"
+
+[[mods]]
+modId="forgia_create"
+version="0.1.0"
+displayName="Forgia Create Adapter"
+description='''Experimental native block-entity tick admission for Create 6.0.10. Audited steady kinetic, water-wheel and millstone ticks use Forgia region workers after a complete stable-network preflight. Initialization, topology changes, unknown behaviours and processing callbacks retain the complete original server tick. Requires Forgia BLOCK_ENTITY_TICK_ADMISSION.'''
+
+[[mixins]]
+config="forgia_create.mixins.json"
+
+[[dependencies.forgia_create]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.250.52-beta,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.forgia_create]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.forgia_create]]
+modId="create"
+type="required"
+versionRange="[6.0.10]"
+ordering="AFTER"
+side="BOTH"

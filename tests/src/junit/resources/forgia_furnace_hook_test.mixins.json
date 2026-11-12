@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.neoforged.neoforge.unittest.furnacehooks",
+  "plugin": "net.neoforged.neoforge.unittest.furnacehooks.UnknownFurnaceHookPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["UnknownFurnaceMixin"],
+  "injectors": {"defaultRequire": 1}
+}

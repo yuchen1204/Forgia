@@ -1,5 +1,11 @@
 # Create 6.0.10 parallel-execution feasibility audit
 
+Implementation follow-up: [Forgia Create Adapter 0.1.0](../adapters/create/README.md) now supplies bounded native
+steady-tick admission for audited transmission parts, water wheels and millstones. It adds a read-only,
+quiescent whole-network preflight plus per-invocation instance checks. Unsupported/unstable components and
+processing callbacks retain complete serial ticks. This does not implement whole-Create/component ownership,
+and no production speedup is claimed. The findings below describe the original feasibility investigation.
+
 Verdict: **feasible as a staged adaptation; unsafe as a block-entity type allowlist change**. There is no
 verified Create worker ticker added by this investigation. Useful parallelism must isolate computations
 or own a complete interaction component, not merely the chunk containing the ticker.

@@ -1,6 +1,6 @@
 # 模组并行 API：第一阶段接入指南
 
-状态：Experimental，API major = 1。本页说明当前已实现的接口；完整规划见 [RFC](MOD-PARALLEL-API-RFC.md)。不保证未冻结 API 的二进制兼容性。
+状态：Experimental，API major = 1。本页说明当前已实现的接口；全部公开类型、方法签名、调度器和配置入口见 [API 接口总览](API-REFERENCE.md)，完整规划见 [RFC](MOD-PARALLEL-API-RFC.md)。不保证未冻结 API 的二进制兼容性。
 
 ## 已经可以使用的能力
 
@@ -15,6 +15,7 @@
 
 - `BLOCK_ENTITY_OPERATIONS`：不透明实例引用、完整双 owner 操作、带方向/槽位规则的 Container 搬运，以及取消、失效、失败与至多执行一次句柄。
 - `SCHEDULED_TICK_DIAGNOSTICS`：通过 `Server.scheduledTicks()` 查询有界的阶段准入、实际完成、回退原因和耗时分布。
+- `BLOCK_ENTITY_TICK_ADMISSION`：通过 `Registrar.registerBlockEntityTicks` 注册原生机器 tick 的逐实例准入器；在 owner lease 内、每次调用原 ticker 前重新检查，拒绝则完整主线程回退。类型候选可缓存，实例许可不缓存，不能解除显式串行声明或 chunk 内部规则。`Server.blockEntityTickAdapters()` 提供实际检查、拒绝和原生 worker 完成统计。[Create 6.0.10 独立适配器](../adapters/create/README.md) 使用这一协议处理稳定传动与磨石倒计时。
 
 跨 region 接入示例、线程与生命周期合同、scheduled tick 生产准入见 [完整操作指南](CROSS-REGION-OPERATIONS.md)。跨区操作在静止的服务器完成阶段执行，调用不自动放行模组机器 tick。
 
@@ -139,6 +140,46 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 | EXTERNAL | 其他线程或非 region 批次 worker，无世界权限 |
 
 能力存在不等于对应 slice 已启用，phase 也不等于持久 mutation lease。现有调度和跨实体操作继续通过 `RegionThreading` 等接口使用；本阶段不提供 worker 内阻塞等待任意主线程任务的公共接口。
+
+## 原生方块实体逐次准入
+
+`BLOCK_ENTITY_TICK_ADMISSION` 提供 `BlockEntityTickAdapter`，针对整次原始 tick，不替换机器算法。
+在 `RegisterParallelAdaptersEvent` 中调用：
+
+```java
+event.registrar().registerBlockEntityTicks(ParallelApi.MAJOR_VERSION,
+        ResourceLocation.parse("example:steady_machine"),
+        Set.of(ResourceLocation.parse("example:machine")), new BlockEntityTickAdapter() {
+            @Override
+            public void prepare(ServerLevel level) {
+                // 每个非空 level BE batch 前，主线程且世界静止。
+                // 只读已加载资源；有界检查整个共享组件，发布只含不可变值的批次 metadata。
+            }
+
+            @Override
+            public Decision check(BlockEntity instance) {
+                // 当前 owner 的字段 + prepare 的只读 metadata。必须覆盖继承/behaviour/lazy tick。
+                return auditedWholeTickIsLocal(instance) ? Decision.ADMITTED : Decision.CALLBACK_REQUIRED;
+            }
+        });
+```
+
+`auditedWholeTickIsLocal` 是适配者自己的完整正文证明，不是引擎提供的检测器。谓词执行于原生 worker 的
+精确 ticker 作用域，禁止修改状态、随机数、发事件、加载 chunk、查询外部 live 资源或保留实例。
+核心在调用前验证实例、类型、位置、level 和 captured bound ticker 的精确身份。
+
+类型候选的查找可缓存，`prepare` 每批执行，`check` 每次原始调用前执行。服务器显式串行声明仍优先；
+适配类型限于 region 内部 chunk，未准入类型导致整个 chunk 保留串行。实例拒绝只推迟完整 ticker，
+不先执行一部分、不中途重试。谓词、prepare 或原始正文异常作为失败传播；已产生的机器效果不重放。
+
+适配器 id 和类型集合不可重复，最多 128 个注册，每个注册最多 128 个非空类型。注册仅在服务器启动事件
+期间有效，停止后服务/候选失效。注册不打开 engine/slice，也不会解除其它模组的兼容限制。
+
+`Server.blockEntityTickAdapters()` 与 `compat` 显示检查、拒绝、实际 worker 完成、准备与检查耗时、
+有界拒绝理由。完成统计不包含 executor 拒绝后的内联调用；这些不是性能提升的证明。
+
+[Create 适配器](../adapters/create/README.md) 是该协议的受限实现：动力网络的读遍历只发生在 quiescent
+preflight，worker 不遍历 Create 的共享动力 `HashMap`。无法证明整个网络稳定时保留串行。
 
 ## 验证边界和下一步
 

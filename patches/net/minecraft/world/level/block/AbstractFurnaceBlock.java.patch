@@ -1,0 +1,10 @@
+--- a/net/minecraft/world/level/block/AbstractFurnaceBlock.java
++++ b/net/minecraft/world/level/block/AbstractFurnaceBlock.java
+@@ -105,6 +_,6 @@
+     protected static <T extends BlockEntity> BlockEntityTicker<T> createFurnaceTicker(
+         Level p_151988_, BlockEntityType<T> p_151989_, BlockEntityType<? extends AbstractFurnaceBlockEntity> p_151990_
+     ) {
+-        return p_151988_.isClientSide ? null : createTickerHelper(p_151989_, p_151990_, AbstractFurnaceBlockEntity::serverTick);
++        return p_151988_.isClientSide ? null : createTickerHelper(p_151989_, p_151990_, net.neoforged.neoforge.server.threading.region.FurnaceWorkScope.ticker());
+     }
+ }

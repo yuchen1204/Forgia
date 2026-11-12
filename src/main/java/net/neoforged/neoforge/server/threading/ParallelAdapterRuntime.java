@@ -7,6 +7,7 @@ package net.neoforged.neoforge.server.threading;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,12 +19,18 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.server.threading.api.BlockEntityOperations;
+import net.neoforged.neoforge.server.threading.api.BlockEntityTickAdapter;
 import net.neoforged.neoforge.server.threading.api.ParallelApi;
 import net.neoforged.neoforge.server.threading.api.ScheduledTickStatus;
+import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickAdmission;
+import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickScope;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
 import net.neoforged.neoforge.server.threading.region.RegionWorkerScope;
 import org.jetbrains.annotations.ApiStatus;
@@ -38,6 +45,8 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     private final MinecraftServer server;
     private final BlockEntityOperationRuntime blockEntities;
     private volatile Map<ResourceLocation, Entry<?>> entries = new TreeMap<>();
+    private volatile Map<ResourceLocation, TickEntry> tickEntries = new TreeMap<>();
+    private volatile Map<ResourceLocation, TickEntry> tickTypes = new TreeMap<>();
     private volatile boolean open = true;
     private volatile boolean frozen;
     private boolean invalid;
@@ -63,6 +72,8 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                 throw new IllegalStateException("Parallel adapter registration failed validation");
             }
             runtime.entries = Collections.unmodifiableMap(new TreeMap<>(runtime.entries));
+            runtime.tickEntries = Collections.unmodifiableMap(new TreeMap<>(runtime.tickEntries));
+            runtime.tickTypes = Collections.unmodifiableMap(new TreeMap<>(runtime.tickTypes));
             runtime.frozen = true;
         } catch (RuntimeException | Error failure) {
             close(server);
@@ -83,6 +94,8 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
             if (runtime != null) {
                 runtime.open = false;
                 runtime.entries = Map.of();
+                runtime.tickEntries = Map.of();
+                runtime.tickTypes = Map.of();
             }
         }
     }
@@ -112,7 +125,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
             if (major != ParallelApi.MAJOR_VERSION) {
                 throw new IllegalArgumentException("Unsupported parallel API major version: " + major);
             }
-            if (this.entries.size() >= MAX_ADAPTERS || this.entries.containsKey(key.id())) {
+            if (this.entries.size() + this.tickEntries.size() >= MAX_ADAPTERS || this.entries.containsKey(key.id()) || this.tickEntries.containsKey(key.id())) {
                 throw new IllegalArgumentException("Duplicate adapter id or adapter limit reached: " + key.id());
             }
             this.entries.put(key.id(), new Entry<>(key, preparation));
@@ -120,6 +133,111 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
             this.invalid = true;
             throw failure;
         }
+    }
+
+    @Override
+    public void registerBlockEntityTicks(int major, ResourceLocation id, Set<ResourceLocation> types, BlockEntityTickAdapter adapter) {
+        this.requireServerThread();
+        if (this.frozen) throw new IllegalStateException("Parallel adapter registration is frozen");
+        try {
+            Objects.requireNonNull(id);
+            Objects.requireNonNull(adapter);
+            final Set<ResourceLocation> registered = Set.copyOf(types);
+            if (major != ParallelApi.MAJOR_VERSION || registered.isEmpty() || registered.size() > 128
+                    || this.entries.size() + this.tickEntries.size() >= MAX_ADAPTERS
+                    || this.entries.containsKey(id) || this.tickEntries.containsKey(id)
+                    || registered.stream().anyMatch(this.tickTypes::containsKey)) {
+                throw new IllegalArgumentException("Invalid/duplicate block-entity adapter, types or API version: " + id);
+            }
+            final TickEntry entry = new TickEntry(id, registered, adapter);
+            this.tickEntries.put(id, entry);
+            registered.forEach(type -> this.tickTypes.put(type, entry));
+        } catch (RuntimeException | Error failure) {
+            this.invalid = true;
+            throw failure;
+        }
+    }
+
+    @Override
+    public List<BlockEntityTickAdapter.Status> blockEntityTickAdapters() {
+        this.requireOpen();
+        return this.tickEntries.values().stream().map(TickEntry::status).toList();
+    }
+
+    /** Read-only adapter-wide preflight happens before publication/leases or any original ticker body. */
+    public static void prepareBlockEntityTicks(ServerLevel level) {
+        final ParallelAdapterRuntime runtime;
+        synchronized (SERVERS) {
+            runtime = SERVERS.get(level.getServer());
+        }
+        if (runtime == null || !runtime.open || !runtime.frozen || runtime.tickEntries.isEmpty()) return;
+        runtime.requireServerThread();
+        if (runtime.currentPhase() != ParallelApi.Phase.QUIESCENT_SERVER) {
+            throw new IllegalStateException("Block-entity preflight requires a quiescent server");
+        }
+        for (final TickEntry entry : runtime.tickEntries.values()) {
+            final long start = System.nanoTime();
+            try {
+                entry.adapter.prepare(level);
+            } finally {
+                entry.preparationNanos.add(System.nanoTime() - start);
+            }
+        }
+    }
+
+    /** Cached type candidacy is not invocation admission. No registration survives server shutdown. */
+    public static boolean hasBlockEntityTickAdapter(ServerLevel level, @Nullable String type) {
+        return tickEntry(level, type) != null;
+    }
+
+    @Nullable
+    private static TickEntry tickEntry(ServerLevel level, @Nullable String type) {
+        final ResourceLocation key = type == null ? null : ResourceLocation.tryParse(type);
+        if (key == null) return null;
+        synchronized (SERVERS) {
+            final ParallelAdapterRuntime runtime = SERVERS.get(level.getServer());
+            return runtime == null || !runtime.open || !runtime.frozen ? null : runtime.tickTypes.get(key);
+        }
+    }
+
+    /** Called immediately before a native body, under its owner's region context. Never loads a chunk. */
+    public static boolean admitBlockEntityTick(RegionBlockEntityTickAdmission admission) {
+        if (!RegionBlockEntityTickScope.isAdmitted(admission.level(), admission.ticker(), admission.position())) {
+            throw new IllegalStateException("Block-entity admission requires the exact native ticker's ownership");
+        }
+        final TickEntry entry = tickEntry(admission.level(), admission.type());
+        if (entry == null) return false;
+        final long start = System.nanoTime();
+        entry.checks.increment();
+        try {
+            final var pos = admission.position();
+            final var source = admission.level().getChunkSource();
+            final LevelChunk chunk = source == null ? null : source.getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+            final BlockEntity blockEntity = chunk == null ? null : chunk.getBlockEntity(pos, LevelChunk.EntityCreationType.CHECK);
+            final BlockEntityTickAdapter.Decision decision;
+            if (blockEntity == null || blockEntity.isRemoved() || blockEntity.getLevel() != admission.level()
+                    || !pos.equals(blockEntity.getBlockPos()) || !admission.isCurrent()
+                    || !LevelChunk.isBlockEntityTickSource(admission.binding().delegate(), blockEntity)
+                    || !entry.types.contains(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()))) {
+                decision = BlockEntityTickAdapter.Decision.INVALID_INSTANCE;
+            } else {
+                decision = Objects.requireNonNull(entry.adapter.check(blockEntity), "Null block-entity tick admission");
+            }
+            if (decision != BlockEntityTickAdapter.Decision.ADMITTED) {
+                entry.refusals.increment();
+                entry.reasons.get(decision).increment();
+                return false;
+            }
+            return true;
+        } finally {
+            entry.nanos.add(System.nanoTime() - start);
+        }
+    }
+
+    /** Submission/rejection/serial fallback never count as a successful native body. */
+    public static void completeBlockEntityTick(RegionBlockEntityTickAdmission admission) {
+        final TickEntry entry = tickEntry(admission.level(), admission.type());
+        if (entry != null) entry.completed.increment();
     }
 
     @Override
@@ -162,7 +280,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         return Set.of(ParallelApi.Capability.EXECUTION_CONTEXT, ParallelApi.Capability.NATURAL_SPAWN_PREPARATION,
                 ParallelApi.Capability.NATURAL_SPAWN_PLAN_PREPARATION, ParallelApi.Capability.NATURAL_SPAWN_CLAIMS,
                 ParallelApi.Capability.ORDERED_SPAWN_FINALIZATION, ParallelApi.Capability.BLOCK_ENTITY_OPERATIONS,
-                ParallelApi.Capability.SCHEDULED_TICK_DIAGNOSTICS);
+                ParallelApi.Capability.BLOCK_ENTITY_TICK_ADMISSION, ParallelApi.Capability.SCHEDULED_TICK_DIAGNOSTICS);
     }
 
     @Override
@@ -438,6 +556,34 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                 }
             }
             return true;
+        }
+    }
+
+    private static final class TickEntry {
+        private final ResourceLocation id;
+        private final Set<ResourceLocation> types;
+        private final BlockEntityTickAdapter adapter;
+        private final LongAdder checks = new LongAdder();
+        private final LongAdder refusals = new LongAdder();
+        private final LongAdder completed = new LongAdder();
+        private final LongAdder preparationNanos = new LongAdder();
+        private final LongAdder nanos = new LongAdder();
+        private final Map<BlockEntityTickAdapter.Decision, LongAdder> reasons = new EnumMap<>(BlockEntityTickAdapter.Decision.class);
+
+        private TickEntry(ResourceLocation id, Set<ResourceLocation> types, BlockEntityTickAdapter adapter) {
+            this.id = id;
+            this.types = types;
+            this.adapter = adapter;
+            for (final var decision : BlockEntityTickAdapter.Decision.values()) this.reasons.put(decision, new LongAdder());
+        }
+
+        private BlockEntityTickAdapter.Status status() {
+            final Map<BlockEntityTickAdapter.Decision, Long> counts = new EnumMap<>(BlockEntityTickAdapter.Decision.class);
+            this.reasons.forEach((reason, count) -> {
+                if (count.sum() != 0L) counts.put(reason, count.sum());
+            });
+            return new BlockEntityTickAdapter.Status(this.id, this.types, this.checks.sum(), this.refusals.sum(),
+                    this.completed.sum(), this.preparationNanos.sum(), this.nanos.sum(), counts);
         }
     }
 

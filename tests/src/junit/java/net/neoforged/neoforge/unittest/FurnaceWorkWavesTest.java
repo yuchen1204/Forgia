@@ -1,0 +1,691 @@
+/*
+ * Copyright (c) NeoForged and contributors
+ * SPDX-License-Identifier: LGPL-2.1-only
+ */
+
+package net.neoforged.neoforge.unittest;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.FullChunkStatus;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.BlastingRecipe;
+import net.minecraft.world.item.crafting.CookingBookCategory;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeManager;
+import net.minecraft.world.item.crafting.SmeltingRecipe;
+import net.minecraft.world.item.crafting.SmokingRecipe;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.AbstractFurnaceBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.TickingBlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.furnace.FurnaceFuelBurnTimeEvent;
+import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
+import net.neoforged.neoforge.server.threading.RegionThreadingManager;
+import net.neoforged.neoforge.server.threading.region.FurnaceWorkScope;
+import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickPlan;
+import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
+import net.neoforged.neoforge.server.threading.region.RegionLayout;
+import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
+import net.neoforged.neoforge.server.threading.region.RegionTickBarrier;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+
+/** Real original furnace bodies and bound tickers; sparse world seam supplies authoritative state/recipes. */
+@Timeout(60)
+class FurnaceWorkWavesTest {
+    private static final BlockPos FIRST = new BlockPos(17, 64, 17);
+    private static final BlockPos SECOND = new BlockPos(20, 64, 17);
+    private static final RegionTickBarrier BARRIER = done -> {
+        while (!done.getAsBoolean()) LockSupport.parkNanos(100_000L);
+    };
+    private final Thread main = Thread.currentThread();
+    private final AtomicLong time = new AtomicLong();
+    private final RegionRedstoneWorld world = new RegionRedstoneWorld(this.time);
+    private final ServerLevel level = this.world.level;
+    private final List<Thread> fuelThreads = new CopyOnWriteArrayList<>();
+    private final Consumer<FurnaceFuelBurnTimeEvent> fuel = event -> {
+        if (event.getItemStack().is(Items.COAL)) {
+            this.fuelThreads.add(Thread.currentThread());
+            event.setBurnTime(1600);
+        }
+    };
+    private final RecipeManager recipes = new RecipeManager(net.minecraft.core.RegistryAccess.EMPTY);
+    private RegionThreadingEngine engine;
+
+    private void setup() throws Exception {
+        doReturn(true).when(this.level).areEntitiesLoaded(anyLong());
+        doReturn(true).when(this.level).shouldTickBlocksAt(any(BlockPos.class));
+        doReturn(this.recipes).when(this.level).getRecipeManager();
+        doReturn(net.minecraft.core.RegistryAccess.EMPTY).when(this.level).registryAccess();
+        final Ingredient input = Ingredient.of(Items.IRON_ORE);
+        this.recipes.replaceRecipes(List.of(
+                new RecipeHolder<>(ResourceLocation.parse("test:smelt"), new SmeltingRecipe("", CookingBookCategory.MISC, input, new ItemStack(Items.IRON_INGOT), 0, 2)),
+                new RecipeHolder<>(ResourceLocation.parse("test:blast"), new BlastingRecipe("", CookingBookCategory.MISC, input, new ItemStack(Items.IRON_INGOT), 0, 2)),
+                new RecipeHolder<>(ResourceLocation.parse("test:smoke"), new SmokingRecipe("", CookingBookCategory.MISC, input, new ItemStack(Items.IRON_INGOT), 0, 2))));
+        final LevelChunk chunk = mock(LevelChunk.class, org.mockito.Mockito.withSettings().stubOnly());
+        field(LevelChunk.class, chunk, "level", this.level);
+        doReturn(this.level).when(chunk).getLevel();
+        doReturn(new net.minecraft.world.level.ChunkPos(1, 1)).when(chunk).getPos();
+        doReturn(true).when(chunk).isLoaded();
+        doReturn(FullChunkStatus.BLOCK_TICKING).when(chunk).getFullStatus();
+        doAnswer(call -> this.world.states.getOrDefault(call.getArgument(0), Blocks.AIR.defaultBlockState())).when(chunk).getBlockState(any());
+        doAnswer(call -> this.world.blockEntities.get(call.getArgument(0))).when(chunk).getBlockEntity(any(), any(LevelChunk.EntityCreationType.class));
+        final var chunkSource = this.level.getChunkSource();
+        doReturn(chunk).when(chunkSource).getChunkNow(anyInt(), anyInt());
+        NeoForge.EVENT_BUS.addListener(this.fuel);
+        this.engine = new RegionThreadingEngine(2, false, false, false, true, false, false,
+                RegionLayout.FIXED_3X3, RegionEntityStorageMode.MAIN_THREAD_ONLY);
+        this.engine.setBlockEntityAdmissionCacheEnabledForTesting(false);
+        this.engine.setFurnaceWorkWavesEnabledForTesting(true);
+        RegionThreadingManager.install(this.engine);
+    }
+
+    @AfterEach
+    void close() {
+        RegionThreadingManager.clear();
+        NeoForge.EVENT_BUS.unregister(this.fuel);
+    }
+
+    private AbstractFurnaceBlockEntity furnace(BlockPos pos, Block block, int burning) throws Exception {
+        this.level.setBlock(pos, block.defaultBlockState().setValue(AbstractFurnaceBlock.LIT, burning > 0), 3);
+        final var furnace = (AbstractFurnaceBlockEntity) this.world.blockEntities.get(pos);
+        furnace.setItem(0, new ItemStack(Items.IRON_ORE, 3));
+        furnace.setItem(1, new ItemStack(Items.COAL));
+        furnace.setItem(2, ItemStack.EMPTY);
+        field(AbstractFurnaceBlockEntity.class, furnace, "cookingProgress", 0);
+        field(AbstractFurnaceBlockEntity.class, furnace, "litTime", burning);
+        field(AbstractFurnaceBlockEntity.class, furnace, "litDuration", 100);
+        field(AbstractFurnaceBlockEntity.class, furnace, "cookingTotalTime", 2);
+        return furnace;
+    }
+
+    private TickingBlockEntity ticker(AbstractFurnaceBlockEntity source) throws Exception {
+        final var factory = LevelChunk.class.getDeclaredMethod("createTicker", BlockEntity.class, BlockEntityTicker.class);
+        factory.setAccessible(true);
+        final var chunk = this.level.getChunkSource().getChunkNow(source.getBlockPos().getX() >> 4, source.getBlockPos().getZ() >> 4);
+        return (TickingBlockEntity) factory.invoke(chunk, source, source.getBlockState().getTicker(this.level, source.getType()));
+    }
+
+    private void tick(TickingBlockEntity... entries) {
+        final RegionBlockEntityTickPlan plan = this.engine.beginBlockEntityTickPlan(this.level, BARRIER);
+        assertNotNull(plan);
+        for (final var ticker : entries) assertTrue(plan.accept(ticker));
+        plan.executeAndAwait();
+    }
+
+    @Test
+    void twoOriginalBodiesInOneChunkAndRegionExecuteSimultaneously() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var rendezvous = new CyclicBarrier(2);
+        final List<Thread> threads = new CopyOnWriteArrayList<>();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            threads.add(Thread.currentThread());
+            try {
+                rendezvous.await(10, TimeUnit.SECONDS);
+            } catch (Exception failure) {
+                throw new AssertionError("original bodies did not overlap", failure);
+            }
+        });
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, threads.size());
+        assertTrue(threads.stream().noneMatch(thread -> thread == this.main));
+        assertFalse(threads.get(0) == threads.get(1));
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().maxSimultaneousBodies());
+        assertEquals(0, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        assertEquals(0, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void processingCompletionKeepsOriginalInventoryAndCommitsNotificationsOnTheServer() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.BLAST_FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        final List<Thread> commits = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            commits.add(Thread.currentThread());
+            return null;
+        }).when(this.level).blockEntityChanged(any());
+        for (int tick = 0; tick < 6; ++tick) {
+            this.tick(firstTick, secondTick);
+            assertEquals(3, first.getItem(0).getCount() + first.getItem(2).getCount());
+            assertEquals(3, second.getItem(0).getCount() + second.getItem(2).getCount());
+        }
+        assertEquals(3, first.getItem(2).getCount());
+        assertEquals(3, second.getItem(2).getCount());
+        assertEquals(1, first.getItem(1).getCount(), "already-burning ticks must not consume new fuel");
+        assertEquals(12, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(6, this.engine.furnaceWorkMetrics().committedChanges());
+        assertEquals(6, commits.size());
+        assertTrue(commits.stream().allMatch(thread -> thread == this.main));
+        assertTrue(this.fuelThreads.isEmpty());
+    }
+
+    @Test
+    void completeFuelAndExtinguishTicksAreExclusiveSerialFences() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 0);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 0);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        this.tick(firstTick, secondTick);
+        assertTrue(this.fuelThreads.stream().allMatch(thread -> thread == this.main));
+        assertFalse(this.fuelThreads.isEmpty());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        this.tick(firstTick, secondTick);
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        field(AbstractFurnaceBlockEntity.class, first, "litTime", 1);
+        field(AbstractFurnaceBlockEntity.class, second, "litTime", 1);
+        first.setItem(0, ItemStack.EMPTY);
+        second.setItem(0, ItemStack.EMPTY);
+        this.tick(firstTick, secondTick);
+        assertFalse(this.level.getBlockState(FIRST).getValue(AbstractFurnaceBlock.LIT));
+        assertFalse(this.level.getBlockState(SECOND).getValue(AbstractFurnaceBlock.LIT));
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void replacementTickerDoesNotInheritVanillaBodyPermission() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var factory = LevelChunk.class.getDeclaredMethod("createTicker", BlockEntity.class, BlockEntityTicker.class);
+        factory.setAccessible(true);
+        final var calls = new AtomicInteger();
+        final var chunk = this.level.getChunkSource().getChunkNow(1, 1);
+        final var custom = (TickingBlockEntity) factory.invoke(chunk, first,
+                (BlockEntityTicker<AbstractFurnaceBlockEntity>) (level, pos, state, source) -> {
+                    assertSame(this.main, Thread.currentThread());
+                    calls.incrementAndGet();
+                    AbstractFurnaceBlockEntity.serverTick(level, pos, state, source);
+                });
+        this.tick(custom, this.ticker(second));
+        assertEquals(1, calls.get());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void unknownRecipeIsNeverEvaluatedAsPartOfWorkerPreflightOrWorkerBody() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var matches = new AtomicInteger();
+        this.recipes.replaceRecipes(List.of(new RecipeHolder<>(ResourceLocation.parse("test:unknown"),
+                new SmeltingRecipe("", CookingBookCategory.MISC, Ingredient.of(Items.IRON_ORE), new ItemStack(Items.IRON_INGOT), 0, 2) {
+                    @Override
+                    public boolean matches(net.minecraft.world.item.crafting.SingleRecipeInput input, Level level) {
+                        assertSame(FurnaceWorkWavesTest.this.main, Thread.currentThread());
+                        matches.incrementAndGet();
+                        return true;
+                    }
+                })));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, matches.get());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void aForeignReadFailureDoesNotRetryAnAlreadyStartedOriginalBody() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var starts = new AtomicInteger();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            if (source == first) {
+                starts.incrementAndGet();
+                source.getItem(0).shrink(1);
+                RegionThreadingHooks.observeBlockEntityReference(this.level, SECOND);
+            }
+        });
+        assertThrows(RuntimeException.class, () -> this.tick(this.ticker(first), this.ticker(second)));
+        assertEquals(1, starts.get());
+        assertEquals(2, first.getItem(0).getCount(), "effects before failure must not execute again on the server");
+        assertEquals(1, this.engine.furnaceWorkMetrics().failed());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        assertFalse(FurnaceWorkScope.active());
+    }
+
+    @Test
+    void activeTimingTrackerKeepsItsSingleThreadStateSerial() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        net.neoforged.neoforge.server.timings.TimeTracker.BLOCK_ENTITY_UPDATE.enable(5);
+        try {
+            this.tick(this.ticker(first), this.ticker(second));
+            assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+            assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+        } finally {
+            net.neoforged.neoforge.server.timings.TimeTracker.BLOCK_ENTITY_UPDATE.reset();
+        }
+    }
+
+    @Test
+    void twoFurnacesSharingAMutableItemStackCannotReceiveSeparateOwnership() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        second.setItem(0, first.getItem(0));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+    }
+
+    @Test
+    void notificationToAnotherMachineRetainsTheCompleteSerialCompletionTick() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        this.level.setBlock(FIRST.south(), Blocks.HOPPER.defaultBlockState(), 3);
+        this.tick(firstTick, secondTick);
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        this.tick(firstTick, secondTick);
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(1, first.getItem(2).getCount());
+        assertEquals(1, second.getItem(2).getCount());
+    }
+
+    @Test
+    void rejectedWorkRunsTheOriginalBodyOnceOnTheSubmittingServer() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final Field poolField = RegionThreadingEngine.class.getDeclaredField("workerPool");
+        poolField.setAccessible(true);
+        final Object pool = poolField.get(this.engine);
+        final Method closePool = pool.getClass().getDeclaredMethod("close");
+        closePool.setAccessible(true);
+        closePool.invoke(pool);
+        final var bodies = new AtomicInteger();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            assertSame(this.main, Thread.currentThread());
+            bodies.incrementAndGet();
+        });
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, bodies.get());
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(2, this.engine.furnaceWorkMetrics().rejectedTasks());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void anUnknownSerialFenceCompletesBeforeLaterWorkersAndSeesEarlierWorkerChanges() throws Exception {
+        this.setup();
+        final List<TickingBlockEntity> order = new ArrayList<>();
+        final var bodies = new AtomicInteger();
+        this.engine.setFurnaceBodyObserverForTesting(source -> bodies.incrementAndGet());
+        for (int x : new int[] { 17, 18 }) order.add(this.ticker(this.furnace(new BlockPos(x, 64, 17), Blocks.FURNACE, 100)));
+        final var fence = mock(TickingBlockEntity.class);
+        org.mockito.Mockito.when(fence.getPos()).thenReturn(new BlockPos(19, 64, 17));
+        org.mockito.Mockito.when(fence.getType()).thenReturn("example:opaque");
+        final var fenceCalls = new AtomicInteger();
+        doAnswer(call -> {
+            assertSame(this.main, Thread.currentThread());
+            assertEquals(2, bodies.get(), "earlier worker bodies must have joined");
+            fenceCalls.incrementAndGet();
+            return null;
+        }).when(fence).tick();
+        order.add(fence);
+        for (int x : new int[] { 20, 21 }) order.add(this.ticker(this.furnace(new BlockPos(x, 64, 17), Blocks.FURNACE, 100)));
+        this.tick(order.toArray(TickingBlockEntity[]::new));
+        assertEquals(1, fenceCalls.get());
+        assertEquals(4, bodies.get());
+        assertEquals(4, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().waves());
+    }
+
+    @Test
+    void serialFenceRecipeReloadIsRevalidatedBeforeTheNextWave() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var fence = mock(TickingBlockEntity.class);
+        org.mockito.Mockito.when(fence.getPos()).thenReturn(new BlockPos(19, 64, 17));
+        org.mockito.Mockito.when(fence.getType()).thenReturn("example:reload");
+        final var matches = new AtomicInteger();
+        doAnswer(call -> {
+            this.recipes.replaceRecipes(List.of(new RecipeHolder<>(ResourceLocation.parse("test:reload"),
+                    new SmeltingRecipe("", CookingBookCategory.MISC, Ingredient.of(Items.IRON_ORE), new ItemStack(Items.IRON_INGOT), 0, 2) {
+                        @Override
+                        public boolean matches(net.minecraft.world.item.crafting.SingleRecipeInput input, Level level) {
+                            assertSame(FurnaceWorkWavesTest.this.main, Thread.currentThread());
+                            matches.incrementAndGet();
+                            return true;
+                        }
+                    })));
+            return null;
+        }).when(fence).tick();
+        this.tick(fence, this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, matches.get());
+    }
+
+    @Test
+    void completeTickTraceMatchesSerialThroughInputOutputAndFuelChanges() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 0);
+        final var second = this.furnace(SECOND, Blocks.SMOKER, 0);
+        final var firstTick = this.ticker(first);
+        final var secondTick = this.ticker(second);
+        final List<String> parallel = this.scenario(first, second, firstTick, secondTick, true);
+        this.engine.setFurnaceBodyObserverForTesting(null);
+        final var serialFirst = this.furnace(FIRST, Blocks.FURNACE, 0);
+        final var serialSecond = this.furnace(SECOND, Blocks.SMOKER, 0);
+        final List<String> serial = this.scenario(serialFirst, serialSecond, this.ticker(serialFirst), this.ticker(serialSecond), false);
+        assertEquals(serial, parallel, "full inventory, state, burn/cook counters and pending schedule trace must match each tick");
+        assertTrue(this.engine.furnaceWorkMetrics().nativeCompletions() > 0);
+    }
+
+    private List<String> scenario(AbstractFurnaceBlockEntity first, AbstractFurnaceBlockEntity second,
+            TickingBlockEntity firstTick, TickingBlockEntity secondTick, boolean parallel) throws Exception {
+        final List<String> trace = new ArrayList<>();
+        for (int tick = 0; tick < 20; ++tick) {
+            if (tick == 3) {
+                first.setItem(2, new ItemStack(Items.IRON_INGOT, 64));
+                second.setItem(2, new ItemStack(Items.IRON_INGOT, 64));
+            }
+            if (tick == 5) {
+                first.setItem(2, ItemStack.EMPTY);
+                second.setItem(2, ItemStack.EMPTY);
+            }
+            if (tick == 8) {
+                first.setItem(0, ItemStack.EMPTY);
+                second.setItem(0, ItemStack.EMPTY);
+            }
+            if (tick == 10) {
+                first.setItem(0, new ItemStack(Items.IRON_ORE, 2));
+                second.setItem(0, new ItemStack(Items.IRON_ORE, 2));
+            }
+            if (tick == 15) {
+                field(AbstractFurnaceBlockEntity.class, first, "litTime", 1);
+                field(AbstractFurnaceBlockEntity.class, second, "litTime", 1);
+                first.setItem(1, ItemStack.EMPTY);
+                second.setItem(1, ItemStack.EMPTY);
+            }
+            if (parallel) this.tick(firstTick, secondTick);
+            else {
+                firstTick.tick();
+                secondTick.tick();
+            }
+            final StringBuilder state = new StringBuilder();
+            for (final var furnace : List.of(first, second)) {
+                state.append(this.level.getBlockState(furnace.getBlockPos()));
+                for (int slot = 0; slot < 3; ++slot) state.append('|').append(furnace.getItem(slot));
+                for (final var name : List.of("litTime", "litDuration", "cookingProgress", "cookingTotalTime")) {
+                    final Field counter = AbstractFurnaceBlockEntity.class.getDeclaredField(name);
+                    counter.setAccessible(true);
+                    state.append('|').append(counter.get(furnace));
+                }
+            }
+            state.append(this.world.pendingTicks());
+            trace.add(state.toString());
+        }
+        return trace;
+    }
+
+    @Test
+    void serialAndUnknownEffectsNeverRunWhileOriginalWorkersAreActive() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var fence = mock(TickingBlockEntity.class);
+        org.mockito.Mockito.when(fence.getPos()).thenReturn(new BlockPos(21, 64, 17));
+        org.mockito.Mockito.when(fence.getType()).thenReturn("example:serial");
+        final var active = new AtomicInteger();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            active.incrementAndGet();
+            try {
+                Thread.yield();
+            } finally {
+                active.decrementAndGet();
+            }
+        });
+        doAnswer(call -> {
+            assertEquals(0, active.get());
+            assertSame(this.main, Thread.currentThread());
+            return null;
+        }).when(fence).tick();
+        this.tick(this.ticker(first), this.ticker(second), fence);
+        assertEquals(0, active.get());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void mutableComponentItemsRetainCompleteServerTicks() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        first.getItem(0).set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal("custom"));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertTrue(this.engine.furnaceWorkMetrics().refusals().containsKey(net.neoforged.neoforge.server.threading.region.FurnaceWorkMetrics.Refusal.CUSTOM_ITEM));
+    }
+
+    @Test
+    void throwingManagedWaitStillJoinsWorkersAndReleasesAllLeases() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var entered = new java.util.concurrent.CountDownLatch(2);
+        final var release = new java.util.concurrent.CountDownLatch(1);
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            entered.countDown();
+            await(release);
+        });
+        final var failure = new IllegalStateException("managed wait failed");
+        final var plan = this.engine.beginBlockEntityTickPlan(this.level, done -> {
+            await(entered);
+            release.countDown();
+            throw failure;
+        });
+        assertNotNull(plan);
+        assertTrue(plan.accept(this.ticker(first)));
+        assertTrue(plan.accept(this.ticker(second)));
+        assertSame(failure, assertThrows(IllegalStateException.class, plan::executeAndAwait));
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        assertFalse(FurnaceWorkScope.active());
+    }
+
+    @Test
+    void shutdownWaitsForThePublishedWholePhaseAndRejectsReentrantWorkerShutdown() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var entered = new java.util.concurrent.CountDownLatch(2);
+        final var release = new java.util.concurrent.CountDownLatch(1);
+        final var shutdownAttempted = new java.util.concurrent.CountDownLatch(1);
+        final var shutdownDone = new java.util.concurrent.CountDownLatch(1);
+        final var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            assertThrows(IllegalStateException.class, this.engine::shutdown);
+            entered.countDown();
+            await(release);
+        });
+        final Thread shutdown = new Thread(() -> {
+            try {
+                await(entered);
+                shutdownAttempted.countDown();
+                this.engine.shutdown();
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                shutdownDone.countDown();
+            }
+        }, "furnace-shutdown-test");
+        shutdown.start();
+        final var plan = this.engine.beginBlockEntityTickPlan(this.level, done -> {
+            await(shutdownAttempted);
+            assertEquals(1, shutdownDone.getCount(), "shutdown must not retire the active phase");
+            release.countDown();
+            BARRIER.await(done);
+        });
+        assertNotNull(plan);
+        assertTrue(plan.accept(this.ticker(first)));
+        assertTrue(plan.accept(this.ticker(second)));
+        try {
+            plan.executeAndAwait();
+        } finally {
+            release.countDown();
+            shutdown.join(10_000L);
+        }
+        assertFalse(shutdown.isAlive());
+        assertEquals(null, failure.get());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+    }
+
+    @Test
+    void unknownActuallyMergedFurnaceMixinKeepsOriginalBodiesSerial() throws Exception {
+        this.setup();
+        assertTrue(Boolean.getBoolean("forgia.furnace.testUnverifiedHook"));
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(99, read(first, "litTime"));
+        assertEquals(99, read(second, "litTime"));
+        assertTrue(this.engine.furnaceWorkMetrics().refusals().containsKey(
+                net.neoforged.neoforge.server.threading.region.FurnaceWorkMetrics.Refusal.UNVERIFIED_RUNTIME));
+    }
+
+    @Test
+    void ordinaryVanillaDyeAndRedstoneRecipesDoNotInvalidateTheWholeCookingCatalog() throws Exception {
+        this.setup();
+        this.recipes.replaceRecipes(List.of(
+                new RecipeHolder<>(ResourceLocation.parse("test:dye"), new SmeltingRecipe("", CookingBookCategory.MISC,
+                        Ingredient.of(Items.CACTUS), new ItemStack(Items.GREEN_DYE), 0, 200)),
+                new RecipeHolder<>(ResourceLocation.parse("test:redstone"), new SmeltingRecipe("", CookingBookCategory.MISC,
+                        Ingredient.of(Items.REDSTONE_ORE), new ItemStack(Items.REDSTONE), 0, 200)),
+                new RecipeHolder<>(ResourceLocation.parse("test:iron"), new SmeltingRecipe("", CookingBookCategory.MISC,
+                        net.neoforged.neoforge.common.crafting.CompoundIngredient.of(Ingredient.of(Items.IRON_ORE), Ingredient.of(Items.DEEPSLATE_IRON_ORE)),
+                        new ItemStack(Items.IRON_INGOT), 0, 2))));
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(0, this.engine.furnaceWorkMetrics().failed());
+    }
+
+    @Test
+    void aCompoundIngredientWithUnknownChildCannotAcquireAWorkerBody() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var custom = mock(net.neoforged.neoforge.common.crafting.ICustomIngredient.class);
+        final var matches = new AtomicInteger();
+        org.mockito.Mockito.when(custom.test(any())).thenAnswer(call -> {
+            assertSame(this.main, Thread.currentThread());
+            matches.incrementAndGet();
+            return true;
+        });
+        final var ingredient = net.neoforged.neoforge.common.crafting.CompoundIngredient.of(
+                new Ingredient(custom), Ingredient.of(Items.CACTUS));
+        this.recipes.replaceRecipes(List.of(new RecipeHolder<>(ResourceLocation.parse("test:compound_custom"),
+                new SmeltingRecipe("", CookingBookCategory.MISC, ingredient, new ItemStack(Items.IRON_INGOT), 0, 2))));
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(2, matches.get());
+    }
+
+    @Test
+    @org.junit.jupiter.api.Tag("benchmark")
+    @Timeout(180)
+    void measureDenseOriginalFurnaceWaveOverhead() throws Exception {
+        this.setup();
+        final List<AbstractFurnaceBlockEntity> machines = new ArrayList<>();
+        final List<TickingBlockEntity> tickers = new ArrayList<>();
+        for (int index = 0; index < 256; ++index) {
+            final var machine = this.furnace(new BlockPos(16 + index % 16, 64, 16 + index / 16), Blocks.FURNACE, 100000);
+            machines.add(machine);
+            tickers.add(this.ticker(machine));
+        }
+        final TickingBlockEntity[] entries = tickers.toArray(TickingBlockEntity[]::new);
+        for (int round = 0; round < 6; ++round) {
+            final boolean waves = new boolean[] { false, true, true, false, false, true }[round];
+            this.engine.setFurnaceWorkWavesEnabledForTesting(waves);
+            for (final var machine : machines) {
+                field(AbstractFurnaceBlockEntity.class, machine, "litTime", 100000);
+                field(AbstractFurnaceBlockEntity.class, machine, "cookingProgress", 0);
+                field(AbstractFurnaceBlockEntity.class, machine, "cookingTotalTime", 100000);
+            }
+            for (int tick = 0; tick < 100; ++tick) this.tick(entries);
+            final long[] samples = new long[400];
+            for (int tick = 0; tick < samples.length; ++tick) {
+                final long start = System.nanoTime();
+                this.tick(entries);
+                samples[tick] = System.nanoTime() - start;
+            }
+            java.util.Arrays.sort(samples);
+            final double mean = java.util.Arrays.stream(samples).average().orElseThrow() / 1000000.0;
+            System.out.printf(java.util.Locale.ROOT,
+                    "FURNACE_WAVE_BENCH round=%d waves=%s machines=256 meanMs=%.6f p50Ms=%.6f p95Ms=%.6f%n",
+                    round, waves, mean, samples[200] / 1000000.0, samples[380] / 1000000.0);
+            for (final var machine : machines) assertEquals(3, machine.getItem(0).getCount());
+        }
+    }
+
+    private static int read(AbstractFurnaceBlockEntity furnace, String name) throws Exception {
+        final Field field = AbstractFurnaceBlockEntity.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.getInt(furnace);
+    }
+
+    private static void await(java.util.concurrent.CountDownLatch latch) {
+        try {
+            assertTrue(latch.await(10, TimeUnit.SECONDS), "bounded lifecycle wait expired");
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(failure);
+        }
+    }
+
+    private static void field(Class<?> owner, Object target, String name, Object value) throws Exception {
+        final Field field = owner.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+}
