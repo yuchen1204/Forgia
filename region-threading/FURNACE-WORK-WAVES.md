@@ -200,4 +200,6 @@ third-party transformation.
 No throughput improvement is asserted from counters or overlap alone. Preparation, whole-catalog checks,
 wave dispatch, conservative serial fences and commit overhead can outweigh these light vanilla bodies.
 This switch remains experimental/default-off until controlled per-workload performance and larger
-correctness coverage justify changing that policy.
+correctness coverage justify changing that policy. The [cost analysis and implementation plan](BLOCK-ENTITY-OPTIMIZATION-PLAN.md)
+records the repeated preparation/planning costs, a separate compact planning prototype and the acceptance
+criteria for the next performance work. That prototype is not installed in the production scheduler.

@@ -653,17 +653,29 @@ class FurnaceWorkWavesTest {
                 field(AbstractFurnaceBlockEntity.class, machine, "cookingTotalTime", 100000);
             }
             for (int tick = 0; tick < 100; ++tick) this.tick(entries);
+            final var before = this.engine.furnaceWorkMetrics();
             final long[] samples = new long[400];
             for (int tick = 0; tick < samples.length; ++tick) {
                 final long start = System.nanoTime();
                 this.tick(entries);
                 samples[tick] = System.nanoTime() - start;
             }
+            final var after = this.engine.furnaceWorkMetrics();
             java.util.Arrays.sort(samples);
             final double mean = java.util.Arrays.stream(samples).average().orElseThrow() / 1000000.0;
             System.out.printf(java.util.Locale.ROOT,
                     "FURNACE_WAVE_BENCH round=%d waves=%s machines=256 meanMs=%.6f p50Ms=%.6f p95Ms=%.6f%n",
                     round, waves, mean, samples[200] / 1000000.0, samples[380] / 1000000.0);
+            if (waves) {
+                final double divisor = samples.length * 1000000.0;
+                final double preparation = (after.preparationNanos() - before.preparationNanos()) / divisor;
+                final double execution = (after.executionNanos() - before.executionNanos()) / divisor;
+                final double commit = (after.commitNanos() - before.commitNanos()) / divisor;
+                System.out.printf(java.util.Locale.ROOT,
+                        "FURNACE_WAVE_COST round=%d prepareMeanMs=%.6f executeAwaitMeanMs=%.6f commitMeanMs=%.6f otherMeanMs=%.6f waves=%d nativeBodies=%d%n",
+                        round, preparation, execution, commit, mean - preparation - execution - commit,
+                        after.waves() - before.waves(), after.nativeCompletions() - before.nativeCompletions());
+            }
             for (final var machine : machines) assertEquals(3, machine.getItem(0).getCount());
         }
     }

@@ -1,0 +1,85 @@
+{
+  "scope": "Sparse Mockito world/chunk 256 vanilla original already-burning furnaces; JFR profile enabled in test JVM; phase timing additions only, production scheduler unchanged; not real-server MSPT",
+  "warmupTicks": 100,
+  "measuredTicks": 400,
+  "rows": [
+    {
+      "round": 0,
+      "waves": false,
+      "meanMs": 16.577177,
+      "p50Ms": 15.758312,
+      "p95Ms": 21.137301
+    },
+    {
+      "round": 1,
+      "waves": true,
+      "meanMs": 28.260092,
+      "p50Ms": 25.5834,
+      "p95Ms": 48.278901,
+      "prepareMeanMs": 8.73775,
+      "executeAwaitMeanMs": 7.239911,
+      "commitMeanMs": 0.003345,
+      "otherMeanMs": 12.279087,
+      "measuredWaves": 400,
+      "nativeBodies": 102400
+    },
+    {
+      "round": 2,
+      "waves": true,
+      "meanMs": 29.657447,
+      "p50Ms": 26.084199,
+      "p95Ms": 53.268801,
+      "prepareMeanMs": 8.891308,
+      "executeAwaitMeanMs": 7.819457,
+      "commitMeanMs": 0.000857,
+      "otherMeanMs": 12.945825,
+      "measuredWaves": 400,
+      "nativeBodies": 102400
+    },
+    {
+      "round": 3,
+      "waves": false,
+      "meanMs": 15.1312,
+      "p50Ms": 13.701999,
+      "p95Ms": 21.563899
+    },
+    {
+      "round": 4,
+      "waves": false,
+      "meanMs": 14.865587,
+      "p50Ms": 13.853601,
+      "p95Ms": 19.7512
+    },
+    {
+      "round": 5,
+      "waves": true,
+      "meanMs": 31.300451,
+      "p50Ms": 26.0627,
+      "p95Ms": 55.858701,
+      "prepareMeanMs": 9.381352,
+      "executeAwaitMeanMs": 8.282773,
+      "commitMeanMs": 0.000873,
+      "otherMeanMs": 13.635452,
+      "measuredWaves": 400,
+      "nativeBodies": 102400
+    }
+  ],
+  "offMedianMeanMs": 15.1312,
+  "onMedianMeanMs": 29.657447,
+  "onOverOff": 1.9600194961404251,
+  "jfr": {
+    "scope": "Whole fixture JVM including startup, construction, warmup, baseline and wave paths; sampled allocation weights are estimates, not retained heap or per-path attribution; Java execution sample count too small for exact CPU percentages",
+    "durationSeconds": 84,
+    "allocationWeightBytes": 47609776560,
+    "allocationWeightWithMockitoOrByteBuddyStackBytes": 39987611216,
+    "fractionOfSampledAllocationWeightWithMockitoOrByteBuddyStack": 0.8399033582021919,
+    "javaExecutionSamples": 369,
+    "javaExecutionSamplesWithMockitoOrByteBuddyStack": 94
+  },
+  "limitations": [
+    "Sparse mocked world is not production MSPT",
+    "Initial preparation excludes per-wave revalidation and alias scans; otherMeanMs is a residual, not a direct measurement",
+    "Original recorded JFR remains local; environment and JVM properties are not distributed",
+    "An initial Gradle init-script configuration failed before any benchmark ran; corrected script guards builds without :tests"
+  ]
+}

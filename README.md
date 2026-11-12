@@ -113,7 +113,9 @@ A separate, default-off `enableRegionThreadingFurnaceWorkWaves` experiment execu
 vanilla furnace-family bodies in resource waves, including independent instances inside one chunk/region.
 Unknown/fuel/notification operations are complete serial fences; other BE types are also serial in this mode.
 See [the exact admission, ownership and validation limits](region-threading/FURNACE-WORK-WAVES.md) before
-using it. This does not claim a general wave engine or a measured server speedup.
+using it. This does not claim a general wave engine or a measured server speedup. The follow-up
+[cost analysis and optimization plan](region-threading/BLOCK-ENTITY-OPTIMIZATION-PLAN.md) separates the
+verified execution path from the remaining performance work and its acceptance criteria.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
