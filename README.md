@@ -26,9 +26,11 @@ counted.
 | **Chunk ticks** | Random ticks, ice/snow, thunder on the region that owns the chunk, including chunks on a region border | 1.24–1.27× (100 % of dispatched chunks on workers) |
 | **Natural spawning** | Per-region spawn bodies against the vanilla level-wide mob cap | spawn slice 4.6 → 2.8–3.9 ms |
 | **Points of interest** | Region-partitioned storage with published snapshots; queries identical to vanilla | villagers **2.1–2.4×**, zombies **3.4×** |
-| **Block entities** | Furnace/hopper family admitted on workers with a per-chunk admission cache | at parity; interior-only (a hopper reads its neighbour) |
+| **Block entities** | Furnace/hopper family with a per-chunk admission cache; furnace-family boundary chunks can use border propagation when neighbors are loaded | historical parity; new boundary admission not benchmarked |
 | **Redstone** | Cross-region updates converge in the **same tick** through a fixpoint | 98 layouts, 5 880 tick comparisons, identical to vanilla |
 | **Cross-region reads** | Seqlock chunk versions; a stale read re-runs the region that made it | 0 torn reads, 0 stale takes |
+| **Cross-region mod operations** | Public two-owner block entity operations, bounded sided Container transfers and explicit task outcomes | experimental; operations serialize after workers return |
+| **Scheduled ticks** | Vanilla lamp callbacks in a loaded, contained inert footprint; other phases retain the live serial queue | experimental; dispatch/completion/refusal/timing diagnostics |
 | **Global state** | Explicit global phase + bounded cross-region mailbox | weather/time writes from a region fail closed |
 | **Failures** | A worker tick failure is reported by the server thread, never built on the worker; a tick that reaches a chunk the lease does not hold is truncated once and its class moves to the server thread | barrier wait 200 ms → **1.25 ms** |
 
@@ -46,8 +48,10 @@ Forgia is not a finished Folia replacement. The honest list:
 - **The production soak is at parity, not ahead.** With everything on it lands at or below the inline mspt
   (median ratio 0.983, p50 5.60 ms against 6.22 ms), but a realistic world does not have enough parallel work
   to gain more than that at 3-chunk regions.
-- **Block entities still require the interior rule**, so ~92 % of their ticks stay on the server thread: a
-  hopper reads the container one block away and a foreign block-entity read answers null.
+- **Hoppers and pack-admitted machines still require the interior rule**: they can read and mutate live
+  neighboring containers. Furnace-family boundary chunks can now run with border propagation enabled and
+  loaded neighbors; mixed chunks still keep whole-chunk fallback. See the
+  [block entity implementation and next steps](region-threading/BLOCK-ENTITY-PARALLELISM.md).
 - **Structures are not region-aware.** A piston that moves blocks across a border, and Create-style
   contraptions, still run on the server thread.
 - **Cross-region game events (sculk) are not regionized.**
@@ -59,10 +63,13 @@ Forgia is not a finished Folia replacement. The honest list:
 
 The full remaining plan is in [region-threading/STATUS.md](region-threading/STATUS.md#roadmap).
 The experimental public mod integration API and compile-only facade are described in
-[the parallel API guide](region-threading/MOD-PARALLEL-API.md). Broader preparation and parallel-spawn filter
+[the parallel API guide](region-threading/MOD-PARALLEL-API.md). Complete cross-region operations and
+scheduled callback admission/metrics are documented in [the operation guide](region-threading/CROSS-REGION-OPERATIONS.md). Broader preparation and parallel-spawn filter
 contracts are proposed in [the API RFC](region-threading/MOD-PARALLEL-API-RFC.md); those later stages are not yet implemented.
 An [experimental MobSpawnController adapter](adapters/mobspawncontroller/README.md) provides frozen rules and
-verified natural-spawn admission for 1.2.3; world-dependent rule configurations retain complete serial spawning.
+verified admission for 1.2.3. The ordered nearby/chance experiment is **opt-in and off by default**:
+local pack validation found truncated work and no proven speedup. Default natural spawning stays serial;
+unsupported world filters, multipliers and unverified native hooks also retain the complete serial plan.
 
 ## Configuration
 

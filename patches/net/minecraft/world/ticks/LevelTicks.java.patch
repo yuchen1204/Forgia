@@ -100,7 +100,7 @@
          profilerfiller.popPush("cleanup");
          this.cleanupAfterTick();
          profilerfiller.pop();
-@@ -181,22 +_,65 @@
+@@ -181,22 +_,75 @@
      }
  
      private void runCollectedTicks(BiConsumer<BlockPos, T> p_193273_) {
@@ -122,7 +122,17 @@
 +        // the predicate set here, where the inline loop publishes them lazily from its own queue. Every collected
 +        // tick stays in the set until its own callback is about to run, so willTickThisTick answers true for a
 +        // tick of this tick that has not run yet and false for one that already ran, exactly like the inline loop.
-+        final List<ScheduledTick<T>> collected = new ArrayList<>(this.toRunThisTick);
++        final List<ScheduledTick<T>> collected = List.copyOf(this.toRunThisTick);
++        if (!dispatcher.canDispatch(collected)) {
++            // Preflight refused the complete phase before any callback. Keep the original live queue:
++            // clearArea and copyArea invoked by a serial callback must still see the remaining ticks.
++            dispatcher.runInline(inlineCallback -> {
++                while (!this.toRunThisTick.isEmpty()) {
++                    this.runCollectedTick(inlineCallback);
++                }
++            }, fallbackCallback);
++            return;
++        }
 +        this.toRunThisTick.clear();
 +        synchronized (this.tickSetLock) {
 +            this.toRunThisTickSet.addAll(collected);
@@ -225,7 +235,7 @@
          List<ScheduledTick<T>> list = new ArrayList<>();
          Predicate<ScheduledTick<T>> predicate = p_200922_ -> p_265172_.isInside(p_200922_.pos());
          p_265554_.alreadyRunThisTick.stream().filter(predicate).forEach(list::add);
-@@ -286,5 +_,21 @@
+@@ -286,5 +_,31 @@
      @FunctionalInterface
      interface PosAndContainerConsumer<T> {
          void accept(long p_193289_, LevelChunkTicks<T> p_193290_);
@@ -243,6 +253,16 @@
 +     */
 +    @FunctionalInterface
 +    public interface TickDispatcher<T> {
++        /** Pure preflight before the live queue is drained or any callback starts. */
++        default boolean canDispatch(List<ScheduledTick<T>> collected) {
++            return true;
++        }
++
++        /** Runs the original serial loop after preflight refusal; the runner retains the live tick queue. */
++        default void runInline(java.util.function.Consumer<BiConsumer<BlockPos, T>> runner, BiConsumer<BlockPos, T> callback) {
++            runner.accept(callback);
++        }
++
 +        void runCollected(List<ScheduledTick<T>> collected, BiConsumer<BlockPos, T> callback, BiConsumer<BlockPos, T> fallbackCallback,
 +                java.util.function.Consumer<ScheduledTick<T>> beginTick);
      }

@@ -96,6 +96,9 @@ abstract class RegionTickBatch {
     private final Set<MainThreadWork<?>> pendingMainThreadWork = new LinkedHashSet<>();
     private boolean mainThreadWorkClosed;
     private boolean submitted;
+    @Nullable
+    private RegionSpawnAdmissionBarrier spawnAdmissions;
+    private final ThreadLocal<RegionSpawnAdmissionBarrier.Worker> admissionWorker = new ThreadLocal<>();
     /**
      * Wall time the publishing thread needed to hand the groups to the executor, so the part of a wait that is
      * submission is observable instead of being counted as worker time.
@@ -229,8 +232,68 @@ abstract class RegionTickBatch {
      * Wraps group work so it marks the executing thread as the owner of this batch and installs the deferred
      * block-write queue of the batch, which every slice defers into.
      */
+    final void enableOrderedSpawnAdmissions(int workers, Runnable beforeTransaction) {
+        if (this.submitted || this.spawnAdmissions != null) throw new IllegalStateException("Spawn admission mode is startup-only");
+        this.spawnAdmissions = new RegionSpawnAdmissionBarrier(workers, beforeTransaction);
+    }
+
+    final boolean isOrderedSpawnServerPhase() {
+        return this.spawnAdmissions != null && this.spawnAdmissions.isServerPhase();
+    }
+
+    final void spawnAdmissionCheckpoint() {
+        final var worker = this.admissionWorker.get();
+        if (worker != null) worker.checkpoint();
+    }
+
+    final <T> T orderedSpawnTransaction(Supplier<T> operation) {
+        final var worker = this.admissionWorker.get();
+        if (worker == null) throw new IllegalStateException("No ordered spawn worker is active");
+        return worker.call(operation);
+    }
+
+    @Nullable
+    final RegionSpawnAdmissionBarrier.Worker enterOrderedSpawnGroup() {
+        if (this.spawnAdmissions == null || this.level.getServer() == null || this.level.getServer().isSameThread()) return null;
+        final var worker = this.spawnAdmissions.enter();
+        this.admissionWorker.set(worker);
+        return worker;
+    }
+
+    final void exitOrderedSpawnGroup(@Nullable RegionSpawnAdmissionBarrier.Worker worker) {
+        try {
+            if (worker != null) worker.close();
+        } finally {
+            this.admissionWorker.remove();
+        }
+    }
+
+    final boolean hasOrderedSpawnWorker() {
+        return this.admissionWorker.get() != null;
+    }
+
+    final void closeSpawnAdmissions() {
+        if (this.spawnAdmissions != null) this.spawnAdmissions.close();
+    }
+
+    private void pumpSpawnAdmissions() {
+        if (this.spawnAdmissions == null) return;
+        final var previous = CURRENT.get();
+        CURRENT.set(this);
+        try {
+            this.spawnAdmissions.pump();
+        } finally {
+            if (previous == null) CURRENT.remove();
+            else CURRENT.set(previous);
+        }
+    }
+
     final Runnable groupWork(Runnable work) {
-        return () -> {
+        return this.groupWork(work, () -> {});
+    }
+
+    final Runnable groupWork(Runnable work, Runnable unstartedCleanup) {
+        final Runnable body = () -> {
             final boolean alreadyExecuting = Boolean.TRUE.equals(this.executing.get());
             final RegionTickBatch previousBatch = CURRENT.get();
             final RegionDeferredBlockUpdates previousUpdates = CURRENT_BLOCK_UPDATES.get();
@@ -258,6 +321,26 @@ abstract class RegionTickBatch {
                 } else {
                     CURRENT_BLOCK_UPDATES.remove();
                 }
+            }
+        };
+        if (this.spawnAdmissions == null) return body;
+        return () -> {
+            final boolean[] started = { false };
+            final Runnable startBody = () -> {
+                started[0] = true;
+                body.run();
+            };
+            try {
+                if (this.level.getServer() == null || this.level.getServer().isSameThread()) {
+                    this.spawnAdmissions.callInline(() -> {
+                        startBody.run();
+                        return null;
+                    }, this::runPendingMainThreadWork);
+                } else {
+                    startBody.run();
+                }
+            } finally {
+                if (!started[0]) unstartedCleanup.run();
             }
         };
     }
@@ -406,6 +489,7 @@ abstract class RegionTickBatch {
                     return true;
                 }
                 this.runPendingMainThreadWork();
+                this.pumpSpawnAdmissions();
                 return this.groupBarrier.isComplete();
             });
         } catch (Throwable throwable) {
@@ -414,6 +498,7 @@ abstract class RegionTickBatch {
             // blocked on a main-thread handoff is released first, because the server thread left the
             // managed wait and will not service the handoff anymore.
             barrierFailure = throwable;
+            this.closeSpawnAdmissions();
             this.closeMainThreadWork(throwable);
         } finally {
             this.groupBarrier.awaitCompletion();
@@ -445,6 +530,7 @@ abstract class RegionTickBatch {
      * Releases the final permit of the batch. Called on the server thread after all post-processing.
      */
     final void finish() {
+        this.closeSpawnAdmissions();
         // No group is running anymore; release any handoff that was enqueued but not serviced so the
         // batch can never keep a worker waiting after its lifecycle ended.
         this.closeMainThreadWork(new IllegalStateException("Region tick batch finished before its main-thread work ran"));

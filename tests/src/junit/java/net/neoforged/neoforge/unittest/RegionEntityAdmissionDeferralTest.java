@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
@@ -55,8 +57,10 @@ import net.minecraft.world.level.entity.EntitySectionStorage;
 import net.minecraft.world.level.entity.LevelCallback;
 import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 import net.minecraft.world.level.entity.Visibility;
+import net.neoforged.neoforge.server.threading.NearbySpawnReservations;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
 import net.neoforged.neoforge.server.threading.RegionThreadingManager;
+import net.neoforged.neoforge.server.threading.region.DeferredEntityAdmissionScope;
 import net.neoforged.neoforge.server.threading.region.EntityIdentity;
 import net.neoforged.neoforge.server.threading.region.EntityIdentityLedger;
 import net.neoforged.neoforge.server.threading.region.RegionAwareEntityGetter;
@@ -65,6 +69,7 @@ import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionEntityTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
 import net.neoforged.neoforge.server.threading.region.RegionPolicy;
+import net.neoforged.neoforge.server.threading.region.RegionSpawnAdmissionBarrier;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
 import net.neoforged.neoforge.server.threading.region.RegionTickBarrier;
 import net.neoforged.neoforge.server.threading.region.RegionWorkerExecutor;
@@ -126,6 +131,8 @@ class RegionEntityAdmissionDeferralTest {
         final EntityIdentityLedger ledger = manager.identityLedger();
         final List<Boolean> addedToLevelOnWorker = new CopyOnWriteArrayList<>();
         final List<Boolean> acceptedOnWorker = new CopyOnWriteArrayList<>();
+        final List<DeferredEntityAdmissionScope.Result> admissionResults = new CopyOnWriteArrayList<>();
+        final List<Thread> receiptThreads = new CopyOnWriteArrayList<>();
         final List<Entity> spawned = new CopyOnWriteArrayList<>();
         final List<Throwable> failures = new CopyOnWriteArrayList<>();
         final TestEntity zombie = new TestEntity(level, self -> {
@@ -133,7 +140,15 @@ class RegionEntityAdmissionDeferralTest {
                 final TestEntity loot = new TestEntity(self.level());
                 loot.setPos(SECTION_POSITION.getX() + 0.5, SECTION_POSITION.getY(), SECTION_POSITION.getZ() + 0.5);
                 spawned.add(loot);
-                acceptedOnWorker.add(self.level().addFreshEntity(loot));
+                try (var admissionScope = DeferredEntityAdmissionScope.open()) {
+                    admissionScope.watch(loot, result -> {
+                        admissionResults.add(result);
+                        receiptThreads.add(Thread.currentThread());
+                    });
+                    acceptedOnWorker.add(self.level().addFreshEntity(loot));
+                    assertTrue(admissionResults.isEmpty(), "enqueue success must not resolve the admission");
+                }
+                assertTrue(admissionResults.isEmpty(), "a transferred receipt must outlive the worker body");
                 // The rest of the worker tick must see the entity as not in the level: the admission is
                 // "accepted for this tick", not "already in the world".
                 addedToLevelOnWorker.add(loot.isAddedToLevel());
@@ -150,6 +165,8 @@ class RegionEntityAdmissionDeferralTest {
 
         assertEquals(List.of(), failures, () -> "the worker admission was rejected: " + failures);
         assertEquals(List.of(true), acceptedOnWorker, "addFreshEntity must answer \"accepted for this tick\"");
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.ADMITTED), admissionResults);
+        assertEquals(List.of(this.ownerThread), receiptThreads, "receipt resolves on the actual server admission thread");
         assertEquals(List.of(false), addedToLevelOnWorker,
                 "the entity must not be in the level for the rest of the worker tick");
         final Entity loot = spawned.get(0);
@@ -233,11 +250,15 @@ class RegionEntityAdmissionDeferralTest {
         final ServerLevel level = this.mockLevel(manager);
         final List<String> attempts = new CopyOnWriteArrayList<>();
         final List<Entity> refused = new CopyOnWriteArrayList<>();
+        final List<DeferredEntityAdmissionScope.Result> results = new CopyOnWriteArrayList<>();
         final TestEntity zombie = new TestEntity(level, self -> {
             final TestEntity loot = new TestEntity(self.level());
             loot.setPos(FOREIGN_POSITION.getX() + 0.5, FOREIGN_POSITION.getY(), FOREIGN_POSITION.getZ() + 0.5);
             refused.add(loot);
-            recordAttempt(attempts, () -> self.level().addFreshEntity(loot));
+            try (var scope = DeferredEntityAdmissionScope.open()) {
+                scope.watch(loot, results::add);
+                recordAttempt(attempts, () -> self.level().addFreshEntity(loot));
+            }
         });
         admit(manager, zombie, SOURCE_POSITION);
         this.engine.addRegionEntity(zombie);
@@ -252,6 +273,8 @@ class RegionEntityAdmissionDeferralTest {
         final Entity loot = refused.get(0);
         assertTrue(loot.isAddedToLevel(), "the handed-off admission runs on the server thread after the batch");
         assertTrue(manager.isLoaded(loot.getUUID()), "the handed-off admission reaches the storage");
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.UNOBSERVED), results,
+                "another queue may still admit the entity; an untransferred receipt must never release its quota as cancelled");
         assertEquals(0L, this.engine.diagnostics().entityAddRejectedOnWorker(),
                 "a spawn outside the lease is handed off, not rejected");
         assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
@@ -518,6 +541,309 @@ class RegionEntityAdmissionDeferralTest {
         assertEquals(1L, this.engine.diagnostics().droppedDeferredEntityAdditions(),
                 "this legacy counter includes intentional vanilla cancellations, not just entity loss");
         assertTrue(this.engine.entityAdmissionDiagnostics().summaryLine().contains(pending.getUUID().toString()));
+    }
+
+    @Test
+    void orderedNativeWorkersSeeARealJoinCancellationBeforeCheckingTheNextCandidate() throws Exception {
+        this.installEngine(2, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity cancelled = new TestEntity(level);
+        final TestEntity next = new TestEntity(level);
+        final var entered = new CountDownLatch(2);
+        final var firstGate = new CountDownLatch(1);
+        final var nextGate = new CountDownLatch(1);
+        final var firstThread = new AtomicReference<Thread>();
+        final var nextThread = new AtomicReference<Thread>();
+        final var firstResult = new CompletableFuture<Boolean>();
+        final var nextResult = new CompletableFuture<Boolean>();
+        final var joinCalls = new java.util.concurrent.atomic.AtomicInteger();
+        final Consumer<net.neoforged.neoforge.event.entity.EntityJoinLevelEvent> listener = event -> {
+            if (event.getEntity() == cancelled || event.getEntity() == next) {
+                assertSame(this.ownerThread, Thread.currentThread());
+                joinCalls.incrementAndGet();
+                if (event.getEntity() == cancelled) event.setCanceled(true);
+            }
+        };
+        try (var admission = new RegionSpawnAdmissionBarrier(2)) {
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent.class, listener);
+            try {
+                assertTrue(this.workerPool().execute("ordered cancelled spawn", () -> orderedAdmissionWorker(admission,
+                        entered, firstGate, firstThread, () -> level.addFreshEntity(cancelled), firstResult)));
+                assertTrue(this.workerPool().execute("ordered next spawn", () -> orderedAdmissionWorker(admission,
+                        entered, nextGate, nextThread, () -> {
+                            assertEquals(1, joinCalls.get(), "earlier candidate has completed its real join before this check");
+                            if (manager.isLoaded(cancelled.getUUID())) return false;
+                            return level.addFreshEntity(next);
+                        }, nextResult)));
+                assertTrue(entered.await(5, TimeUnit.SECONDS));
+                firstGate.countDown();
+                awaitAdmissionRequest(firstThread);
+                nextGate.countDown();
+                awaitAdmissionRequest(nextThread);
+                assertTrue(admission.pump());
+                assertFalse(firstResult.get(5, TimeUnit.SECONDS));
+                assertTrue(nextResult.get(5, TimeUnit.SECONDS));
+                assertFalse(manager.isLoaded(cancelled.getUUID()));
+                assertTrue(manager.isLoaded(next.getUUID()));
+                assertEquals(2, joinCalls.get(), "there is no finalizer/join replay");
+            } finally {
+                firstGate.countDown();
+                nextGate.countDown();
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(listener);
+            }
+        }
+    }
+
+    private static void orderedAdmissionWorker(RegionSpawnAdmissionBarrier admission, CountDownLatch entered,
+            CountDownLatch gate, AtomicReference<Thread> thread, Supplier<Boolean> operation, CompletableFuture<Boolean> result) {
+        try (var worker = admission.enter()) {
+            entered.countDown();
+            assertTrue(gate.await(5, TimeUnit.SECONDS));
+            thread.set(Thread.currentThread());
+            result.complete(worker.call(operation));
+        } catch (Throwable failure) {
+            result.completeExceptionally(failure);
+        }
+    }
+
+    private static void awaitAdmissionRequest(AtomicReference<Thread> thread) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (thread.get() == null || thread.get().getState() != Thread.State.WAITING) {
+            assertTrue(System.nanoTime() < deadline, "worker did not queue its admission request");
+            LockSupport.parkNanos(100_000L);
+        }
+    }
+
+    @Test
+    void cancelledRealJoinReturnsTheReservedSlotOnlyAfterTheAdmissionResult() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity pending = new TestEntity(level);
+        final var type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(pending.getType());
+        final var limit = new NearbySpawnReservations.Limit(BlockPos.ZERO, 1, 16);
+        final var sample = new NearbySpawnReservations.Sample(pending.getUUID(), type, new net.minecraft.world.phys.AABB(BlockPos.ZERO));
+        final List<DeferredEntityAdmissionScope.Result> results = new ArrayList<>();
+        try (var ledger = new NearbySpawnReservations(List.of())) {
+            final var ticket = ledger.reserve(sample, limit).orElseThrow();
+            final Object batch;
+            try (var scope = DeferredEntityAdmissionScope.open()) {
+                scope.watch(pending, result -> {
+                    results.add(result);
+                    ticket.completeAdmission(result);
+                });
+                batch = deferredAdditionBatch(level, pending);
+            }
+            assertEquals(List.of(), results);
+            assertEquals(1, ledger.count(type, limit.area()), "queued addition still owns its reservation");
+            final java.util.concurrent.atomic.AtomicInteger joinCalls = new java.util.concurrent.atomic.AtomicInteger();
+            final Consumer<net.neoforged.neoforge.event.entity.EntityJoinLevelEvent> listener = event -> {
+                if (event.getEntity() == pending) {
+                    joinCalls.incrementAndGet();
+                    assertEquals(List.of(), results, "receipt is not resolved from an intermediate listener position");
+                    event.setCanceled(true);
+                }
+            };
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent.class, listener);
+            try {
+                this.applyDeferredAdditions(batch);
+            } finally {
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(listener);
+            }
+            assertEquals(1, joinCalls.get());
+            assertEquals(List.of(DeferredEntityAdmissionScope.Result.REJECTED), results);
+            assertEquals(0, ledger.count(type, limit.area()));
+            assertFalse(pending.isAddedToLevel());
+            assertTrue(ledger.reserve(new NearbySpawnReservations.Sample(java.util.UUID.randomUUID(), type,
+                    new net.minecraft.world.phys.AABB(BlockPos.ZERO)), limit).isPresent(), "a later candidate can use the returned slot");
+        }
+    }
+
+    @Test
+    void partialPassengerAdmissionResolvesEachMemberSeparately() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity vehicle = new TestEntity(level);
+        final TestEntity passenger = new TestEntity(level);
+        final Map<Entity, List<DeferredEntityAdmissionScope.Result>> results = new IdentityHashMap<>();
+        results.put(vehicle, new ArrayList<>());
+        results.put(passenger, new ArrayList<>());
+        final Object batch = newEntityBatch(level);
+        try (var scope = DeferredEntityAdmissionScope.open()) {
+            scope.watch(vehicle, results.get(vehicle)::add);
+            scope.watch(passenger, results.get(passenger)::add);
+            assertEquals(true, deferAddition(batch, vehicle, List.of(vehicle, passenger)));
+            assertEquals(true, deferAddition(batch, passenger, List.of(passenger)), "duplicate passenger has no second receipt");
+        }
+        final Consumer<net.neoforged.neoforge.event.entity.EntityJoinLevelEvent> listener = event -> {
+            if (event.getEntity() == passenger) event.setCanceled(true);
+        };
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent.class, listener);
+        try {
+            this.applyDeferredAdditions(batch);
+        } finally {
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(listener);
+        }
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.ADMITTED), results.get(vehicle));
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.REJECTED), results.get(passenger));
+        assertTrue(vehicle.isAddedToLevel());
+        assertFalse(passenger.isAddedToLevel());
+        assertEquals(1L, this.engine.entityAdmissionDiagnostics().count(RegionEntityAdmissionDiagnostics.Reason.PARTIAL_ADMISSION));
+    }
+
+    @Test
+    void admissionExceptionPreservesSuccessfulPrefixAndAbandonsTheUnattemptedSuffix() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final List<TestEntity> members = List.of(new TestEntity(level), new TestEntity(level), new TestEntity(level));
+        final List<List<DeferredEntityAdmissionScope.Result>> results = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        final Object batch = newEntityBatch(level);
+        try (var scope = DeferredEntityAdmissionScope.open()) {
+            for (int i = 0; i < members.size(); i++) scope.watch(members.get(i), results.get(i)::add);
+            assertEquals(true, deferAddition(batch, members.getFirst(), new ArrayList<>(members)));
+        }
+        final RuntimeException sentinel = new RuntimeException("join failure");
+        final Consumer<net.neoforged.neoforge.event.entity.EntityJoinLevelEvent> listener = event -> {
+            if (event.getEntity() == members.get(1)) throw sentinel;
+        };
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent.class, listener);
+        try {
+            assertThrows(IllegalStateException.class, () -> this.applyDeferredAdditions(batch));
+        } finally {
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(listener);
+        }
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.ADMITTED), results.get(0));
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.FAILED), results.get(1));
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.ABANDONED), results.get(2));
+        assertTrue(members.getFirst().isAddedToLevel());
+        assertFalse(members.get(2).isAddedToLevel());
+    }
+
+    @Test
+    void exceptionAfterStorageAdmissionIsReportedAsFailedRatherThanCancelled() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity pending = new TestEntity(level) {
+            @Override
+            public void onAddedToLevel() {
+                super.onAddedToLevel();
+                throw new IllegalStateException("failure after storage admission");
+            }
+        };
+        final List<DeferredEntityAdmissionScope.Result> results = new ArrayList<>();
+        try (var ledger = new NearbySpawnReservations(List.of())) {
+            final var type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(pending.getType());
+            final var limit = new NearbySpawnReservations.Limit(BlockPos.ZERO, 1, 16);
+            final var sample = new NearbySpawnReservations.Sample(pending.getUUID(), type, new net.minecraft.world.phys.AABB(BlockPos.ZERO));
+            final var ticket = ledger.reserve(sample, limit).orElseThrow();
+            final Object batch;
+            try (var scope = DeferredEntityAdmissionScope.open()) {
+                scope.watch(pending, result -> {
+                    results.add(result);
+                    ticket.completeAdmission(result);
+                });
+                batch = deferredAdditionBatch(level, pending);
+            }
+            assertThrows(IllegalStateException.class, () -> this.applyDeferredAdditions(batch));
+            assertTrue(pending.isAddedToLevel(), "an exception does not prove the entity stayed out of the world");
+            assertTrue(manager.isLoaded(pending.getUUID()));
+            assertEquals(List.of(DeferredEntityAdmissionScope.Result.FAILED), results,
+                    "an adapter must invalidate its accounting on FAILED, never release the slot as REJECTED");
+            assertThrows(IllegalStateException.class, () -> ledger.count(type, limit.area()), "unknown storage side effects invalidate the view");
+        }
+    }
+
+    @Test
+    void observerFailureDoesNotPreventRemainingAdmissionsOrCleanup() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity first = new TestEntity(level);
+        final TestEntity next = new TestEntity(level);
+        final List<DeferredEntityAdmissionScope.Result> results = new ArrayList<>();
+        final Object batch = newEntityBatch(level);
+        try (var scope = DeferredEntityAdmissionScope.open()) {
+            scope.watch(first, result -> {
+                throw new IllegalStateException("accounting failure");
+            });
+            scope.watch(next, results::add);
+            assertEquals(true, deferAddition(batch, first, List.of(first, next)));
+        }
+        assertThrows(IllegalStateException.class, () -> this.applyDeferredAdditions(batch));
+        assertTrue(first.isAddedToLevel());
+        assertTrue(next.isAddedToLevel(), "completion failure must not change the native admission sequence");
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.ADMITTED), results);
+        assertEquals(1L, this.engine.diagnostics().deferredEntityAdditionsApplied());
+    }
+
+    @Test
+    void invalidatedGraphRejectsAllReceiptsWithoutJoiningAnyMember() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity first = new TestEntity(level);
+        final TestEntity removed = new TestEntity(level);
+        final List<DeferredEntityAdmissionScope.Result> results = new ArrayList<>();
+        final Object batch = newEntityBatch(level);
+        try (var scope = DeferredEntityAdmissionScope.open()) {
+            scope.watch(first, results::add);
+            scope.watch(removed, results::add);
+            assertEquals(true, deferAddition(batch, first, List.of(first, removed)));
+        }
+        removed.discard();
+        this.applyDeferredAdditions(batch);
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.REJECTED, DeferredEntityAdmissionScope.Result.REJECTED), results);
+        assertFalse(first.isAddedToLevel());
+    }
+
+    @Test
+    void cancelledGraphSuffixCannotOrphanEarlierReceiptsDuringQueueValidation() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity first = new TestEntity(level);
+        final TestEntity cancelled = new TestEntity(level);
+        final List<DeferredEntityAdmissionScope.Result> firstResults = new ArrayList<>();
+        final List<DeferredEntityAdmissionScope.Result> cancelledResults = new ArrayList<>();
+        final Object batch = newEntityBatch(level);
+        try (var scope = DeferredEntityAdmissionScope.open()) {
+            scope.watch(first, firstResults::add);
+            scope.watch(cancelled, cancelledResults::add);
+            scope.rejectBeforeAdmission(cancelled);
+            final var failure = assertThrows(java.lang.reflect.InvocationTargetException.class,
+                    () -> deferAddition(batch, first, List.of(first, cancelled)));
+            assertTrue(failure.getCause() instanceof IllegalStateException);
+        }
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.UNOBSERVED), firstResults,
+                "no receipt may transfer before the full graph is validated");
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.REJECTED), cancelledResults);
+        this.applyDeferredAdditions(batch);
+        assertFalse(first.isAddedToLevel());
+        assertFalse(cancelled.isAddedToLevel());
+    }
+
+    @Test
+    void closedSeamAbandonsTransferredReceiptsExactlyOnce() throws ReflectiveOperationException {
+        this.installEngine(1, true);
+        final var manager = newGuardedManager(new TrackingRecorder());
+        final ServerLevel level = this.mockLevel(manager);
+        final TestEntity pending = new TestEntity(level);
+        final List<DeferredEntityAdmissionScope.Result> results = new ArrayList<>();
+        final Object batch;
+        try (var scope = DeferredEntityAdmissionScope.open()) {
+            scope.watch(pending, results::add);
+            batch = deferredAdditionBatch(level, pending);
+        }
+        assertEquals(List.of(), results);
+        closeDeferredAdditions(batch);
+        closeDeferredAdditions(batch);
+        this.applyDeferredAdditions(batch);
+        assertEquals(List.of(DeferredEntityAdmissionScope.Result.ABANDONED), results);
+        assertFalse(pending.isAddedToLevel());
     }
 
     @Test
@@ -894,7 +1220,7 @@ class RegionEntityAdmissionDeferralTest {
      * Real server entity used by the admission deferral tests. It is constructed on the thread that runs its
      * {@code tick()}, which is the region worker for a spawned entity.
      */
-    private static final class TestEntity extends Entity {
+    private static class TestEntity extends Entity {
         private final Consumer<TestEntity> tickAction;
 
         private TestEntity(Level level) {

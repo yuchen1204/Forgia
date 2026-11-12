@@ -5,9 +5,13 @@
 
 package net.neoforged.neoforge.unittest;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Map;
+import java.util.Set;
+import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickAdmission.Decision;
 import net.neoforged.neoforge.server.threading.region.RegionTickCompatibility;
 import org.junit.jupiter.api.Test;
 
@@ -66,6 +70,41 @@ class RegionTickCompatibilityTest {
         // It still starts neighbor updates, so it needs the same interior position as the furnace family.
         assertTrue(RegionTickCompatibility.isRegionSafeBlockEntityType("minecraft:hopper"));
         assertTrue(RegionTickCompatibility.requiresInteriorRegion("minecraft:hopper"));
+    }
+
+    @Test
+    void onlyAuditedFurnaceBodiesUseBoundaryPropagationAdmission() {
+        for (final String type : new String[] { "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker" }) {
+            assertEquals(Decision.ADMITTED_WITH_BORDER_UPDATES, RegionTickCompatibility.decideBlockEntityTick(type, false, true), type);
+            assertEquals(Decision.NOT_INTERIOR_CHUNK, RegionTickCompatibility.decideBlockEntityTick(type, false, false), type);
+            assertEquals(Decision.ADMITTED, RegionTickCompatibility.decideBlockEntityTick(type, true, true), type);
+        }
+        assertEquals(Decision.NOT_INTERIOR_CHUNK, RegionTickCompatibility.decideBlockEntityTick("minecraft:hopper", false, true));
+        assertEquals(Decision.TYPE_NOT_DECLARED, RegionTickCompatibility.decideBlockEntityTick("minecraft:beacon", false, true));
+    }
+
+    @Test
+    void packAdmissionDoesNotAuthorizeForeignContainerAccess() {
+        final Set<String> original = RegionTickCompatibility.admittedBlockEntityTypes();
+        try {
+            RegionTickCompatibility.declareAdmittedBlockEntityTypes(Set.of("example:machine"));
+            assertEquals(Decision.ADMITTED, RegionTickCompatibility.decideBlockEntityTick("example:machine", true, true));
+            assertEquals(Decision.NOT_INTERIOR_CHUNK, RegionTickCompatibility.decideBlockEntityTick("example:machine", false, true));
+        } finally {
+            RegionTickCompatibility.declareAdmittedBlockEntityTypes(original);
+        }
+    }
+
+    @Test
+    void serverThreadDeclarationOverridesBoundaryFurnaceAdmission() {
+        final Map<String, String> original = RegionTickCompatibility.serverThreadOnlyTypes();
+        try {
+            RegionTickCompatibility.declareServerThreadOnlyTypes(Map.of("minecraft:furnace", "custom fuel callback"));
+            assertEquals(Decision.TYPE_NOT_DECLARED, RegionTickCompatibility.decideBlockEntityTick("minecraft:furnace", false, true));
+            assertEquals(Decision.TYPE_NOT_DECLARED, RegionTickCompatibility.decideBlockEntityTick("minecraft:furnace", true, true));
+        } finally {
+            RegionTickCompatibility.declareServerThreadOnlyTypes(original);
+        }
     }
 
     @Test

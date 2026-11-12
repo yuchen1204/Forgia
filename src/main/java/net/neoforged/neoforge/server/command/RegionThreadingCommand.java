@@ -70,6 +70,23 @@ final class RegionThreadingCommand {
         net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(source.getServer()).ifPresent(api -> {
             source.sendSuccess(() -> Component.literal("Parallel API v" + api.apiMajorVersion() + " (experimental): " + api.capabilities()
                     + "; preparation registrations do not override compatibility restrictions"), false);
+            final var operations = api.blockEntities().counters();
+            source.sendSuccess(() -> Component.literal("Block entity operations: accepted=" + operations.accepted()
+                    + ", completed=" + operations.completed() + ", skipped=" + operations.skipped()
+                    + ", cancelled=" + operations.cancelled() + ", rejected=" + operations.rejected()
+                    + ", failed=" + operations.failed() + ", callback=" + millis(operations.callbackNanos())
+                    + ", reasons=" + operations.reasons()), false);
+            for (final var scheduled : api.scheduledTicks()) {
+                source.sendSuccess(() -> Component.literal("Scheduled " + scheduled.phase() + ": phases=" + scheduled.phases()
+                        + ", collected=" + scheduled.collected() + ", admitted=" + scheduled.admitted()
+                        + ", nativeCompleted=" + scheduled.workerCompletions() + ", serialCompleted=" + scheduled.serialCompletions()
+                        + ", failed=" + scheduled.failedCallbacks() + ", skipped=" + scheduled.skippedCallbacks()
+                        + ", serialReasons=" + scheduled.serialReasons() + ", prepare=" + millis(scheduled.timings().preparationNanos())
+                        + ", dispatchAwait=" + millis(scheduled.timings().dispatchAwaitNanos())
+                        + ", completion=" + millis(scheduled.timings().completionNanos())
+                        + ", p50/p95/p99=" + millis(scheduled.latency().p50Nanos()) + "/" + millis(scheduled.latency().p95Nanos())
+                        + "/" + millis(scheduled.latency().p99Nanos()) + " (last " + scheduled.latency().samples() + " nonempty phases)"), false);
+            }
             for (final var adapter : api.adapters()) {
                 source.sendSuccess(() -> Component.literal("  " + adapter.id() + ": ready=" + adapter.preparedUnits()
                         + ", serial=" + adapter.serialUnits() + ", serialPlans=" + adapter.serialPlans()
@@ -77,6 +94,14 @@ final class RegionThreadingCommand {
                         + adapter.lastSerialReason().map(reason -> ", lastSerialReason=" + reason).orElse("")), false);
             }
         });
+        if (net.neoforged.neoforge.server.threading.RegionThreadingManager.currentOrNull() instanceof net.neoforged.neoforge.server.threading.region.RegionThreadingEngine engine) {
+            source.sendSuccess(() -> Component.literal("Block entity fallback admission dispatches: " + engine.blockEntityFallbackAdmissionCounts()
+                    + "; counts are ticker dispatches, not milliseconds; nonTickingChunks counts skipped chunk visits"), false);
+            source.sendSuccess(() -> Component.literal("Boundary furnace ticker invocations completed on native workers: "
+                    + engine.boundaryBlockEntityTicksOnWorkers() + "; requires border propagation and loaded neighbors; hoppers retain interior admission"), false);
+            source.sendSuccess(() -> Component.literal("Ordered spawn finalization: transactions=" + engine.orderedSpawnTransactions()
+                    + ", serverMs=" + millis(engine.orderedSpawnServiceNanos()) + " (selection on workers; finalization on server)"), false);
+        }
         return 1;
     }
 
@@ -149,7 +174,7 @@ final class RegionThreadingCommand {
         statusLine("Block entities", ChatFormatting.GOLD)
                 .add("workers", diagnostics.blockEntityTicksOnWorkers(), ChatFormatting.GREEN)
                 .nonZero("fallback", diagnostics.fallbackBlockEntityTicks(), ChatFormatting.YELLOW)
-                .nonZero("noTickers", diagnostics.nonTickingBlockEntityChunks(), ChatFormatting.GRAY)
+                .nonZero("nonTickingChunks", diagnostics.nonTickingBlockEntityChunks(), ChatFormatting.GRAY)
                 .nonZero("staleSnapshots", diagnostics.staleBlockEntityChunkSnapshots(), ChatFormatting.RED)
                 .send(source);
 
@@ -453,10 +478,9 @@ final class RegionThreadingCommand {
     /**
      * {@return the line that names the block-entity types the pack admitted and the types that lose the slice}
      * <p>
-     * The block-entity slice only widens by naming types, and the engine cannot guess which type a pack spends
-     * its ticks in. This line is the triage list: {@code declared} counts the pack's admissions, and
-     * {@code mostFrequentUndeclared} names the types whose tickers are still on the server thread, largest
-     * first, so a pack author knows exactly which entry to add to {@code admit_block_entities}.
+     * Reports types encountered while constructing admission snapshots. The cache means these counts are
+     * snapshot decisions, not per-tick fallback frequencies or ticker cost. A pack must audit a type's actual
+     * world/network interactions before admitting it; this ranking is not a worker-safety certificate.
      */
     private static String blockEntityAdmissionLine() {
         final List<Map.Entry<String, Long>> undeclared = RegionTickCompatibility.undeclaredTypes(10);
@@ -470,7 +494,7 @@ final class RegionThreadingCommand {
             }
             line.append(undeclared.get(i).getKey()).append('=').append(undeclared.get(i).getValue());
         }
-        return line.append(']').toString();
+        return line.append("]; counts=snapshotAdmissionDecisions, not tick frequency or CPU time").toString();
     }
 
     private static String blockEntityAttributionLine() {

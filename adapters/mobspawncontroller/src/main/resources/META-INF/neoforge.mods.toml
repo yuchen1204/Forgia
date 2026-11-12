@@ -4,9 +4,9 @@ license="LGPL-2.1-only"
 
 [[mods]]
 modId="forgia_mobspawncontroller"
-version="0.2.0"
+version="0.3.0"
 displayName="Forgia MobSpawnController Adapter"
-description='''Experimental, pinned adapter. Frozen rules for parallel natural spawning; world-dependent rules fall back before execution. Requires Forgia parallel API v1.'''
+description='''Experimental, pinned adapter for Forgia. Parallel candidate selection with ordered native finalization and admission for nearby/chance rules. Unsupported settings retain the complete native serial plan. Requires Forgia's ordered spawn finalization capability.'''
 
 [[mixins]]
 config="forgia_mobspawncontroller.mixins.json"
@@ -14,7 +14,7 @@ config="forgia_mobspawncontroller.mixins.json"
 [[dependencies.forgia_mobspawncontroller]]
 modId="neoforge"
 type="required"
-versionRange="[21.1.80,)"
+versionRange="[21.1.249,)"
 ordering="AFTER"
 side="BOTH"
 

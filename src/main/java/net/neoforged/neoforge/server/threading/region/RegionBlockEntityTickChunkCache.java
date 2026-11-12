@@ -30,7 +30,7 @@ import org.jetbrains.annotations.Nullable;
  * {@code ServerLevel.unload(LevelChunk)} runs, and it drops the snapshot. Chunk churn therefore cannot grow
  * the snapshot set, and {@link #liveSnapshotCount()} makes that bound observable.
  * <p>
- * The snapshot is reused only while {@link #isCurrent(RegionLayout, long)} holds. It is invalidated at
+ * The snapshot is reused only while {@link #isCurrent(RegionLayout, long, boolean)} holds. It is invalidated at
  * every point that can change its content:
  * <ul>
  * <li>a ticker was added, removed or rebound: {@code LevelChunk.updateBlockEntityTicker} and
@@ -38,7 +38,8 @@ import org.jetbrains.annotations.Nullable;
  * {@code LevelChunk.clearAllBlockEntities} bumps it and releases the snapshot;</li>
  * <li>the chunk unloaded, was replaced or lost its block entities: the same release in
  * {@code LevelChunk.clearAllBlockEntities};</li>
- * <li>the region layout or its fixed size changed: the layout instance is part of the validity check.</li>
+ * <li>the region layout or its fixed size changed: the layout instance is part of the validity check;</li>
+ * <li>border propagation changed: boundary furnace admission requires that protocol.</li>
  * </ul>
  * A region merge, a split or an empty retirement does not invalidate the snapshot: the snapshot holds no
  * region state, and the batch resolves the region of every chunk from the regionizer.
@@ -62,20 +63,22 @@ public final class RegionBlockEntityTickChunkCache {
     private final RegionLayout layout;
     private final long tickerRevision;
     private final boolean interiorChunk;
+    private final boolean borderUpdatesEnabled;
     private final List<RegionBlockEntityTickAdmission> admissions;
     private final boolean allAdmitted;
     private boolean released;
 
     private RegionBlockEntityTickChunkCache(RegionLayout layout, long tickerRevision, boolean interiorChunk,
-            List<RegionBlockEntityTickAdmission> admissions) {
+            boolean borderUpdatesEnabled, List<RegionBlockEntityTickAdmission> admissions) {
         this.layout = layout;
         this.tickerRevision = tickerRevision;
         this.interiorChunk = interiorChunk;
+        this.borderUpdatesEnabled = borderUpdatesEnabled;
         this.admissions = admissions;
         boolean admitted = true;
         for (final RegionBlockEntityTickAdmission admission : admissions) {
             // A capture that is already stale, or a declaration that does not admit the type or the chunk,
-            // keeps the whole region of the chunk on the server thread, exactly like a collected ticker the
+            // keeps the whole chunk on the server thread, exactly like a collected ticker the
             // declaration does not admit.
             admitted &= admission.isAdmitted() && admission.isCurrent();
         }
@@ -90,12 +93,13 @@ public final class RegionBlockEntityTickChunkCache {
      * The chunk's own ticker revision is read first, so a ticker added while the snapshot is built makes the
      * snapshot stale instead of silently missing from it.
      *
-     * @param level         the level the tickers belong to
-     * @param chunk         the chunk whose tickers the snapshot holds
-     * @param layout        the region layout the snapshot is built for
-     * @param interiorChunk whether the chunk is an interior chunk of its region
+     * @param level                the level the tickers belong to
+     * @param chunk                the chunk whose tickers the snapshot holds
+     * @param layout               the region layout the snapshot is built for
+     * @param interiorChunk        whether the chunk is an interior chunk of its region
+     * @param borderUpdatesEnabled whether the engine can capture cross-region neighbor/comparator effects
      */
-    static RegionBlockEntityTickChunkCache build(ServerLevel level, LevelChunk chunk, RegionLayout layout, boolean interiorChunk) {
+    static RegionBlockEntityTickChunkCache build(ServerLevel level, LevelChunk chunk, RegionLayout layout, boolean interiorChunk, boolean borderUpdatesEnabled) {
         final long tickerRevision = chunk.blockEntityTickerRevision();
         final List<TickingBlockEntity> tickers = new ArrayList<>(chunk.blockEntityTickers());
         tickers.sort(Comparator.comparingLong(LevelChunk::blockEntityTickerSequence));
@@ -108,10 +112,10 @@ public final class RegionBlockEntityTickChunkCache {
                     ticker.getPos(),
                     type,
                     LevelChunk.captureBlockEntityTickBinding(ticker, level),
-                    RegionTickCompatibility.decideBlockEntityTick(type, interiorChunk),
+                    RegionTickCompatibility.decideBlockEntityTick(type, interiorChunk, borderUpdatesEnabled),
                     LevelChunk.blockEntityTickerSequence(ticker)));
         }
-        return new RegionBlockEntityTickChunkCache(layout, tickerRevision, interiorChunk, List.copyOf(admissions));
+        return new RegionBlockEntityTickChunkCache(layout, tickerRevision, interiorChunk, borderUpdatesEnabled, List.copyOf(admissions));
     }
 
     /**
@@ -126,6 +130,11 @@ public final class RegionBlockEntityTickChunkCache {
      */
     public boolean isCurrent(RegionLayout layout, long tickerRevision) {
         return this.layout == layout && this.tickerRevision == tickerRevision;
+    }
+
+    /** Includes the propagation policy that authorized boundary tickers; chunk availability is never cached. */
+    public boolean isCurrent(RegionLayout layout, long tickerRevision, boolean borderUpdatesEnabled) {
+        return this.isCurrent(layout, tickerRevision) && this.borderUpdatesEnabled == borderUpdatesEnabled;
     }
 
     /** {@return the admissions of this chunk, ordered like the level's own ticker list} */
@@ -152,8 +161,8 @@ public final class RegionBlockEntityTickChunkCache {
     /**
      * {@return true when every ticker of the chunk is admitted to a worker tick and its capture is current}
      * <p>
-     * The batch keeps a whole region on the server thread when one of its chunks is not fully admitted, so the
-     * conservative whole-region fallback needs one boolean per chunk instead of a pass over the tickers.
+     * A chunk with an unproven ticker keeps all its tickers on the server thread, so the conservative
+     * whole-chunk fallback needs one boolean per chunk instead of a pass over the tickers.
      */
     public boolean allAdmitted() {
         return this.allAdmitted;

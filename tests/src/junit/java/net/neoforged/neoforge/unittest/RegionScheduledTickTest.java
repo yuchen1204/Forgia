@@ -96,8 +96,8 @@ class RegionScheduledTickTest {
 
     @Test
     void configuredScheduledTickWorkersFallBackToTheVanillaInlinePath() {
-        // The production constructor never enables the mechanics seam, so a configured worker slice must
-        // report the request but keep the phase on the server thread.
+        // Production preflights the complete phase. An unknown callback retains the unchanged live
+        // serial queue even though the bounded lamp profile is available for other phases.
         this.engine = new RegionThreadingEngine(2, false, false, false, false, true, RegionPolicy.FIXED_3X3);
         RegionThreadingManager.install(this.engine);
         final ServerLevel level = mockLevel();
@@ -110,7 +110,7 @@ class RegionScheduledTickTest {
         final List<BlockPos> ran = new CopyOnWriteArrayList<>();
 
         final LevelTicks.TickDispatcher<Block> dispatcher = RegionThreadingHooks.scheduledTickDispatcher(level, ScheduledTickPhase.BLOCK, PARKING_BARRIER);
-        assertNull(dispatcher, "unclassified production scheduled callbacks must stay on the vanilla inline path");
+        assertNotNull(dispatcher, "production must classify the selected phase before draining its live queue");
         ticks.tick(10L, 65536, (tickPos, tickType) -> {
             threads.add(Thread.currentThread().getName());
             ran.add(tickPos);
@@ -119,9 +119,11 @@ class RegionScheduledTickTest {
         assertEquals(List.of(pos), ran);
         assertEquals(List.of(Thread.currentThread().getName()), threads);
         assertTrue(this.engine.diagnostics().scheduledTickWorkerExecutionEnabled(), "the requested configuration must stay visible");
-        assertFalse(this.engine.diagnostics().scheduledTickWorkerDispatchEffective(), "the effective dispatch must stay gated");
+        assertTrue(this.engine.diagnostics().scheduledTickWorkerDispatchEffective(), "the bounded production profile is available");
+        assertEquals(1L, this.engine.scheduledTickStatus().getFirst().serialReasons()
+                .get(net.neoforged.neoforge.server.threading.api.ScheduledTickStatus.SerialReason.UNCLASSIFIED_CALLBACK));
         assertEquals(0L, this.engine.diagnostics().scheduledTicksOnWorkers());
-        assertEquals(0L, this.engine.diagnostics().fallbackScheduledTicks());
+        assertEquals(1L, this.engine.diagnostics().fallbackScheduledTicks());
     }
 
     @Test

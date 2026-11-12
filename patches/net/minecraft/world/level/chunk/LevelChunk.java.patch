@@ -511,7 +511,7 @@
          BlockState blockstate = p_156407_.getBlockState();
          BlockEntityTicker<T> blockentityticker = blockstate.getTicker(this.level, (BlockEntityType<T>)p_156407_.getType());
          if (blockentityticker == null) {
-@@ -656,33 +_,175 @@
+@@ -656,33 +_,180 @@
                      }
                  );
          }
@@ -548,6 +548,11 @@
 +            return bound.captureBinding(level);
 +        }
 +        return new net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickAdmission.Binding(ticker, () -> true);
++    }
++
++    /** Neo: exact source identity for a captured bound ticker; a same-position replacement is not its source. */
++    public static boolean isBlockEntityTickSource(TickingBlockEntity ticker, BlockEntity source) {
++        return ticker instanceof LevelChunk.BoundTickingBlockEntity<?> bound && bound.blockEntity == source;
 +    }
 +
 +    /**

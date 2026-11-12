@@ -60,12 +60,18 @@ class ParallelApiTest {
         });
         final var service = ParallelApi.forServer(this.server).orElseThrow();
         assertEquals(1, service.apiMajorVersion());
+        assertTrue(service.capabilities().contains(ParallelApi.Capability.BLOCK_ENTITY_OPERATIONS));
+        assertTrue(service.capabilities().contains(ParallelApi.Capability.SCHEDULED_TICK_DIAGNOSTICS));
+        assertTrue(service.scheduledTicks().isEmpty());
+        assertEquals(0L, service.blockEntities().counters().accepted());
         assertTrue(service.capabilities().contains(ParallelApi.Capability.NATURAL_SPAWN_PREPARATION));
         assertFalse(service.regionThreadingInstalled(), "API also exists in serial mode");
         assertEquals(ParallelApi.Phase.QUIESCENT_SERVER, service.currentPhase());
         ParallelAdapterRuntime.close(this.server);
         assertTrue(ParallelApi.forServer(this.server).isEmpty());
         assertThrows(IllegalStateException.class, service::capabilities);
+        assertThrows(IllegalStateException.class, service::blockEntities);
+        assertThrows(IllegalStateException.class, service::scheduledTicks);
         ParallelAdapterRuntime.initialize(this.server, registrar -> {});
         assertNotSame(service, ParallelApi.forServer(this.server).orElseThrow());
     }
@@ -198,6 +204,41 @@ class ParallelApiTest {
         final var status = ParallelApi.forServer(this.server).orElseThrow().adapters().getFirst();
         assertEquals(1, status.serialPlans());
         assertEquals(0, status.serialUnits());
+    }
+
+    @Test
+    void orderedFinalizationIsPlanWideAndCannotBeRequestedAfterPlanConstruction() {
+        this.setup();
+        ParallelAdapterRuntime.initialize(this.server, registrar -> {
+            assertTrue(registrar.capabilities().contains(ParallelApi.Capability.ORDERED_SPAWN_FINALIZATION));
+            assertTrue(ParallelApi.forServer(this.server).isEmpty(), "capability negotiation must not publish a partial registration");
+            registrar.register(1, KEY, new ParallelApi.NaturalSpawnPreparation<String>() {
+                @Override
+                public ParallelApi.Preparation<String> preparePlan(ParallelApi.SpawnPlan plan) {
+                    return new ParallelApi.Ready<>("frozen", true);
+                }
+
+                @Override
+                public ParallelApi.Preparation<String> prepare(ParallelApi.SpawnUnit unit) {
+                    throw new AssertionError("plan-frozen provider must not be prepared twice");
+                }
+            });
+        });
+        assertTrue(ParallelApi.forServer(this.server).orElseThrow().capabilities().contains(ParallelApi.Capability.ORDERED_SPAWN_FINALIZATION));
+        assertTrue(ParallelAdapterRuntime.preparePlan(this.level).orderedFinalization());
+        ParallelAdapterRuntime.close(this.server);
+        ParallelAdapterRuntime.initialize(this.server, registrar -> registrar.register(1, KEY, unit -> new ParallelApi.Ready<>("late", true)));
+        assertFalse(ParallelAdapterRuntime.preparePlan(this.level).orderedFinalization());
+        assertThrows(IllegalStateException.class, () -> ParallelAdapterRuntime.prepare(this.level, 0, 0));
+    }
+
+    @Test
+    void ordinaryServerExecutionCannotBorrowAnOrderedPreparedContinuation() {
+        this.setup();
+        final var calls = new java.util.concurrent.atomic.AtomicInteger();
+        final var continuation = ParallelAdapterRuntime.captureOrderedSpawnContext(this.level, calls::incrementAndGet);
+        assertThrows(IllegalStateException.class, continuation::get);
+        assertEquals(0, calls.get());
     }
 
     @Test

@@ -162,6 +162,66 @@ class RegionBlockEntityTickChunkIterationTest {
     }
 
     @Test
+    void boundaryFurnaceSnapshotIsInvalidatedWhenPropagationPolicyChanges() throws ReflectiveOperationException {
+        this.installEngine(RegionPolicy.FIXED_3X3);
+        final ServerLevel level = mockLevel();
+        this.engine.addRegionSection(level, -1, 1);
+        final LevelChunk chunk = this.loadChunk(level, BOUNDARY_CHUNK);
+        this.loadedChunks.add(BOUNDARY_CHUNK.toLong());
+        this.tickableChunks.add(BOUNDARY_CHUNK.toLong());
+        this.registerTicker(chunk, this.position(BOUNDARY_CHUNK, 0), "minecraft:furnace");
+        this.readyBoundaryNeighbors(level, chunk);
+
+        this.engine.setBorderUpdatesEnabledForTesting(false);
+        final RegionBlockEntityTickAdmission first = this.snapshotAdmissions(level).getFirst();
+        assertEquals(RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK, first.decision());
+        final RegionBlockEntityTickChunkCache withoutPropagation = chunk.blockEntityTickAdmissionCache();
+
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final RegionBlockEntityTickAdmission second = this.snapshotAdmissions(level).getFirst();
+        assertEquals(RegionBlockEntityTickAdmission.Decision.ADMITTED_WITH_BORDER_UPDATES, second.decision());
+        assertNotSame(first, second);
+        assertFalse(withoutPropagation.isCurrent(RegionLayout.FIXED_3X3, chunk.blockEntityTickerRevision(), true));
+        assertSame(second, this.snapshotAdmissions(level).getFirst());
+        this.collectAndExecute(level);
+        assertEquals(1L, this.engine.boundaryBlockEntityTicksOnWorkers());
+
+        this.engine.setBorderUpdatesEnabledForTesting(false);
+        assertEquals(RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK, this.snapshotAdmissions(level).getFirst().decision());
+        this.collectAndExecute(level);
+        assertEquals(1L, this.engine.boundaryBlockEntityTicksOnWorkers());
+        assertEquals(1L, this.engine.diagnostics().fallbackBlockEntityTicks());
+    }
+
+    @Test
+    void cachedBoundaryAdmissionDoesNotCacheNeighborAvailability() throws ReflectiveOperationException {
+        this.installEngine(RegionPolicy.FIXED_3X3);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        this.engine.addRegionSection(level, -1, 1);
+        final LevelChunk chunk = this.loadChunk(level, BOUNDARY_CHUNK);
+        this.loadedChunks.add(BOUNDARY_CHUNK.toLong());
+        this.tickableChunks.add(BOUNDARY_CHUNK.toLong());
+        this.registerTicker(chunk, this.position(BOUNDARY_CHUNK, 0), "minecraft:blast_furnace");
+        this.readyBoundaryNeighbors(level, chunk);
+        this.collectAndExecute(level);
+        final RegionBlockEntityTickChunkCache snapshot = chunk.blockEntityTickAdmissionCache();
+        assertEquals(1L, this.engine.boundaryBlockEntityTicksOnWorkers());
+
+        when(level.getChunkSource().getChunkNow(-1, 1)).thenReturn(null);
+        this.collectAndExecute(level);
+        assertSame(snapshot, chunk.blockEntityTickAdmissionCache(), "the declaration stays valid; availability must be rechecked separately");
+        assertEquals(1L, this.engine.boundaryBlockEntityTicksOnWorkers());
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("unloadedNeighborhood"));
+        assertEquals(1L, this.engine.diagnostics().fallbackBlockEntityTicks());
+
+        this.readyBoundaryNeighbors(level, chunk);
+        this.collectAndExecute(level);
+        assertSame(snapshot, chunk.blockEntityTickAdmissionCache());
+        assertEquals(2L, this.engine.boundaryBlockEntityTicksOnWorkers());
+    }
+
+    @Test
     void theSnapshotOfAnUnchangedChunkIsReusedAcrossTicks() throws ReflectiveOperationException {
         this.installEngine(RegionPolicy.FIXED_3X3);
         final ServerLevel level = mockLevel();
@@ -449,6 +509,12 @@ class RegionBlockEntityTickChunkIterationTest {
         plan.executeAndAwait();
     }
 
+    private List<RegionBlockEntityTickAdmission> snapshotAdmissions(ServerLevel level) {
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        plan.collect();
+        return plan.collectedChunks().stream().flatMap(chunk -> chunk.admissions().stream()).toList();
+    }
+
     private List<RegionBlockEntityTickAdmission> collectedAdmissions(ServerLevel level) {
         final RegionBlockEntityTickPlan plan = this.plan(level);
         plan.collect();
@@ -535,6 +601,14 @@ class RegionBlockEntityTickChunkIterationTest {
             }
         }
         return true;
+    }
+
+    private void readyBoundaryNeighbors(ServerLevel level, LevelChunk own) {
+        final LevelChunk neighbor = mock(LevelChunk.class);
+        when(neighbor.isLoaded()).thenReturn(true);
+        final ServerChunkCache chunks = level.getChunkSource();
+        doAnswer(call -> (int) call.getArgument(0) == own.getPos().x && (int) call.getArgument(1) == own.getPos().z ? own : neighbor)
+                .when(chunks).getChunkNow(anyInt(), anyInt());
     }
 
     private void installEngine(RegionPolicy policy) {

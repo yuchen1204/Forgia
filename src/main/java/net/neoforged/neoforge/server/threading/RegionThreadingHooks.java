@@ -1197,6 +1197,24 @@ public final class RegionThreadingHooks {
         }
     }
 
+    public static void spawnAdmissionCheckpoint() {
+        final var threading = RegionThreadingManager.currentOrNull();
+        if (threading instanceof RegionThreadingEngine engine) engine.spawnAdmissionCheckpoint();
+    }
+
+    public record SpawnFinalization(@org.jetbrains.annotations.Nullable net.minecraft.world.entity.SpawnGroupData groupData,
+            boolean stopCategory, boolean stopGroup) {}
+
+    @org.jetbrains.annotations.Nullable
+    public static SpawnFinalization orderedSpawnFinalization(ServerLevel level, net.minecraft.world.entity.Mob mob,
+            net.minecraft.world.entity.SpawnGroupData groupData, net.minecraft.world.level.chunk.ChunkAccess chunk,
+            net.minecraft.world.level.NaturalSpawner.AfterSpawnCallback afterSpawn, int total, int groupCount) {
+        final var threading = RegionThreadingManager.currentOrNull();
+        if (!(threading instanceof RegionThreadingEngine engine) || !engine.isOrderedSpawnWorker()) return null;
+        return engine.orderedSpawnTransaction(level, () -> net.minecraft.world.level.NaturalSpawner.finalizeSpawnForRegion(
+                level, mob, groupData, chunk, afterSpawn, total, groupCount));
+    }
+
     /**
      * Defers the admission of one naturally spawned entity to the barrier of the spawn batch.
      * <p>

@@ -40,6 +40,7 @@ import net.minecraft.world.entity.animal.Bee;
 import net.minecraft.world.entity.animal.Cow;
 import net.minecraft.world.entity.animal.Fox;
 import net.minecraft.world.entity.animal.IronGolem;
+import net.minecraft.world.entity.monster.Shulker;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.raid.Raider;
@@ -87,6 +88,163 @@ class RegionEntityTickPolicyTest {
         RegionThreadingManager.clear();
         this.tickList.clear();
         this.engine = null;
+    }
+
+    @Test
+    void projectileFamiliesAndTheirRidingVehiclesStayOutOfWorkerAdmission() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        this.engine.addRegionSection(level, 0, 0);
+        for (final Class<? extends Entity> type : List.of(
+                net.minecraft.world.entity.projectile.Arrow.class,
+                net.minecraft.world.entity.projectile.ThrownTrident.class,
+                net.minecraft.world.entity.projectile.SmallFireball.class,
+                net.minecraft.world.entity.projectile.ThrownPotion.class,
+                net.minecraft.world.entity.projectile.LlamaSpit.class,
+                net.minecraft.world.entity.projectile.Snowball.class,
+                net.minecraft.world.entity.projectile.ThrownEgg.class)) {
+            final Entity projectile = this.entity(type, level, new BlockPos(1, 64, 1));
+            final var plan = this.engine.beginPerEntityTickPlan(level, entity -> true, PARKING_BARRIER);
+            assertFalse(plan.accept(projectile), type.getSimpleName());
+            final Cow vehicle = this.entity(Cow.class, level, new BlockPos(1, 64, 1));
+            when(vehicle.getPassengers()).thenReturn(List.of(projectile));
+            assertFalse(plan.accept(vehicle), "a vehicle cannot bypass its projectile passenger's restriction");
+            verify(projectile, never()).tick();
+        }
+        final Cow ordinary = this.entity(Cow.class, level, new BlockPos(1, 64, 1));
+        assertTrue(this.engine.beginPerEntityTickPlan(level, entity -> true, PARKING_BARRIER).accept(ordinary));
+        assertEquals(14L, this.engine.diagnostics().serverThreadOnlyEntityTicksByReason().get("projectile_impact_callbacks"));
+    }
+
+    @Test
+    void realShulkerLidPushRunsOnceOnTheServerAndKeepsOtherMobsOnWorkers() throws Throwable {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Thread serverThread = Thread.currentThread();
+        when(level.getServer().isSameThread()).thenAnswer(invocation -> Thread.currentThread() == serverThread);
+        this.engine.addRegionSection(level, 2, 0);
+        this.engine.addRegionSection(level, 3, 0);
+        final var shulker = this.entity(Shulker.class, level, new BlockPos(47, 64, 1));
+        final var target = new PeekMoveTarget(level);
+        target.setPos(48.0, 65.0, 1.5);
+        target.onAddedToLevel();
+        final var peek = this.realPeek(shulker, level, target);
+        doAnswer(invocation -> {
+            peek.invoke(shulker);
+            return null;
+        }).when(shulker).tick();
+        final var cow = this.entity(Cow.class, level, new BlockPos(49, 64, 1));
+        final List<Thread> otherThreads = new CopyOnWriteArrayList<>();
+        doAnswer(invocation -> {
+            otherThreads.add(Thread.currentThread());
+            return null;
+        }).when(cow).tick();
+        this.tickList.add(shulker);
+        this.tickList.add(cow);
+        this.plan(level).executeAndAwait();
+        assertEquals(1, target.moves.get());
+        assertEquals(net.minecraft.world.entity.MoverType.SHULKER, target.lastMover);
+        assertEquals(66.0, target.getY(), 1.0E-6, "lid pushing is preserved, not skipped");
+        assertEquals(List.of(serverThread), target.threads);
+        verify(shulker, times(1)).tick();
+        verify(cow, times(1)).tick();
+        assertEquals(1, otherThreads.size());
+        assertTrue(otherThreads.getFirst().getName().startsWith("NeoForge Region Worker"));
+        assertEquals(0, this.engine.diagnostics().ownershipViolationCount());
+        assertEquals(Map.of("shulker_peek_push", 1L), this.engine.diagnostics().serverThreadOnlyEntityTicksByReason());
+        final var subtype = this.entity(ModdedShulker.class, level, new BlockPos(47, 64, 1));
+        assertFalse(this.engine.beginPerEntityTickPlan(level, entity -> true, PARKING_BARRIER).accept(subtype),
+                "a modded Shulker subclass inherits the pre-body restriction");
+    }
+
+    @Test
+    void foreignEntityMoveGuardStillRejectsTheSameRealPeekOperationFromAWorker() throws Throwable {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        this.engine.addRegionSection(level, 2, 0);
+        final var shulker = this.entity(Shulker.class, level, new BlockPos(47, 64, 1));
+        final var target = new PeekMoveTarget(level);
+        target.setPos(48.0, 65.0, 1.5);
+        target.onAddedToLevel();
+        final var peek = this.realPeek(shulker, level, target);
+        final var workerActor = this.entity(Cow.class, level, new BlockPos(47, 64, 1));
+        doAnswer(invocation -> {
+            peek.invoke(shulker);
+            return null;
+        }).when(workerActor).tick();
+        this.tickList.add(workerActor);
+        final List<Throwable> failures = new CopyOnWriteArrayList<>();
+        this.engine.setEntityTickFailureObserverForTesting((entity, failure) -> failures.add(failure));
+        this.plan(level).executeAndAwait();
+        assertEquals(65.0, target.getY(), 1.0E-6);
+        assertEquals(1, failures.size());
+        assertTrue(failures.getFirst().getMessage().contains("Entity.move"));
+        assertEquals(1, this.engine.diagnostics().ownershipViolationCount(), "the fix must not loosen foreign movement guards");
+    }
+
+    private java.lang.invoke.MethodHandle realPeek(Shulker shulker, ServerLevel level, PeekMoveTarget target) throws ReflectiveOperationException {
+        when(level.getChunkSource().getChunk(anyInt(), anyInt(), any(ChunkStatus.class), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(mock(LevelChunk.class));
+        when(shulker.getScale()).thenReturn(1.0F);
+        when(shulker.getAttachFace()).thenReturn(net.minecraft.core.Direction.DOWN);
+        when(shulker.getX()).thenReturn(47.5);
+        when(shulker.getY()).thenReturn(64.0);
+        when(shulker.getZ()).thenReturn(1.5);
+        final var current = Shulker.class.getDeclaredField("currentPeekAmount");
+        current.setAccessible(true);
+        current.setFloat(shulker, 1.0F);
+        final var previous = Shulker.class.getDeclaredField("currentPeekAmountO");
+        previous.setAccessible(true);
+        previous.setFloat(shulker, 0.0F);
+        doAnswer(invocation -> {
+            final net.minecraft.world.phys.AABB area = invocation.getArgument(1);
+            final java.util.function.Predicate<Entity> filter = invocation.getArgument(2);
+            assertTrue(area.intersects(target.getBoundingBox()), "fixture must intersect the actual opening lid");
+            assertTrue(filter.test(target));
+            return List.of(target);
+        }).when(level).getEntities(any(Entity.class), any(net.minecraft.world.phys.AABB.class), any(java.util.function.Predicate.class));
+        return java.lang.invoke.MethodHandles.privateLookupIn(Shulker.class, java.lang.invoke.MethodHandles.lookup())
+                .findVirtual(Shulker.class, "onPeekAmountChange", java.lang.invoke.MethodType.methodType(void.class));
+    }
+
+    private static class ModdedShulker extends Shulker {
+        private ModdedShulker(net.minecraft.world.entity.EntityType<? extends Shulker> type, Level level) {
+            super(type, level);
+        }
+    }
+
+    /** Real Entity.move guard and position update; bypass unrelated collision simulation inside the fixture. */
+    private static final class PeekMoveTarget extends Entity {
+        private final AtomicInteger moves = new AtomicInteger();
+        private final List<Thread> threads = new CopyOnWriteArrayList<>();
+        private net.minecraft.world.entity.MoverType lastMover;
+
+        private PeekMoveTarget(Level level) {
+            super(net.minecraft.world.entity.EntityType.ITEM, level);
+        }
+
+        @Override
+        public void move(net.minecraft.world.entity.MoverType mover, net.minecraft.world.phys.Vec3 delta) {
+            this.moves.incrementAndGet();
+            this.threads.add(Thread.currentThread());
+            this.lastMover = mover;
+            final boolean previous = this.noPhysics;
+            this.noPhysics = true;
+            try {
+                super.move(mover, delta);
+            } finally {
+                this.noPhysics = previous;
+            }
+        }
+
+        @Override
+        protected void defineSynchedData(net.minecraft.network.syncher.SynchedEntityData.Builder builder) {}
+
+        @Override
+        protected void readAdditionalSaveData(net.minecraft.nbt.CompoundTag tag) {}
+
+        @Override
+        protected void addAdditionalSaveData(net.minecraft.nbt.CompoundTag tag) {}
     }
 
     @Test

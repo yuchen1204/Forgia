@@ -462,6 +462,34 @@ class RegionSelfDrivenEntityTickTest {
     }
 
     @Test
+    void attackingAShulkerInTheSameRegionStillDefersItsCompleteDamageCallback() {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final Mob attacker = this.entity(Mob.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final var victim = this.entity(net.minecraft.world.entity.monster.Shulker.class, level,
+                new AtomicReference<>(new BlockPos(2, 64, 1)));
+        final Thread main = Thread.currentThread();
+        final AtomicInteger callbacks = new AtomicInteger();
+        doAnswer(call -> {
+            assertEquals(main, Thread.currentThread());
+            RegionThreadingHooks.assertServerEntityStorageAccess(victim, "shulker damage teleport");
+            callbacks.incrementAndGet();
+            return true;
+        }).when(attacker).doHurtTarget(victim);
+        doAnswer(call -> {
+            assertTrue(RegionThreadingHooks.deferMeleeAttack(attacker, victim));
+            assertEquals(0, callbacks.get());
+            return null;
+        }).when(attacker).tick();
+        this.tickList.addAll(List.of(attacker, victim));
+        this.plan(level).executeAndAwait();
+        assertEquals(1, callbacks.get());
+        verify(attacker, times(1)).doHurtTarget(victim);
+        assertEquals(1L, this.engine.meleeAttackCounters().applied());
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
     void sameRegionTargetOutsideTheTickGroupIsAlsoHandedOff() {
         this.installEngine();
         final ServerLevel level = this.mockLevel();
@@ -1528,6 +1556,7 @@ class RegionSelfDrivenEntityTickTest {
         final Field declarations = policy.getClass().getDeclaredField("declarations");
         declarations.setAccessible(true);
         ((Map<Class<?>, String>) declarations.get(policy)).remove(net.minecraft.world.entity.projectile.ThrownEnderpearl.class);
+        ((Map<Class<?>, String>) declarations.get(policy)).remove(net.minecraft.world.entity.projectile.Projectile.class);
         final ServerLevel level = this.mockLevel();
         final Thread main = Thread.currentThread();
         when(level.getServer().isSameThread()).thenAnswer(call -> Thread.currentThread() == main);
@@ -1613,6 +1642,94 @@ class RegionSelfDrivenEntityTickTest {
         assertEquals(1, applied.get());
         verify(rocket, times(1)).tick();
         assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void llamaSpitRealImpactCannotDamageAForeignVictimOnAWorker() throws ReflectiveOperationException {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final var spit = this.entity(net.minecraft.world.entity.projectile.LlamaSpit.class, level,
+                new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity owner = this.entity(LivingEntity.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final Entity victim = this.entity(level, new BlockPos(49, 64, 1));
+        when(spit.getOwner()).thenReturn(owner);
+        final var sources = mock(net.minecraft.world.damagesource.DamageSources.class);
+        final var damage = mock(net.minecraft.world.damagesource.DamageSource.class);
+        when(spit.damageSources()).thenReturn(sources);
+        when(sources.spit(spit, owner)).thenReturn(damage);
+        final Thread main = Thread.currentThread();
+        final AtomicInteger calls = new AtomicInteger();
+        doAnswer(call -> {
+            RegionThreadingHooks.assertServerEntityStorageAccess(victim, "projectile foreign victim damage");
+            assertEquals(main, Thread.currentThread());
+            calls.incrementAndGet();
+            return false;
+        }).when(victim).hurt(damage, 1F);
+        final Method impact = net.minecraft.world.entity.projectile.LlamaSpit.class.getDeclaredMethod("onHitEntity", net.minecraft.world.phys.EntityHitResult.class);
+        impact.setAccessible(true);
+        final var hit = new net.minecraft.world.phys.EntityHitResult(victim, net.minecraft.world.phys.Vec3.ZERO);
+        doCallRealMethod().when(spit);
+        impact.invoke(spit, hit);
+        doAnswer(call -> {
+            impact.invoke(spit, hit);
+            return null;
+        }).when(spit).tick();
+        this.tickList.add(spit);
+        this.plan(level).executeAndAwait();
+        assertEquals(1, calls.get());
+        verify(spit, times(1)).tick();
+        verify(victim, times(1)).hurt(damage, 1F);
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void shulkerBulletImpactAndSecondaryOwnerEffectsStayOnTheServerThread() throws ReflectiveOperationException {
+        this.installEngine();
+        final ServerLevel level = this.mockLevel();
+        final var bullet = this.entity(net.minecraft.world.entity.projectile.ShulkerBullet.class, level,
+                new AtomicReference<>(new BlockPos(1, 64, 1)));
+        final LivingEntity owner = this.entity(net.minecraft.world.entity.monster.Shulker.class, level,
+                new AtomicReference<>(new BlockPos(49, 64, 1)));
+        final Entity victim = this.entity(level, new BlockPos(2, 64, 1));
+        when(bullet.getOwner()).thenReturn(owner);
+        final var sources = mock(net.minecraft.world.damagesource.DamageSources.class);
+        when(bullet.damageSources()).thenReturn(sources);
+        final var damage = mock(net.minecraft.world.damagesource.DamageSource.class);
+        when(sources.mobProjectile(bullet, owner)).thenReturn(damage);
+        final Thread main = Thread.currentThread();
+        final AtomicInteger effects = new AtomicInteger();
+        doAnswer(call -> {
+            assertEquals(main, Thread.currentThread());
+            // A hurt listener/enchantment can mutate the owner (the live report teleported the Shulker).
+            RegionThreadingHooks.assertServerEntityStorageAccess(owner, "Entity.setPosRaw");
+            effects.incrementAndGet();
+            return true;
+        }).when(victim).hurt(damage, 4F);
+        final Method hit = net.minecraft.world.entity.projectile.ShulkerBullet.class.getDeclaredMethod("onHitEntity", net.minecraft.world.phys.EntityHitResult.class);
+        hit.setAccessible(true);
+        final var impact = new net.minecraft.world.phys.EntityHitResult(victim, net.minecraft.world.phys.Vec3.ZERO);
+        doCallRealMethod().when(bullet);
+        hit.invoke(bullet, impact);
+        doAnswer(call -> {
+            hit.invoke(bullet, impact);
+            return null;
+        }).when(bullet).tick();
+        this.tickList.add(bullet);
+        this.plan(level).executeAndAwait();
+        assertEquals(1, effects.get());
+        verify(victim, times(1)).hurt(damage, 4F);
+        verify(bullet, times(1)).tick();
+        assertEquals(0L, this.engine.diagnostics().ownershipViolationCount());
+        assertEquals(1L, this.engine.diagnostics().serverThreadOnlyEntityTicksByReason()
+                .get("shulker_bullet_damage_and_enchantment_effects"));
+        final var subclass = this.entity(ShulkerBulletSubclass.class, level, new AtomicReference<>(new BlockPos(1, 64, 1)));
+        assertFalse(this.engine.beginPerEntityTickPlan(level, entity -> true, PARKING_BARRIER).accept(subclass));
+    }
+
+    private static class ShulkerBulletSubclass extends net.minecraft.world.entity.projectile.ShulkerBullet {
+        ShulkerBulletSubclass(Level level) {
+            super(net.minecraft.world.entity.EntityType.SHULKER_BULLET, level);
+        }
     }
 
     @Test

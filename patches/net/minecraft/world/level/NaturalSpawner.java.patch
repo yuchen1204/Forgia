@@ -53,8 +53,11 @@
      }
  
      static Biome getRoughBiome(BlockPos p_47096_, ChunkAccess p_47097_) {
-@@ -107,9 +_,21 @@
+@@ -105,11 +_,24 @@
+         p_47030_.getProfiler().push("spawner");
+ 
          for (MobCategory mobcategory : SPAWNING_CATEGORIES) {
++            net.neoforged.neoforge.server.threading.RegionThreadingHooks.spawnAdmissionCheckpoint();
              if ((p_47033_ || !mobcategory.isFriendly())
                  && (p_47034_ || mobcategory.isFriendly())
 -                && (p_47035_ || !mobcategory.isPersistent())
@@ -78,7 +81,31 @@
              }
          }
  
-@@ -197,9 +_,14 @@
+@@ -159,6 +_,7 @@
+                 int l1 = 0;
+ 
+                 for (int i2 = 0; i2 < k1; i2++) {
++                    net.neoforged.neoforge.server.threading.RegionThreadingHooks.spawnAdmissionCheckpoint();
+                     l += p_47040_.random.nextInt(6) - p_47040_.random.nextInt(6);
+                     i1 += p_47040_.random.nextInt(6) - p_47040_.random.nextInt(6);
+                     blockpos$mutableblockpos.set(l, i, i1);
+@@ -192,14 +_,30 @@
+ 
+                                 mob.moveTo(d0, (double)i, d1, p_47040_.random.nextFloat() * 360.0F, 0.0F);
+                                 if (isValidPositionForMob(p_47040_, mob, d2)) {
++                                    final var ordered = net.neoforged.neoforge.server.threading.RegionThreadingHooks.orderedSpawnFinalization(
++                                        p_47040_, mob, spawngroupdata, p_47041_, p_47044_, j + 1, l1 + 1
++                                    );
++                                    if (ordered != null) {
++                                        spawngroupdata = ordered.groupData();
++                                        j++;
++                                        l1++;
++                                        if (ordered.stopCategory()) return;
++                                        if (ordered.stopGroup()) break;
++                                        continue;
++                                    }
+                                     spawngroupdata = mob.finalizeSpawn(
+                                         p_47040_, p_47040_.getCurrentDifficultyAt(mob.blockPosition()), MobSpawnType.NATURAL, spawngroupdata
                                      );
                                      j++;
                                      l1++;
@@ -95,6 +122,28 @@
                                          return;
                                      }
  
+@@ -215,6 +_,21 @@
+         }
+     }
+ 
++    /** Complete native candidate continuation, executed only while the other spawn workers are parked. */
++    public static net.neoforged.neoforge.server.threading.RegionThreadingHooks.SpawnFinalization finalizeSpawnForRegion(
++        ServerLevel level, Mob mob, @Nullable SpawnGroupData data, ChunkAccess chunk, AfterSpawnCallback afterSpawn, int total, int groupCount
++    ) {
++        if (!(net.neoforged.neoforge.server.threading.RegionThreadingManager.currentOrNull()
++            instanceof net.neoforged.neoforge.server.threading.region.RegionThreadingEngine engine) || !engine.isOrderedSpawnServerPhase(level)) {
++            throw new IllegalStateException("Ordered finalization requires parked spawn workers");
++        }
++        final SpawnGroupData result = mob.finalizeSpawn(level, level.getCurrentDifficultyAt(mob.blockPosition()), MobSpawnType.NATURAL, data);
++        level.addFreshEntityWithPassengers(mob);
++        afterSpawn.run(mob, chunk);
++        final boolean stop = total >= net.neoforged.neoforge.event.EventHooks.getMaxSpawnClusterSize(mob);
++        return new net.neoforged.neoforge.server.threading.RegionThreadingHooks.SpawnFinalization(result, stop, !stop && mob.isMaxGroupSizeReached(groupCount));
++    }
++
+     private static boolean isRightDistanceToPlayerAndSpawnPoint(ServerLevel p_47025_, ChunkAccess p_47026_, BlockPos.MutableBlockPos p_47027_, double p_47028_) {
+         if (p_47028_ <= 576.0) {
+             return false;
 @@ -222,8 +_,20 @@
              return p_47025_.getSharedSpawnPos()
                      .closerToCenterThan(new Vec3((double)p_47027_.getX() + 0.5, (double)p_47027_.getY(), (double)p_47027_.getZ() + 0.5), 24.0)

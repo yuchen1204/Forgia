@@ -145,6 +145,10 @@ public final class RegionSpawnPlan {
         this.chunks.add(new RegionSpawnChunk(chunkPos.toLong(), chunk, prepared));
     }
 
+    public boolean orderedFinalization() {
+        return this.preparedPlan.orderedFinalization();
+    }
+
     /**
      * {@return the chunks this plan hands to the batch, in collection order}
      * <p>

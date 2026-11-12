@@ -28,8 +28,12 @@ abstract class RuleSnapshotMixin {
     @Final
     private static Map<ResourceLocation, Map<ResourceLocation, Double>> ATTRIBUTE_OVERRIDES;
 
+    @Shadow
+    @Final
+    private static Map<ResourceLocation, Object> NATURAL_SPAWN_SETTINGS;
+
     @Unique
-    private static final String forgia$verifiedSnapshotHooks = "snapshot-v1";
+    private static final String forgia$verifiedSnapshotHooks = "snapshot-v2";
 
     @Inject(method = "getAllowed", at = @At("HEAD"), cancellable = true, require = 1, allow = 1, remap = false)
     private static void forgia$allowed(ResourceLocation id, MobSpawnType type, CallbackInfoReturnable<Boolean> callback) {
@@ -44,9 +48,24 @@ abstract class RuleSnapshotMixin {
     @Inject(method = "isNaturalSpawnAllowed", at = @At("HEAD"), cancellable = true, require = 1, allow = 1, remap = false)
     private static void forgia$noWorldRules(@Coerce Object entity, @Coerce Object level, MobSpawnType type,
             CallbackInfoReturnable<Boolean> callback) {
-        // A Ready unit was checked before any body effects. Its snapshot has no applicable natural-world
-        // filters; retain the original no-settings early return without reading a hot-reloaded live table.
-        if (RuleSnapshots.current().isPresent()) callback.setReturnValue(true);
+        final var prepared = RuleSnapshots.current();
+        if (prepared.isEmpty()) return;
+        if (prepared.get().natural().isEmpty()) {
+            callback.setReturnValue(true);
+            return;
+        }
+        final Object settings = prepared.get().natural().get(net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+                .getKey(((net.minecraft.world.entity.Entity) entity).getType()));
+        if (settings == null || !RuleSnapshots.appliesTo(settings, type)) {
+            callback.setReturnValue(true);
+        } else if (!((net.minecraft.world.level.ServerLevelAccessor) level).getLevel().getServer().isSameThread()) {
+            throw new IllegalStateException("MobSpawnController world rules require ordered server finalization");
+        }
+    }
+
+    @Redirect(method = "isNaturalSpawnAllowed", at = @At(value = "FIELD", target = "Lcom/mobspawncontroller/command/MobSpawnManager;NATURAL_SPAWN_SETTINGS:Ljava/util/Map;"), require = 1, allow = 1, remap = false)
+    private static Map<ResourceLocation, Object> forgia$preparedNaturalRules() {
+        return RuleSnapshots.current().map(RuleSnapshots.Snapshot::natural).orElse(NATURAL_SPAWN_SETTINGS);
     }
 
     @Redirect(method = "applyAttributeOverrides", at = @At(value = "FIELD", target = "Lcom/mobspawncontroller/command/MobSpawnManager;ATTRIBUTE_OVERRIDES:Ljava/util/Map;"), require = 1, allow = 1, remap = false)

@@ -7,7 +7,7 @@ plugins {
 evaluationDependsOn(':neoforge')
 apply plugin: net.neoforged.neodev.NeoDevExtraPlugin
 
-version = '0.2.0'
+version = '0.3.0'
 base.archivesName = 'forgia-mobspawncontroller-adapter'
 java.withSourcesJar()
 
@@ -82,7 +82,21 @@ junitTest {
     useJUnitPlatform()
     classpath = sourceSets.junit.output + sourceSets.junit.runtimeClasspath
     testClassesDirs = sourceSets.junit.output.classesDirs
+    // Mixin implementation classes are runtime resources, never JUnit discovery candidates.
+    exclude '**/tests/hooks/**'
     systemProperty 'mixin.debug.countInjections', 'true'
+    // The integration suite exercises the opt-in ordered mode; production defaults to the serial protection.
+    systemProperty 'forgia.mscOrderedSpawning', providers.gradleProperty('mscOrderedSpawning').getOrElse('true')
+    def unknownHookControl = providers.gradleProperty('mscUnverifiedHookControl').map { it.toBoolean() }.getOrElse(false)
+    systemProperty 'forgia.msc.testUnverifiedHook', unknownHookControl.toString()
+    if (unknownHookControl) {
+        if (providers.gradleProperty('mscAdapterNegativeControl').map { it.toBoolean() }.getOrElse(false)) {
+            throw new GradleException('Unknown-hook and adapter-removal controls must run in separate test forks')
+        }
+        filter { includeTestsMatching '*UnknownNativeHookIntegrationTest' }
+    } else {
+        filter { excludeTestsMatching '*UnknownNativeHookIntegrationTest' }
+    }
     if (providers.gradleProperty('mscAdapterNegativeControl').map { it.toBoolean() }.getOrElse(false)) {
         filter { includeTestsMatching '*EmptyStructureSelectorsIntegrationTest' }
     }

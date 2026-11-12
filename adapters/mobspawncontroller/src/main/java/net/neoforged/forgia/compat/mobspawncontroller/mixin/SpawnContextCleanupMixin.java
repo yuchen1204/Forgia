@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.Unique;
 @Mixin(value = NaturalSpawner.class, remap = false)
 abstract class SpawnContextCleanupMixin {
     @Unique
-    private static final String forgia$spawnContextCleanup = "finally-v1";
+    private static final String forgia$spawnContextCleanup = "finally-v2";
 
     @Unique
     private static final MethodHandle forgia$context = forgia$bindContext();
@@ -31,6 +31,23 @@ abstract class SpawnContextCleanupMixin {
             return MethodHandles.privateLookupIn(boost, MethodHandles.lookup()).findStaticGetter(boost, "ACTIVE_LEVEL", ThreadLocal.class);
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Missing MobSpawnController spawn context", failure);
+        }
+    }
+
+    @WrapMethod(method = "finalizeSpawnForRegion", remap = false, require = 1, allow = 1)
+    @SuppressWarnings("unchecked")
+    private static net.neoforged.neoforge.server.threading.RegionThreadingHooks.SpawnFinalization forgia$orderedContext(
+            ServerLevel level, net.minecraft.world.entity.Mob mob, net.minecraft.world.entity.SpawnGroupData data,
+            net.minecraft.world.level.chunk.ChunkAccess chunk, NaturalSpawner.AfterSpawnCallback afterSpawn,
+            int total, int groupCount, Operation<net.neoforged.neoforge.server.threading.RegionThreadingHooks.SpawnFinalization> original) throws Throwable {
+        final ThreadLocal<ServerLevel> context = (ThreadLocal<ServerLevel>) forgia$context.invokeExact();
+        final ServerLevel previous = context.get();
+        context.set(level);
+        try {
+            return original.call(level, mob, data, chunk, afterSpawn, total, groupCount);
+        } finally {
+            if (previous == null) context.remove();
+            else context.set(previous);
         }
     }
 

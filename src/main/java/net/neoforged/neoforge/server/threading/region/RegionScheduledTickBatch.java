@@ -41,6 +41,7 @@ import org.jetbrains.annotations.Nullable;
 @ApiStatus.Internal
 final class RegionScheduledTickBatch<T> extends RegionTickBatch {
     private final ScheduledTickPhase phase;
+    private final boolean legacyTestRandom;
     private final List<Group<T>> groups = new ArrayList<>();
     private final Set<RegionState> leasedRegions = Collections.newSetFromMap(new IdentityHashMap<>());
     private final List<ScheduledTick<T>> fallbackTicks = new ArrayList<>();
@@ -48,9 +49,10 @@ final class RegionScheduledTickBatch<T> extends RegionTickBatch {
     @Nullable
     private RandomSource seedSource;
 
-    RegionScheduledTickBatch(ServerLevel level, ScheduledTickPhase phase, int blockUpdateEntryBudget) {
+    RegionScheduledTickBatch(ServerLevel level, ScheduledTickPhase phase, int blockUpdateEntryBudget, boolean legacyTestRandom) {
         super(level, RegionTickSlice.SCHEDULED_TICK, blockUpdateEntryBudget);
         this.phase = phase;
+        this.legacyTestRandom = legacyTestRandom;
     }
 
     ScheduledTickPhase phase() {
@@ -108,7 +110,12 @@ final class RegionScheduledTickBatch<T> extends RegionTickBatch {
     /**
      * {@return the next per-group random seed, derived on the server thread from one batch seed}
      */
-    long nextRandomSeed() {
+    long nextRandomSeed(RegionCoordinate coordinate) {
+        if (!this.legacyTestRandom) {
+            // The production lamp profile consumes no RNG. Deriving its unused group source must not
+            // advance the shared vanilla stream merely because the phase was dispatched.
+            return this.groupRandomSeed(coordinate) ^ this.phase.ordinal();
+        }
         if (this.seedSource == null) {
             // One draw from the level random per batch keeps the impact on the vanilla random sequence
             // minimal while every group still gets a distinct, deterministic seed.

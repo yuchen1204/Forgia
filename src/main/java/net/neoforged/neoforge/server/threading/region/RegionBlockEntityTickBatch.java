@@ -15,11 +15,16 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityInLevelCallback;
+import net.neoforged.neoforge.server.threading.BlockEntityOperationRuntime.Request;
+import net.neoforged.neoforge.server.threading.api.BlockEntityOperations.Reason;
+import net.neoforged.neoforge.server.threading.api.BlockEntityOperations.State;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * One level block-entity tick that is executed on region workers.
@@ -75,6 +80,52 @@ final class RegionBlockEntityTickBatch extends RegionTickBatch {
      */
     private final java.util.concurrent.atomic.AtomicLong firstGroupStartNanos = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong lastGroupEndNanos = new java.util.concurrent.atomic.AtomicLong();
+
+    private static final int MAX_OPERATIONS = 4096;
+    private final List<OperationEntry> operations = new ArrayList<>();
+    @Nullable
+    private Reason operationsClosed;
+
+    record OperationEntry(Request<?> request, Supplier<Reason> lifecycle) {}
+
+    boolean queueOperation(Request<?> request, Supplier<Reason> lifecycle) {
+        synchronized (this.operations) {
+            if (this.operationsClosed != null || this.isComplete()) {
+                request.retire(State.REJECTED, this.operationsClosed == null ? Reason.BATCH_CLOSED : this.operationsClosed);
+                return false;
+            }
+            if (this.operations.size() >= MAX_OPERATIONS) {
+                request.retire(State.REJECTED, Reason.QUEUE_FULL);
+                return false;
+            }
+            request.accepted();
+            this.operations.add(new OperationEntry(request, lifecycle));
+            return true;
+        }
+    }
+
+    int pendingOperationCount() {
+        synchronized (this.operations) {
+            return this.operations.size();
+        }
+    }
+
+    List<OperationEntry> drainOperations() {
+        synchronized (this.operations) {
+            this.operationsClosed = Reason.BATCH_CLOSED;
+            final List<OperationEntry> ready = List.copyOf(this.operations);
+            this.operations.clear();
+            return ready;
+        }
+    }
+
+    void closeOperations(Reason reason) {
+        synchronized (this.operations) {
+            this.operationsClosed = reason;
+            for (final OperationEntry entry : this.operations) entry.request().retire(State.SKIPPED, reason);
+            this.operations.clear();
+        }
+    }
 
     RegionBlockEntityTickBatch(ServerLevel level, int blockUpdateEntryBudget) {
         super(level, RegionTickSlice.BLOCK_ENTITY_TICK, blockUpdateEntryBudget);
@@ -232,7 +283,9 @@ final class RegionBlockEntityTickBatch extends RegionTickBatch {
 
     @Override
     long pendingDeferredWork() {
-        return super.pendingDeferredWork() + this.deferredRemovals.pendingCount();
+        synchronized (this.operations) {
+            return super.pendingDeferredWork() + this.deferredRemovals.pendingCount() + this.operations.size();
+        }
     }
 
     /**

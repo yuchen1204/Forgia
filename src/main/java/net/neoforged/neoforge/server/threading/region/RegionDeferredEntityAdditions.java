@@ -5,13 +5,16 @@
 
 package net.neoforged.neoforge.server.threading.region;
 
+import com.mojang.logging.LogUtils;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Deferred admissions of one tick batch.
@@ -35,7 +38,33 @@ final class RegionDeferredEntityAdditions {
      * One deferred admission: the entity the worker added and the as-yet unrecorded members of its riding graph,
      * in the order the barrier admits them. The root is kept for diagnostics; the graph is what the barrier admits.
      */
-    record DeferredEntityAddition(Entity root, List<Entity> graph) {}
+    record DeferredEntityAddition(Entity root, List<Entity> graph, Map<Entity, DeferredEntityAdmissionScope.Receipt> receipts) {
+        @Nullable
+        Throwable complete(Entity member, DeferredEntityAdmissionScope.Result result) {
+            final var receipt = this.receipts.get(member);
+            if (receipt == null) return null;
+            try {
+                receipt.complete(result);
+                return null;
+            } catch (Throwable failure) {
+                return failure;
+            }
+        }
+
+        @Nullable
+        Throwable completeRemaining(DeferredEntityAdmissionScope.Result result) {
+            if (this.receipts.isEmpty()) return null;
+            Throwable failure = null;
+            for (final Entity member : this.graph) {
+                final Throwable next = this.complete(member, result);
+                if (next != null) {
+                    if (failure == null) failure = next;
+                    else if (failure != next) failure.addSuppressed(next);
+                }
+            }
+            return failure;
+        }
+    }
 
     /**
      * One drain of the deferred admissions of a batch: the admissions to apply and the number of records the
@@ -91,7 +120,21 @@ final class RegionDeferredEntityAdditions {
             // Replaying the passenger twice makes the barrier reject the entire second record as already added,
             // losing the vehicle. The earlier record owns the shared members; only new members belong here.
             final List<Entity> unrecorded = graph.stream().filter(member -> !this.recordedMembers.contains(member)).toList();
-            this.additions.add(new DeferredEntityAddition(entity, unrecorded));
+            Map<Entity, DeferredEntityAdmissionScope.Receipt> receipts = null;
+            if (DeferredEntityAdmissionScope.isActive()) {
+                // Validate the entire graph before transferring any receipt; a bad suffix must not orphan
+                // earlier tickets when no admission record can be queued.
+                for (final Entity member : unrecorded) DeferredEntityAdmissionScope.validateCapture(member);
+                for (final Entity member : unrecorded) {
+                    final var receipt = DeferredEntityAdmissionScope.capture(member);
+                    if (receipt != null) {
+                        if (receipts == null) receipts = new IdentityHashMap<>();
+                        receipts.put(member, receipt);
+                    }
+                }
+            }
+            this.additions.add(new DeferredEntityAddition(entity, unrecorded,
+                    receipts == null ? Map.of() : Collections.unmodifiableMap(receipts)));
             this.recordedMembers.addAll(unrecorded);
             this.recordedCount++;
             return true;
@@ -108,10 +151,17 @@ final class RegionDeferredEntityAdditions {
      * @return the released admissions and the records this batch accepted
      */
     Drain close() {
+        final Drain released;
         synchronized (this.additions) {
             this.seamClosed = true;
-            return this.drainLocked();
+            released = this.drainLocked();
         }
+        // Completion may acquire adapter accounting locks. Never run it under the deferred queue lock.
+        for (final DeferredEntityAddition addition : released.additions()) {
+            final Throwable failure = addition.completeRemaining(DeferredEntityAdmissionScope.Result.ABANDONED);
+            if (failure != null) LogUtils.getLogger().error("Deferred admission receipt failed during shutdown cleanup", failure);
+        }
+        return released;
     }
 
     /** {@return the number of admissions that still wait for the barrier} */

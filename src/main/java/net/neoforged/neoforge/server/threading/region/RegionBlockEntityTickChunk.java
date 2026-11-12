@@ -59,6 +59,12 @@ public record RegionBlockEntityTickChunk(
         return this.chunk.isLoaded() && this.cache != null && this.cache.isCurrent(layout, this.chunk.blockEntityTickerRevision());
     }
 
+    /** Revalidates the propagation policy as well as the captured chunk/ticker identity. */
+    public boolean isCurrent(RegionLayout layout, boolean borderUpdatesEnabled) {
+        return this.isCurrent(layout)
+                && (this.chunk == null || this.cache == null || this.cache.isCurrent(layout, this.chunk.blockEntityTickerRevision(), borderUpdatesEnabled));
+    }
+
     /** {@return the region coordinate of this chunk under {@code layout}} */
     RegionCoordinate region(RegionLayout layout, ServerLevel level) {
         return layout.regionAt(level, ChunkPos.getX(this.chunkKey), ChunkPos.getZ(this.chunkKey));

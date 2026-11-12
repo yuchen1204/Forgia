@@ -117,6 +117,26 @@ class RegionTaskBatchTest {
     }
 
     @Test
+    void rejectedInlineFailureStillSubmitsTheRemainingGroupsAndClosesOpenSetup() throws ReflectiveOperationException {
+        final var batch = new RegionTaskBatch();
+        final var failure = new IllegalStateException("inline failure");
+        final var runs = new java.util.concurrent.atomic.AtomicInteger();
+        batch.add("failing inline", () -> {
+            throw failure;
+        });
+        batch.add("remaining lease", runs::incrementAndGet);
+        final var barrier = RegionTaskBatch.Barrier.open();
+        batch.submitOpen((description, task) -> false, barrier);
+        final var setup = RegionTaskBatch.Barrier.class.getDeclaredMethod("setupComplete");
+        setup.setAccessible(true);
+        setup.invoke(barrier);
+        assertTrue(barrier.isComplete());
+        assertEquals(1, runs.get(), "inline failure must not strand later groups' leases");
+        assertEquals(2, barrier.rejectedCount());
+        assertSame(failure, assertThrows(IllegalStateException.class, barrier::throwIfFailed));
+    }
+
+    @Test
     void rejectedGroupsRunOnTheSubmittingThread() {
         final Set<String> threads = ConcurrentHashMap.newKeySet();
         final RegionTaskBatch batch = new RegionTaskBatch();

@@ -103,7 +103,7 @@ final class RegionSpawnBatch extends RegionTickBatch {
         this.leasedRegions.add(region);
         final Group group = new Group(this, region, chunks, state, neighborhood);
         this.groups.add(group);
-        this.addTask("spawn " + region.coordinate(), this.groupWork(workFactory.apply(group)));
+        this.addTask("spawn " + region.coordinate(), this.groupWork(workFactory.apply(group), region::clearRunning));
         return group;
     }
 

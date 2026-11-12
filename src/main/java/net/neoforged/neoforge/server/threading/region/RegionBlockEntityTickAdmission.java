@@ -61,7 +61,7 @@ public record RegionBlockEntityTickAdmission(
 
     /** {@return true when the compatibility declaration admits this ticker to a region worker} */
     public boolean isAdmitted() {
-        return this.decision == Decision.ADMITTED;
+        return this.decision == Decision.ADMITTED || this.decision == Decision.ADMITTED_WITH_BORDER_UPDATES;
     }
     /** The bound delegate is distinct from the level's wrapper; rebinding invalidates this capture. */
     public record Binding(TickingBlockEntity delegate, BooleanSupplier isCurrent) {}
@@ -76,14 +76,20 @@ public record RegionBlockEntityTickAdmission(
          */
         ADMITTED,
         /**
-         * The ticker's type is not declared region-safe, so the whole region of the ticker keeps its
-         * tickers on the server thread after the batch.
+         * An audited furnace-family ticker only mutates its own block and inventory. Its boundary chunk may
+         * run on a worker with border propagation enabled, after a per-tick loaded-neighborhood check. This
+         * does not authorize reading or mutating a foreign container.
+         */
+        ADMITTED_WITH_BORDER_UPDATES,
+        /**
+         * The ticker's type is not declared region-safe, so its chunk keeps all its tickers on the server
+         * thread after the batch, including otherwise admitted tickers sharing that chunk.
          */
         TYPE_NOT_DECLARED,
         /**
          * The ticker's type is declared region-safe, but its chunk is a boundary chunk of its region: a tick
-         * that writes into the chunks around its position could leave the lease, so the whole region of the
-         * ticker keeps its tickers on the server thread after the batch.
+         * that writes into the chunks around its position could leave the lease, so the ticker's chunk
+         * keeps its tickers on the server thread after the batch.
          */
         NOT_INTERIOR_CHUNK
     }

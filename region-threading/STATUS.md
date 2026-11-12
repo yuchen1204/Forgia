@@ -83,9 +83,28 @@ its lease is now recorded and applied by the target region in the same tick — 
 chunk ticks** onto workers (1.31 M ticks, zero boundary fallbacks) and the soak now lands at or below inline,
 with the median p50 at 5.60 ms against 6.22 ms.
 
-Block entities remain at ~8 % on workers on purpose: a hopper or furnace reads the container one block away,
-and a foreign block-entity read answers null — a wrong value, not an approximation — so relaxing that rule
-needs a deferred foreign block-entity read first.
+The historical block entity soak had ~8 % on workers under the shared interior rule. Furnace-family bodies
+now have a narrower boundary admission: with border propagation enabled and the neighboring chunks loaded,
+they can tick their own inventory/block on a worker and defer neighbor/comparator effects. Hoppers and
+pack-admitted machines keep the interior rule because they read and mutate live neighboring containers.
+Mixed chunks retain whole-chunk fallback. The new boundary path is not yet benchmarked; the contract,
+validation boundary and subsequent cross-region/mod API and scheduled-tick work are described in
+[BLOCK-ENTITY-PARALLELISM.md](BLOCK-ENTITY-PARALLELISM.md).
+
+## Cross-region operations and scheduled callbacks
+
+The experimental public facade now includes complete two-owner block entity operations and bounded sided
+Container transfers at the quiescent server completion stage. Callers receive explicit at-most-once task
+outcomes; worker acceptance is not a synchronous transfer result. References retain exact instance identity
+and cannot authorize a same-position replacement. Arbitrary modded machine ticks remain subject to their
+existing compatibility admission. See [the protocol and examples](CROSS-REGION-OPERATIONS.md).
+
+Production scheduled tick admission supports complete lamp-only phases with a loaded, region-contained
+radius-two inert vanilla footprint. Unknown block callbacks, fluids, mixed phases and unsafe neighborhoods
+retain the original live serial LevelTicks queue. Callback failures are reported without replay or silent
+successful truncation. Per-phase counters and bounded p50/p95/p99 timing are exposed through ParallelApi
+and `regionthreading compat`. These are correctness/protocol milestones; historical performance tables
+above do not establish a speedup for the new paths.
 
 ## Structure claims: measured, not built
 

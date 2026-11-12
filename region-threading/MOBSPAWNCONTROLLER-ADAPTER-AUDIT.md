@@ -1,6 +1,6 @@
 # MobSpawnController 1.2.3 并行适配审查
 
-状态：实现前审查完成；[独立适配模块 0.2.0](../adapters/mobspawncontroller/README.md) 已实现空结构列表短路、冻结规则、验证后接管以及按配置回退。附近数量、结构等世界条件尚未并行实现，这些配置保持完整串行执行。
+状态：实现前审查完成；[独立适配模块 0.3.0](../adapters/mobspawncontroller/README.md) 已实现空结构列表短路、冻结规则与有序最终化实验。**默认保留串行保护、不接管自然刷怪**：整包实验出现截断，未证明加速。附近数量/概率子集仅可显式开启实验；结构、倍率和其他未实现条件始终保留完整串行。见 [本地结果](MOBSPAWNCONTROLLER-LOCAL-RESULTS.md) 和 [准入协议](NEARBY-SPAWN-ADMISSION.md)。
 
 ## 审查对象与可复现证据
 

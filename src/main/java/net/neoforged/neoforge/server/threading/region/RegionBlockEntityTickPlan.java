@@ -159,7 +159,8 @@ public final class RegionBlockEntityTickPlan {
                 type,
                 LevelChunk.captureBlockEntityTickBinding(ticker, this.level),
                 RegionTickCompatibility.decideBlockEntityTick(type,
-                        cache != null ? cache.interiorChunk() : this.engine.isInteriorRegionChunk(new ChunkPos(chunkX, chunkZ))),
+                        cache != null ? cache.interiorChunk() : this.engine.isInteriorRegionChunk(new ChunkPos(chunkX, chunkZ)),
+                        this.engine.borderUpdatesEnabled()),
                 this.explicitSequence++);
         if (visit.kind() == ChunkVisit.Kind.READY) {
             // The visit already evaluated the entity-load eligibility of this chunk on this server thread.
@@ -228,11 +229,11 @@ public final class RegionBlockEntityTickPlan {
     private RegionBlockEntityTickChunkCache snapshot(LevelChunk chunk, RegionLayout layout) {
         final long tickerRevision = chunk.blockEntityTickerRevision();
         final RegionBlockEntityTickChunkCache cached = chunk.blockEntityTickAdmissionCache();
-        if (this.engine.isBlockEntityAdmissionCacheEnabled() && cached != null && cached.isCurrent(layout, tickerRevision)) {
+        if (this.engine.isBlockEntityAdmissionCacheEnabled() && cached != null && cached.isCurrent(layout, tickerRevision, this.engine.borderUpdatesEnabled())) {
             return cached;
         }
         final RegionBlockEntityTickChunkCache rebuilt = RegionBlockEntityTickChunkCache.build(
-                this.level, chunk, layout, this.engine.isInteriorRegionChunk(chunk.getPos()));
+                this.level, chunk, layout, this.engine.isInteriorRegionChunk(chunk.getPos()), this.engine.borderUpdatesEnabled());
         // The setter releases the snapshot it replaces, so a chunk never holds more than one.
         chunk.setBlockEntityTickAdmissionCache(rebuilt);
         return rebuilt;

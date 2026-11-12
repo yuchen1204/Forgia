@@ -68,6 +68,7 @@ import net.neoforged.neoforge.server.threading.RegionThreadingManager;
 import net.neoforged.neoforge.server.threading.region.LevelSpawnCapCounter;
 import net.neoforged.neoforge.server.threading.region.RegionChunkTickPlan;
 import net.neoforged.neoforge.server.threading.region.RegionCoordinate;
+import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
 import net.neoforged.neoforge.server.threading.region.RegionPolicy;
 import net.neoforged.neoforge.server.threading.region.RegionSpawnChunk;
@@ -705,6 +706,19 @@ class RegionSpawnTest {
      * With the switch off there is no plan at all - and with it no level-wide counter - so the level runs the
      * untouched vanilla body, whose cap is the count of its own spawn state.
      */
+    @Test
+    void spawnOnlyStartupReservesOwnedStorageBeforeAnAdapterCanEnableItsSlice() {
+        final var fixed = RegionLayout.of(RegionPolicy.FIXED_3X3);
+        final var mode = RegionEntityStorageMode.forConfiguration(false, true, fixed);
+        assertEquals(RegionEntityStorageMode.REGION_OWNED, mode);
+        this.engine = new RegionThreadingEngine(2, false, false, false, false, false, false, true, fixed, mode);
+        RegionThreadingManager.install(this.engine);
+        assertTrue(this.engine.isSpawnWorkerDispatchEffective(), "turning entity workers off must not disable the requested spawn slice");
+        assertEquals(RegionEntityStorageMode.MAIN_THREAD_ONLY, RegionEntityStorageMode.forConfiguration(false, false, fixed));
+        assertEquals(RegionEntityStorageMode.MAIN_THREAD_ONLY,
+                RegionEntityStorageMode.forConfiguration(false, true, RegionLayout.of(RegionPolicy.DYNAMIC)));
+    }
+
     @Test
     void disabledSpawningSliceKeepsTheVanillaPath() {
         this.installEngine(false);

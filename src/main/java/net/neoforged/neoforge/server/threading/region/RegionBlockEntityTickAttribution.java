@@ -82,6 +82,8 @@ public final class RegionBlockEntityTickAttribution {
     private static long sliceCount;
     private static long handoffRemovalNanos;
     private static long handoffRemovalCount;
+    private static long handoffOperationNanos;
+    private static long handoffOperationRequests;
     private static long handoffFallbackNanos;
     private static long handoffFallbackTickers;
     private static long handoffMutationNanos;
@@ -153,8 +155,8 @@ public final class RegionBlockEntityTickAttribution {
      */
     public enum FallbackReason {
         /**
-         * The region of the ticker holds at least one ticker that is not admitted, so the whole region keeps its
-         * tickers on the server thread.
+         * The chunk holds at least one ticker that is not admitted, so the whole chunk keeps its tickers on
+         * the server thread.
          */
         UNSAFE_REGION,
         /**
@@ -169,8 +171,12 @@ public final class RegionBlockEntityTickAttribution {
          * The admission of the ticker no longer matched its ticker when the worker reached it.
          */
         STALE_ADMISSION,
+        /** A boundary furnace chunk had an unloaded neighbor, so its complete body stayed on the server. */
+        UNLOADED_NEIGHBORHOOD,
+        /** A neighboring loaded chunk has no live region to apply its captured border effects. */
+        UNTRACKED_NEIGHBORHOOD,
         /**
-         * The ticker requested a chunk the worker may not load, so it was ticked on the server thread.
+         * Retained for legacy attribution; a chunk refusal after a body starts is reported without replay.
          */
         CHUNK_UNAVAILABLE,
         /**
@@ -209,6 +215,8 @@ public final class RegionBlockEntityTickAttribution {
         sliceCount = 0L;
         handoffRemovalNanos = 0L;
         handoffRemovalCount = 0L;
+        handoffOperationNanos = 0L;
+        handoffOperationRequests = 0L;
         handoffFallbackNanos = 0L;
         handoffFallbackTickers = 0L;
         handoffMutationNanos = 0L;
@@ -356,6 +364,14 @@ public final class RegionBlockEntityTickAttribution {
         if (enabled) {
             handoffRemovalNanos += durationNanos;
             handoffRemovalCount += removals;
+        }
+    }
+
+    /** Whole-operation completion time, with queued requests inspected (including cancellations). */
+    public static void recordHandoffOperations(long durationNanos, long requests) {
+        if (enabled) {
+            handoffOperationNanos += durationNanos;
+            handoffOperationRequests += requests;
         }
     }
 
@@ -660,7 +676,7 @@ public final class RegionBlockEntityTickAttribution {
                 batchSpanNanos,
                 batchTailNanos,
                 new HandoffSteps(handoffRemovalNanos, handoffRemovalCount, handoffFallbackNanos, handoffFallbackTickers,
-                        handoffMutationNanos, handoffMutationCount, handoffFinishNanos),
+                        handoffMutationNanos, handoffMutationCount, handoffFinishNanos, handoffOperationNanos, handoffOperationRequests),
                 new GroupDistribution(groupCount.sum(), groupNanos.sum(), groupNanosSquared.sum(), groupNanosMax.get(),
                         groupTickers.sum(), groupTickersSquared.sum(), groupTickersMax.get(), groupTicked.sum(), groupCpuNanos.sum(),
                         groupRetireNanos.sum(),
@@ -741,7 +757,9 @@ public final class RegionBlockEntityTickAttribution {
             long fallbackTickers,
             long mutationNanos,
             long mutationCount,
-            long finishNanos) {}
+            long finishNanos,
+            long operationNanos,
+            long operationRequests) {}
 
     /**
      * What the worker groups of the measured slices did.

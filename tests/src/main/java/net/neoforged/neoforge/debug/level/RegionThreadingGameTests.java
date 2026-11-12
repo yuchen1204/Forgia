@@ -43,10 +43,13 @@ import net.minecraft.world.level.entity.EntitySectionStorage;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.common.ForgiaConfig;
 import net.neoforged.neoforge.server.threading.RegionThreadingHooks;
+import net.neoforged.neoforge.server.threading.RegionThreadingManager;
+import net.neoforged.neoforge.server.threading.region.RegionBlockEntityTickAdmission;
 import net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode;
 import net.neoforged.neoforge.server.threading.region.RegionLayout;
 import net.neoforged.neoforge.server.threading.region.RegionPolicy;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingDiagnostics;
+import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
 import net.neoforged.testframework.DynamicTest;
 import net.neoforged.testframework.annotation.ForEachTest;
 import net.neoforged.testframework.annotation.TestHolder;
@@ -336,6 +339,256 @@ public class RegionThreadingGameTests {
                                         + " workerTicksBefore=" + workersBefore
                                         + " workerTicksAfter=" + after.blockEntityTicksOnWorkers()
                                         + " fallbackAfter=" + after.fallbackBlockEntityTicks());
+                    })
+                    .thenSucceed();
+        });
+    }
+
+    @GameTest(batch = "regionBoundaryFurnaceWorker", timeoutTicks = 600)
+    @EmptyTemplate(value = "15x10x15", floor = true)
+    @TestHolder(description = "A boundary furnace smelts once on a real worker and notifies a comparator across the region border")
+    static void boundaryFurnaceTicksAndNotifiesComparator(final DynamicTest test) {
+        test.onGameTest(helper -> {
+            final var available = workerDiagnostics(helper);
+            if (available.isEmpty() || !available.get().blockEntityTickWorkerExecutionEnabled()) {
+                assertSliceDisabled(helper, false, "boundary furnace worker slice");
+                helper.succeed();
+                return;
+            }
+            final RegionThreadingEngine engine = (RegionThreadingEngine) RegionThreadingManager.currentOrNull();
+            if (!engine.borderUpdatesEnabled() || !engine.regionLayout().isFixed()) {
+                helper.succeed();
+                return;
+            }
+            final ServerLevel level = helper.getLevel();
+            final int size = engine.regionLayout().regionChunkSize();
+            final BlockPos interior = evidenceBlockPos(helper, RegionPolicy.FIXED_3X3, size, 6);
+            final int boundaryX = (Math.floorDiv(interior.getX() >> 4, size) + 1) * size * 16 - 1;
+            final BlockPos furnacePos = new BlockPos(boundaryX, interior.getY(), interior.getZ());
+            final BlockPos comparatorPos = furnacePos.east();
+            final java.util.List<BlockPos> forced = new java.util.ArrayList<>();
+            final AtomicReference<Long> workersBefore = new AtomicReference<>();
+            helper.addEndListener(passed -> {
+                level.setBlock(furnacePos, Blocks.AIR.defaultBlockState(), 3);
+                level.setBlock(comparatorPos, Blocks.AIR.defaultBlockState(), 3);
+                level.setBlock(comparatorPos.below(), Blocks.AIR.defaultBlockState(), 3);
+                forced.forEach(pos -> releaseForcedChunk(level, pos));
+            });
+            helper.startSequence()
+                    .thenExecute(() -> {
+                        final ChunkPos center = new ChunkPos(furnacePos);
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            for (int dz = -1; dz <= 1; ++dz) {
+                                final BlockPos position = new BlockPos((center.x + dx) * 16, furnacePos.getY(), (center.z + dz) * 16);
+                                forced.add(position);
+                                forceChunk(level, position);
+                                level.getChunkAt(position);
+                            }
+                        }
+                        clearEvidenceChunkBlockEntities(level, furnacePos);
+                        clearEvidenceChunkBlockEntities(level, comparatorPos);
+                        level.setBlock(furnacePos, Blocks.FURNACE.defaultBlockState(), 3);
+                        level.setBlock(comparatorPos.below(), Blocks.STONE.defaultBlockState(), 3);
+                        level.setBlock(comparatorPos, Blocks.COMPARATOR.defaultBlockState()
+                                .setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING, Direction.WEST), 3);
+                    })
+                    .thenWaitUntil(() -> helper.assertTrue(level.areEntitiesLoaded(ChunkPos.asLong(furnacePos)), "furnace entities have not loaded"))
+                    .thenIdle(5)
+                    .thenExecute(() -> {
+                        final AbstractFurnaceBlockEntity furnace = (AbstractFurnaceBlockEntity) level.getBlockEntity(furnacePos);
+                        helper.assertTrue(furnace != null, "the real furnace is missing");
+                        workersBefore.set(engine.boundaryBlockEntityTicksOnWorkers());
+                        furnace.setItem(0, new ItemStack(Items.IRON_ORE));
+                        furnace.setItem(1, new ItemStack(Items.COAL));
+                    })
+                    .thenIdle(220)
+                    .thenExecute(() -> {
+                        final AbstractFurnaceBlockEntity furnace = (AbstractFurnaceBlockEntity) level.getBlockEntity(furnacePos);
+                        helper.assertTrue(furnace != null && furnace.getItem(0).isEmpty() && furnace.getItem(1).isEmpty()
+                                && furnace.getItem(2).is(Items.IRON_INGOT) && furnace.getItem(2).getCount() == 1,
+                                "boundary smelting must consume one ore/fuel and produce one ingot");
+                        final var snapshot = level.getChunkAt(furnacePos).blockEntityTickAdmissionCache();
+                        helper.assertTrue(snapshot != null && snapshot.admissions().stream().anyMatch(admission -> admission.position().equals(furnacePos)
+                                && admission.decision() == RegionBlockEntityTickAdmission.Decision.ADMITTED_WITH_BORDER_UPDATES),
+                                "the real chunk must capture boundary admission for this exact furnace");
+                        helper.assertTrue(engine.boundaryBlockEntityTicksOnWorkers() > workersBefore.get(), "no boundary ticker completed on a native worker");
+                        helper.assertTrue(level.getBlockEntity(comparatorPos) instanceof net.minecraft.world.level.block.entity.ComparatorBlockEntity comparator
+                                && comparator.getOutputSignal() > 0, "the foreign comparator did not observe the furnace inventory");
+                    })
+                    .thenSucceed();
+        });
+    }
+
+    @GameTest(batch = "regionOwnerOperations", timeoutTicks = 600)
+    @EmptyTemplate(value = "15x10x15", floor = true)
+    @TestHolder(description = "A modded source submits one complete cross-region container transfer through the public API")
+    static void blockEntityOwnerOperations(final DynamicTest test, final RegistrationHelper reg) {
+        class Source extends net.minecraft.world.level.block.entity.BlockEntity implements net.minecraft.world.Container {
+            final net.minecraft.world.SimpleContainer inventory = new net.minecraft.world.SimpleContainer(1);
+            net.neoforged.neoforge.server.threading.api.BlockEntityOperations.Reference target;
+            volatile net.neoforged.neoforge.server.threading.api.BlockEntityOperations.Task<net.neoforged.neoforge.server.threading.api.BlockEntityOperations.TransferResult> task;
+            volatile boolean nativeSource;
+
+            Source(net.minecraft.world.level.block.entity.BlockEntityType<?> type, BlockPos pos, BlockState state) {
+                super(type, pos, state);
+            }
+
+            void tick() {
+                if (this.target == null || this.task != null) return;
+                final var api = net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(this.level.getServer()).orElseThrow();
+                this.nativeSource = api.currentPhase() == net.neoforged.neoforge.server.threading.api.ParallelApi.Phase.REGION_WORKER;
+                final var operations = api.blockEntities();
+                this.task = operations.transfer(operations.reference(this), this.target,
+                        new net.neoforged.neoforge.server.threading.api.BlockEntityOperations.Transfer(0, 0, 8, null, null));
+            }
+
+            @Override
+            public int getContainerSize() {
+                return this.inventory.getContainerSize();
+            }
+
+            @Override
+            public boolean isEmpty() {
+                return this.inventory.isEmpty();
+            }
+
+            @Override
+            public ItemStack getItem(int slot) {
+                return this.inventory.getItem(slot);
+            }
+
+            @Override
+            public ItemStack removeItem(int slot, int count) {
+                return this.inventory.removeItem(slot, count);
+            }
+
+            @Override
+            public ItemStack removeItemNoUpdate(int slot) {
+                return this.inventory.removeItemNoUpdate(slot);
+            }
+
+            @Override
+            public void setItem(int slot, ItemStack stack) {
+                this.inventory.setItem(slot, stack);
+            }
+
+            @Override
+            public boolean stillValid(net.minecraft.world.entity.player.Player player) {
+                return true;
+            }
+
+            @Override
+            public void clearContent() {
+                this.inventory.clearContent();
+            }
+        }
+        class SourceBlock extends Block implements net.minecraft.world.level.block.EntityBlock {
+            private final java.util.function.Supplier<net.minecraft.world.level.block.entity.BlockEntityType<Source>> type;
+
+            SourceBlock(BlockBehaviour.Properties properties, java.util.function.Supplier<net.minecraft.world.level.block.entity.BlockEntityType<Source>> type) {
+                super(properties);
+                this.type = type;
+            }
+
+            @Override
+            public net.minecraft.world.level.block.entity.BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+                return new Source(this.type.get(), pos, state);
+            }
+
+            @Override
+            public <T extends net.minecraft.world.level.block.entity.BlockEntity> net.minecraft.world.level.block.entity.BlockEntityTicker<T> getTicker(
+                    net.minecraft.world.level.Level level, BlockState state, net.minecraft.world.level.block.entity.BlockEntityType<T> type) {
+                return level.isClientSide ? null : (world, pos, blockState, entity) -> ((Source) entity).tick();
+            }
+        }
+        final var sourceBlock = reg.blocks().registerBlockWithBEType("operation_source", SourceBlock::new, Source::new, BlockBehaviour.Properties.of());
+        test.onGameTest(helper -> {
+            final ServerLevel level = helper.getLevel();
+            final var api = net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(level.getServer()).orElseThrow();
+            helper.assertTrue(api.capabilities().contains(net.neoforged.neoforge.server.threading.api.ParallelApi.Capability.BLOCK_ENTITY_OPERATIONS), "public operation capability missing");
+            final RegionPolicy policy = RegionThreadingHooks.diagnostics().map(RegionThreadingDiagnostics::regionPolicy).orElse(RegionPolicy.FIXED_3X3);
+            final int size = RegionThreadingHooks.diagnostics().map(RegionThreadingDiagnostics::regionChunkSize).orElse(3);
+            final BlockPos from = evidenceBlockPos(helper, policy, size, 7);
+            final BlockPos to = from.offset(size * 16, 0, 0);
+            helper.addEndListener(passed -> {
+                level.setBlock(from, Blocks.AIR.defaultBlockState(), 3);
+                level.setBlock(to, Blocks.AIR.defaultBlockState(), 3);
+                releaseForcedChunk(level, from);
+                releaseForcedChunk(level, to);
+            });
+            helper.startSequence()
+                    .thenExecute(() -> {
+                        forceChunk(level, from);
+                        forceChunk(level, to);
+                        clearEvidenceChunkBlockEntities(level, from);
+                        clearEvidenceChunkBlockEntities(level, to);
+                        level.setBlock(from, sourceBlock.get().defaultBlockState(), 3);
+                        level.setBlock(to, Blocks.CHEST.defaultBlockState(), 3);
+                    })
+                    .thenWaitUntil(() -> helper.assertTrue(level.areEntitiesLoaded(ChunkPos.asLong(from)) && level.areEntitiesLoaded(ChunkPos.asLong(to)), "operation chunks have not loaded"))
+                    .thenIdle(5)
+                    .thenExecute(() -> {
+                        final Source source = (Source) level.getBlockEntity(from);
+                        final var target = (net.minecraft.world.level.block.entity.ChestBlockEntity) level.getBlockEntity(to);
+                        source.setItem(0, new ItemStack(Items.IRON_INGOT, 16));
+                        target.setItem(0, new ItemStack(Items.IRON_INGOT, 60));
+                        source.target = api.blockEntities().reference(target);
+                    })
+                    .thenWaitUntil(() -> {
+                        final Source source = (Source) level.getBlockEntity(from);
+                        helper.assertTrue(source.task != null && source.task.isDone(), "the complete transfer did not finish");
+                        helper.assertTrue(source.task.state() == net.neoforged.neoforge.server.threading.api.BlockEntityOperations.State.COMPLETED
+                                && source.task.result().orElseThrow().moved() == 4, "the transfer did not return its exact partial-insertion result");
+                        helper.assertTrue(source.getItem(0).getCount() == 12
+                                && ((net.minecraft.world.Container) level.getBlockEntity(to)).getItem(0).getCount() == 64, "items were duplicated or lost");
+                        if (ForgiaConfig.SERVER.enableRegionThreadingBlockEntityTicks.get()) helper.assertTrue(source.nativeSource,
+                                "the declared example source did not submit from its native worker; configure its explicit type admission");
+                    })
+                    .thenSucceed();
+        });
+    }
+
+    @GameTest(batch = "regionScheduledLamp", timeoutTicks = 300)
+    @EmptyTemplate(value = "15x10x15", floor = true)
+    @TestHolder(description = "Production scheduled admission turns off a real lamp on a native worker without the test-only callback gate")
+    static void scheduledLampAdmission(final DynamicTest test) {
+        test.onGameTest(helper -> {
+            final ServerLevel level = helper.getLevel();
+            final var diagnostics = RegionThreadingHooks.diagnostics();
+            final int size = diagnostics.map(RegionThreadingDiagnostics::regionChunkSize).orElse(3);
+            final RegionPolicy policy = diagnostics.map(RegionThreadingDiagnostics::regionPolicy).orElse(RegionPolicy.FIXED_3X3);
+            final BlockPos lamp = evidenceBlockPos(helper, policy, size, 8);
+            final AtomicReference<Long> before = new AtomicReference<>(0L);
+            helper.addEndListener(passed -> {
+                level.setBlock(lamp, Blocks.AIR.defaultBlockState(), 3);
+                releaseForcedChunk(level, lamp);
+            });
+            helper.startSequence()
+                    .thenExecute(() -> {
+                        forceChunk(level, lamp);
+                        level.getChunkAt(lamp);
+                    })
+                    .thenWaitUntil(() -> helper.assertTrue(level.areEntitiesLoaded(ChunkPos.asLong(lamp))
+                            && level.getChunkAt(lamp).getFullStatus().isOrAfter(net.minecraft.server.level.FullChunkStatus.BLOCK_TICKING),
+                            "the scheduled lamp chunk is not ready for block ticking"))
+                    .thenIdle(5)
+                    .thenExecute(() -> {
+                        clearEvidenceChunkBlockEntities(level, lamp);
+                        for (int dx = -2; dx <= 2; ++dx) for (int dy = -2; dy <= 2; ++dy) for (int dz = -2; dz <= 2; ++dz) {
+                            level.setBlock(lamp.offset(dx, dy, dz), Blocks.AIR.defaultBlockState(), 2);
+                        }
+                        net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(level.getServer()).ifPresent(api -> {
+                            if (!api.scheduledTicks().isEmpty()) before.set(api.scheduledTicks().getFirst().workerCompletions());
+                        });
+                        level.setBlock(lamp, Blocks.REDSTONE_LAMP.defaultBlockState().setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.LIT, true), 2);
+                        level.scheduleTick(lamp, Blocks.REDSTONE_LAMP, 1);
+                    })
+                    .thenWaitUntil(() -> {
+                        helper.assertTrue(!level.getBlockState(lamp).getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.LIT), "the real delayed lamp did not turn off");
+                        if (ForgiaConfig.SERVER.enableRegionThreadingScheduledTicks.get()) {
+                            final var api = net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(level.getServer()).orElseThrow();
+                            helper.assertTrue(api.scheduledTicks().getFirst().workerCompletions() > before.get(), "no production scheduled callback completed on a native worker");
+                        }
                     })
                     .thenSucceed();
         });

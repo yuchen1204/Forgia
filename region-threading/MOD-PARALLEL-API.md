@@ -10,10 +10,16 @@
 - `ParallelApi.prepared(key)` / `currentSpawnUnit()`：只在对应 worker 刷怪调用及其同步监听器内取得准备结果，退出后清除。
 - `/neoforge regionthreading compat`：列出注册、ready/serial 次数、累计准备耗时及最近串行原因。
 - `NATURAL_SPAWN_PLAN_PREPARATION`：在核心 cap/state 构造前决定是否保留原生串行计划，或冻结整份计划的规则数据。
+- `ORDERED_SPAWN_FINALIZATION`：候选选择在 worker，完整原生最终化/加入续跑在所有刷怪 worker 停下后由主线程执行。
 - `NATURAL_SPAWN_CLAIMS`：已注册 preparation 可通过启动验证显式接管某个 mod 的自然刷怪限制；仅注册 preparation 本身不放行。
 
+- `BLOCK_ENTITY_OPERATIONS`：不透明实例引用、完整双 owner 操作、带方向/槽位规则的 Container 搬运，以及取消、失效、失败与至多执行一次句柄。
+- `SCHEDULED_TICK_DIAGNOSTICS`：通过 `Server.scheduledTicks()` 查询有界的阶段准入、实际完成、回退原因和耗时分布。
+
+跨 region 接入示例、线程与生命周期合同、scheduled tick 生产准入见 [完整操作指南](CROSS-REGION-OPERATIONS.md)。跨区操作在静止的服务器完成阶段执行，调用不自动放行模组机器 tick。
+
 本阶段没有结构查询快照服务或通用纯候选过滤器。
-[独立适配模块 0.2.0](../adapters/mobspawncontroller/README.md) 已使用准备协议和显式 claim：无适用世界规则时并行，带附近数量/结构等设置时仍完整串行。尚未实现这些世界条件的并行准入。
+[独立适配模块 0.3.0](../adapters/mobspawncontroller/README.md) 实现准备协议、显式 claim 和有序最终化，但**默认不接管自然刷怪**。本地整包发现截断、尚无加速证据，只有显式实验开关才启用 nearby/chance 子集；参见 [本地结果](MOBSPAWNCONTROLLER-LOCAL-RESULTS.md)。倍率、结构及其他未实现条件仍保留完整原生串行计划。
 
 ## 编译与加载
 
@@ -79,6 +85,7 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 
 - 返回 `ServerRequired`：核心在创建自己的 cap counter 前放弃并行计划，使用原生 `NaturalSpawner.createState` 和完整串行路径。
 - 返回 `Ready<S>`：该 snapshot 固定到本计划结束，后续 chunk 不再调用该 provider 的 `prepare`；计划中的主线程回退也读取同一份数据。
+- 返回 `new Ready<>(snapshot, true)`：在上述固定规则之外，请求有序最终化。只允许在 `preparePlan` 返回；逐 chunk 准备阶段才请求会被拒绝。旧的单参数构造器保持原 worker 最终化模式。
 - 默认返回 `PerUnit<S>`：保持下例 lambda 的逐 chunk 准备协议。
 
 `serialPlans` 统计整份计划拒绝，`serialUnits` 统计单个 chunk 回退，两者不能混成生成实体数。
@@ -92,6 +99,16 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 - id 是适配器身份，建议使用模组自己的 namespace；相同 id 即使 snapshot class 不同也不能重复。
 - API major 不匹配、重复 id、超过 128 个注册都使整次注册失败，不发布半成品服务。即使监听器捕获校验异常，也不放行已被标记失败的注册。
 - 注册按 id 排序，不按事件订阅先后执行。注册不能声明其他监听器已安全。只有显式 `claimNaturalSpawning(key, modId, verified)`、同一 key 已注册、验证成功且注册整体冻结后，核心才可将该 mod 的 DISABLE_SPAWNING 交给逐单元准入；不能解除 DISABLE_ENGINE 或管理员关闭的 slice。claim 是适配作者的合同，不是自动安全证明。
+
+### 有序最终化
+
+注册期间可用 `Registrar.capabilities()` 查询协议支持；这不会提前发布未冻结的 Server 服务，也不代表适配器已经放行。使用双参数 Ready 前检查 `ORDERED_SPAWN_FINALIZATION`。
+
+该模式将原生 finalize、真实 passenger admission、afterSpawn 和 cluster/group-limit 回调放进一个主线程操作。其他刷怪 worker 必须全部停在安全点，之后的候选才能看到前一个操作的真实加入/取消结果。主线程等待时继续服务普通 handoff；线程池拒绝的组通过同一屏障在提交线程执行，异常、停机与中断不重放已产生副作用的操作。
+
+原生选择循环在 worker 上执行；最终化没有变成 worker 并行。续跑携带同一个规则版本、unit 上下文和随机数流，prepared body 只开始一次。此前延期的世界效果先在停点发布。主线程服务仍不能调用 preparation；普通查询 handoff 不会继承 prepared 数据，只有经过本协议的对应续跑能够读取它。
+
+适配器仍须验证原监听器及相关原生注入。不支持的配置或未知注入应在计划开始前 ServerRequired，不能把已执行的候选改成“重试串行”。跨组事务按提交顺序执行，未承诺原版全局候选顺序/RNG 序列逐位一致；实际开销必须包括停点和发布成本。
 
 ### 准备与快照
 
@@ -117,7 +134,7 @@ return new ParallelApi.ServerRequired<>(ResourceLocation.parse("example:structur
 | Phase | 含义 |
 |---|---|
 | QUIESCENT_SERVER | 服务器线程且没有其他 worker 持有活跃工作；仍需遵守每个世界操作自身的合同 |
-| SERVER_SERVICE | 服务器线程在活跃批次期间服务 worker；不能在这里准备数据或任意加载/变更世界 |
+| SERVER_SERVICE | 服务器线程在活跃批次期间服务 worker；不能准备数据。普通 handoff 不允许任意世界写入；有序最终化只允许在同批 worker 全部暂停后执行其完整原生续跑 |
 | REGION_WORKER | 当前服务器维度的已服务 region 批次 worker；仍需所有权检查 |
 | EXTERNAL | 其他线程或非 region 批次 worker，无世界权限 |
 

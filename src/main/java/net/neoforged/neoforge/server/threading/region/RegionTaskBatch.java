@@ -158,7 +158,14 @@ public final class RegionTaskBatch {
         };
         if (!trySubmit(executor, group.description(), task)) {
             barrier.recordRejected();
-            task.run();
+            try {
+                task.run();
+            } catch (Throwable failure) {
+                // The task recorded its failure and released its permits. Finish submitting the other
+                // leased groups before surfacing it through Barrier.throwIfFailed; stopping here strands
+                // unsubmitted groups and can prevent an open barrier's setup permit from being released.
+                barrier.recordFailure(failure);
+            }
         }
     }
 

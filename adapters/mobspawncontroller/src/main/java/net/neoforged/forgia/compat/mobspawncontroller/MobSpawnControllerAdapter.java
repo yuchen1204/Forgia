@@ -15,6 +15,8 @@ import net.neoforged.neoforge.server.threading.api.ParallelApi;
 @Mod(MobSpawnControllerAdapter.MOD_ID)
 public final class MobSpawnControllerAdapter {
     public static final String MOD_ID = "forgia_mobspawncontroller";
+    /** Experimental opt-in; local pack validation found truncated spawn work and no proven speedup. */
+    private static final String ORDERED_OPT_IN = "forgia.mscOrderedSpawning";
 
     public MobSpawnControllerAdapter() {
         NeoForge.EVENT_BUS.addListener(MobSpawnControllerAdapter::register);
@@ -33,7 +35,9 @@ public final class MobSpawnControllerAdapter {
                 return RuleSnapshots.prepare(unit);
             }
         });
-        event.registrar().claimNaturalSpawning(RuleSnapshots.KEY, "mobspawncontroller", RuleSnapshots::verify);
+        if (Boolean.getBoolean(ORDERED_OPT_IN)) {
+            event.registrar().claimNaturalSpawning(RuleSnapshots.KEY, "mobspawncontroller", RuleSnapshots::verify);
+        }
     }
 
     private static void stopped(ServerStoppedEvent event) {

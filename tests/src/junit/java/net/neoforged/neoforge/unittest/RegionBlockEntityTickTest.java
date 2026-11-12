@@ -287,6 +287,7 @@ class RegionBlockEntityTickTest {
         plan.accept(ticker);
         plan.executeAndAwait();
 
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("typeNotDeclared"));
         verify(ticker, times(1)).tick();
         assertEquals(List.of(Thread.currentThread().getName()), tickThreads, "an undeclared block entity must stay on the server thread");
         assertEquals(0L, this.engine.diagnostics().blockEntityTicksOnWorkers());
@@ -329,8 +330,205 @@ class RegionBlockEntityTickTest {
         plan.executeAndAwait();
 
         verify(ticker, times(1)).tick();
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("boundaryChunk"));
         assertEquals(0L, this.engine.diagnostics().blockEntityTicksOnWorkers());
         assertEquals(1L, this.engine.diagnostics().fallbackBlockEntityTicks());
+    }
+
+    @Test
+    void boundaryFurnacesInDifferentRegionsRunConcurrentlyWithBorderPropagation() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        final TickingBlockEntity first = mockTicker(new BlockPos(47, 64, 17), "minecraft:furnace");
+        final TickingBlockEntity second = mockTicker(new BlockPos(48, 64, 17), "minecraft:smoker");
+        final CyclicBarrier rendezvous = new CyclicBarrier(2);
+        final List<Boolean> workers = new CopyOnWriteArrayList<>();
+        for (final TickingBlockEntity ticker : List.of(first, second)) {
+            doAnswer(call -> {
+                workers.add(RegionThreadingHooks.isNativeRegionWorkerThread());
+                rendezvous.await(10, TimeUnit.SECONDS);
+                return null;
+            }).when(ticker).tick();
+        }
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(first));
+        assertTrue(plan.accept(second));
+        readyBoundaryNeighbors(level);
+        plan.executeAndAwait();
+        assertEquals(List.of(true, true), workers);
+        verify(first, times(1)).tick();
+        verify(second, times(1)).tick();
+        assertEquals(2L, this.engine.boundaryBlockEntityTicksOnWorkers());
+        assertEquals(0L, this.engine.diagnostics().fallbackBlockEntityTicks());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void unloadedBoundaryNeighborhoodFallsBackBeforeTheBodyStarts() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(47, 64, 17));
+        final List<Boolean> workers = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            workers.add(RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(ticker));
+        plan.executeAndAwait();
+        assertEquals(List.of(false), workers);
+        verify(ticker, times(1)).tick();
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("unloadedNeighborhood"));
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+    }
+
+    @Test
+    void fullTicketWithoutAReadyNeighborStillFallsBackBeforeTheBody() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        this.engine.addRegionSection(level, 3, 1);
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(47, 64, 17));
+        final List<Boolean> workers = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            workers.add(RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(ticker));
+        plan.executeAndAwait();
+        assertEquals(List.of(false), workers);
+        verify(ticker, times(1)).tick();
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("unloadedNeighborhood"));
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+    }
+
+    @Test
+    void loadedButUntrackedBoundaryNeighborKeepsTheCompleteTickerOnTheServer() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(47, 64, 17));
+        final List<Boolean> workers = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            workers.add(RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(ticker));
+        readyBoundaryNeighbors(level);
+        plan.executeAndAwait();
+        assertEquals(List.of(false), workers);
+        verify(ticker, times(1)).tick();
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("untrackedNeighborhood"));
+        assertEquals(0L, this.engine.blockEntityFallbackAdmissionCounts().get("unloadedNeighborhood"));
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+    }
+
+    @Test
+    void disablingBorderPropagationAfterCollectionRefusesBoundaryWorkerAdmission() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(47, 64, 17));
+        final List<Boolean> workers = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            workers.add(RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(ticker));
+        this.engine.setBorderUpdatesEnabledForTesting(false);
+        plan.executeAndAwait();
+        assertEquals(List.of(false), workers);
+        verify(ticker, times(1)).tick();
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("boundaryChunk"));
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+    }
+
+    @Test
+    void boundaryHopperKeepsFurnaceInTheSameChunkOnTheServerInOrder() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        final TickingBlockEntity furnace = mockTicker(new BlockPos(46, 64, 17));
+        final TickingBlockEntity hopper = mockTicker(new BlockPos(47, 64, 17), "minecraft:hopper");
+        final List<String> trace = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            trace.add("furnace:" + RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(furnace).tick();
+        doAnswer(call -> {
+            trace.add("hopper:" + RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(hopper).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(furnace));
+        assertTrue(plan.accept(hopper));
+        plan.executeAndAwait();
+        assertEquals(List.of("furnace:false", "hopper:false"), trace);
+        verify(furnace, times(1)).tick();
+        verify(hopper, times(1)).tick();
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("safeInMixedChunk"));
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("boundaryChunk"));
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+    }
+
+    @Test
+    void failedBoundaryTickerDoesNotReplayItsInventoryEffect() {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        final ServerLevel level = mockLevel();
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        this.engine.addRegionSection(level, 3, 1);
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(47, 64, 17));
+        final var inventory = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_INGOT, 2);
+        final List<net.minecraft.world.item.ItemStack> outputs = new CopyOnWriteArrayList<>();
+        final var refusal = RegionWorkerChunkUnavailableException.forChunk(100, 100, ChunkStatus.FULL);
+        doAnswer(call -> {
+            outputs.add(inventory.split(1));
+            throw refusal;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(ticker));
+        readyBoundaryNeighbors(level);
+        assertSame(refusal, assertThrows(RegionWorkerChunkUnavailableException.class, plan::executeAndAwait));
+        assertEquals(1, inventory.getCount());
+        assertEquals(1, outputs.size());
+        verify(ticker, times(1)).tick();
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void rejectedBoundaryWorkerTaskIsExcludedFromNativeBoundaryCompletions() throws ReflectiveOperationException {
+        this.installEngine(true, 2, false, false);
+        this.engine.setBorderUpdatesEnabledForTesting(true);
+        closeWorkerPool(this.engine);
+        final ServerLevel level = mockLevel();
+        this.engine.addRegionSection(level, 3, 1);
+        when(level.getChunkSource().hasChunk(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(true);
+        final TickingBlockEntity ticker = mockTicker(new BlockPos(47, 64, 17));
+        final List<Boolean> workers = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            workers.add(RegionThreadingHooks.isNativeRegionWorkerThread());
+            return null;
+        }).when(ticker).tick();
+        final RegionBlockEntityTickPlan plan = this.plan(level);
+        assertTrue(plan.accept(ticker));
+        readyBoundaryNeighbors(level);
+        plan.executeAndAwait();
+        assertEquals(List.of(false), workers);
+        verify(ticker, times(1)).tick();
+        assertEquals(0L, this.engine.boundaryBlockEntityTicksOnWorkers());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
     }
 
     @Test
@@ -355,7 +553,7 @@ class RegionBlockEntityTickTest {
     }
 
     @Test
-    void regionWithOneUnsafeTickerKeepsTheWholeRegionOnTheServerThread() {
+    void chunkWithOneUnsafeTickerKeepsItsSafeTickerOnTheServerThreadWithoutDoubleTicking() {
         this.installEngine(true);
         final ServerLevel level = mockLevel();
         final TickingBlockEntity safe = mockTicker(new BlockPos(17, 64, 17), "minecraft:furnace");
@@ -380,6 +578,9 @@ class RegionBlockEntityTickTest {
         assertEquals(List.of(Thread.currentThread().getName(), Thread.currentThread().getName()), tickThreads);
         assertEquals(0L, this.engine.diagnostics().blockEntityTicksOnWorkers());
         assertEquals(2L, this.engine.diagnostics().fallbackBlockEntityTicks());
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("typeNotDeclared"));
+        assertEquals(1L, this.engine.blockEntityFallbackAdmissionCounts().get("safeInMixedChunk"));
+        assertEquals(0L, this.engine.blockEntityFallbackAdmissionCounts().get("boundaryChunk"));
     }
 
     @Test
@@ -1218,6 +1419,13 @@ class RegionBlockEntityTickTest {
         assertNull(failure.get(), () -> "region holder failed: " + failure.get());
         this.engine.drainRegionTasks(level, pos);
         assertEquals(1, ran.get(), "the queued fallback must run once after the owner releases the region");
+    }
+
+    private static void readyBoundaryNeighbors(ServerLevel level) {
+        final var loaded = mock(net.minecraft.world.level.chunk.LevelChunk.class);
+        when(loaded.isLoaded()).thenReturn(true);
+        final ServerChunkCache chunks = level.getChunkSource();
+        doReturn(loaded).when(chunks).getChunkNow(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     private void installEngine(boolean blockEntityTickWorkers) {

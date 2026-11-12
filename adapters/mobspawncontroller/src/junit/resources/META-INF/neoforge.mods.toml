@@ -4,3 +4,6 @@ license="LGPL-2.1-only"
 [[mods]]
 modId="msc_adapter_tests"
 version="1"
+
+[[mixins]]
+config="forgia_msc_hook_test.mixins.json"

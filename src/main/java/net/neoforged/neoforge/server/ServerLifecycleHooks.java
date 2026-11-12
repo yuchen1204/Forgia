@@ -174,7 +174,7 @@ public class ServerLifecycleHooks {
             // server thread keeps the shared vanilla maps. A dynamic layout cannot partition the storage, so
             // the entity slice stays on the server thread there.
             final RegionEntityStorageMode entityStorageMode = RegionEntityStorageMode.forConfiguration(
-                    compatibility.entityTickWorkers(), layout);
+                    compatibility.entityTickWorkers(), ForgiaConfig.SERVER.enableRegionThreadingSpawning.get(), layout);
             final RegionThreadingEngine engine = new RegionThreadingEngine(ForgiaConfig.SERVER.regionThreadingWorkerThreads.get(), ForgiaConfig.SERVER.enableRegionThreadingWorkers.get(), ForgiaConfig.SERVER.enableGlobalRegionThreadingWorker.get(), compatibility.entityTickWorkers(), ForgiaConfig.SERVER.enableRegionThreadingBlockEntityTicks.get(), ForgiaConfig.SERVER.enableRegionThreadingScheduledTicks.get(), ForgiaConfig.SERVER.enableRegionThreadingRandomTicks.get(), compatibility.spawnWorkers(), ForgiaConfig.SERVER.enableRegionThreadingPersistentWorkers.get(), ForgiaConfig.SERVER.enableRegionThreadingPackedRegionLeases.get(), layout, entityStorageMode);
             // The engine ships the vanilla declarations of the types whose own tick reaches a mutation the
             // lease does not own (a splitting slime, a discarding fishing hook); every other type ticks on

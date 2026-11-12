@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.neoforged.forgia.compat.mobspawncontroller.tests.hooks",
+  "plugin": "net.neoforged.forgia.compat.mobspawncontroller.tests.hooks.UnknownHookPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["UnknownNaturalSpawnerMixin"],
+  "injectors": {"defaultRequire": 1}
+}

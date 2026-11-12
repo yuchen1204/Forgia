@@ -48,18 +48,16 @@ public enum RegionEntityStorageMode {
     REGION_OWNED;
 
     /**
-     * {@return the storage mode of a production engine built from the server configuration}
-     * <p>
-     * Entity worker ticks imply region-owned storage: a worker entity tick moves, removes and spawns
-     * entities, and the region-owned guards are what keeps those mutations out of the shared vanilla
-     * storage. Enabling the entity tick switch with a layout that cannot partition the storage (a dynamic
-     * region may merge and split, so its sections have no stable region coordinate) therefore keeps the
-     * whole entity slice on the server thread instead of shipping ticks to a worker that could not be
-     * served by a region-private bucket.
-     *
-     * @param entityTickWorkers whether {@code enableRegionThreadingEntityTicks} is enabled
-     * @param layout            the layout of the engine that is about to be installed
+     * Selects owned entity query partitions for entity ticks or requested natural spawning. Use the requested
+     * spawn switch here: an adapter claim may activate spawning after startup conflict planning but before
+     * levels are created. Dynamic layouts remain server-only; this does not enable a worker slice or override
+     * compatibility policy. Spawn-only servers must not accidentally inherit MAIN_THREAD_ONLY storage.
      */
+    public static RegionEntityStorageMode forConfiguration(boolean entityTickWorkers, boolean spawningRequested, RegionLayout layout) {
+        return forConfiguration(entityTickWorkers || spawningRequested, layout);
+    }
+
+    /** Existing entity-only configuration entry point. Fixed partitions are required for owned storage. */
     public static RegionEntityStorageMode forConfiguration(boolean entityTickWorkers, RegionLayout layout) {
         return entityTickWorkers && layout.isFixed() ? REGION_OWNED : MAIN_THREAD_ONLY;
     }

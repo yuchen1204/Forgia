@@ -80,6 +80,16 @@ public final class RegionBlockEntityTickScope implements AutoCloseable {
                 && scope.region.isOwnedByCurrentThread();
     }
 
+    /** Checks the exact admitted source before a new whole operation is queued; it grants no foreign access. */
+    static boolean isCurrentSource(net.minecraft.world.level.block.entity.BlockEntity entity) {
+        final RegionBlockEntityTickScope scope = CURRENT.get();
+        return scope != null && scope.active
+                && scope.admission.level() == entity.getLevel()
+                && scope.admission.position().equals(entity.getBlockPos())
+                && net.minecraft.world.level.chunk.LevelChunk.isBlockEntityTickSource(scope.admission.binding().delegate(), entity)
+                && scope.admission.isCurrent() && scope.region.isOwnedByCurrentThread();
+    }
+
     /**
      * {@return true when the calling thread is inside the body of an admitted block-entity ticker whose
      * attribution is enabled}

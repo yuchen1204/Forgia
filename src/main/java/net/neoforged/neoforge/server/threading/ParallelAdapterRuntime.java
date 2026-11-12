@@ -21,7 +21,9 @@ import java.util.function.Consumer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.neoforged.neoforge.server.threading.api.BlockEntityOperations;
 import net.neoforged.neoforge.server.threading.api.ParallelApi;
+import net.neoforged.neoforge.server.threading.api.ScheduledTickStatus;
 import net.neoforged.neoforge.server.threading.region.RegionThreadingEngine;
 import net.neoforged.neoforge.server.threading.region.RegionWorkerScope;
 import org.jetbrains.annotations.ApiStatus;
@@ -34,6 +36,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     private static final ThreadLocal<PreparedSpawn> CURRENT = new ThreadLocal<>();
     private static final int MAX_ADAPTERS = 128;
     private final MinecraftServer server;
+    private final BlockEntityOperationRuntime blockEntities;
     private volatile Map<ResourceLocation, Entry<?>> entries = new TreeMap<>();
     private volatile boolean open = true;
     private volatile boolean frozen;
@@ -42,6 +45,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
 
     private ParallelAdapterRuntime(MinecraftServer server) {
         this.server = Objects.requireNonNull(server);
+        this.blockEntities = new BlockEntityOperationRuntime(server, () -> this.open);
     }
 
     /** Registration failure never leaves a published partially registered service. */
@@ -156,7 +160,21 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     public Set<ParallelApi.Capability> capabilities() {
         this.requireOpen();
         return Set.of(ParallelApi.Capability.EXECUTION_CONTEXT, ParallelApi.Capability.NATURAL_SPAWN_PREPARATION,
-                ParallelApi.Capability.NATURAL_SPAWN_PLAN_PREPARATION, ParallelApi.Capability.NATURAL_SPAWN_CLAIMS);
+                ParallelApi.Capability.NATURAL_SPAWN_PLAN_PREPARATION, ParallelApi.Capability.NATURAL_SPAWN_CLAIMS,
+                ParallelApi.Capability.ORDERED_SPAWN_FINALIZATION, ParallelApi.Capability.BLOCK_ENTITY_OPERATIONS,
+                ParallelApi.Capability.SCHEDULED_TICK_DIAGNOSTICS);
+    }
+
+    @Override
+    public BlockEntityOperations blockEntities() {
+        this.requireOpen();
+        return this.blockEntities;
+    }
+
+    @Override
+    public List<ScheduledTickStatus> scheduledTicks() {
+        this.requireOpen();
+        return RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine ? engine.scheduledTickStatus() : List.of();
     }
 
     @Override
@@ -206,6 +224,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         }
         final Map<ParallelApi.DataKey<?>, Object> frozen = new LinkedHashMap<>();
         final List<Entry<?>> perUnit = new ArrayList<>();
+        boolean orderedFinalization = false;
         final var context = new ParallelApi.SpawnPlan(level.dimension(), level.getGameTime());
         for (final Entry<?> entry : runtime.entries.values()) {
             final long start = System.nanoTime();
@@ -214,9 +233,10 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                 if (result instanceof ParallelApi.ServerRequired<?> serial) {
                     entry.serialPlans.increment();
                     entry.lastReason = serial.reason();
-                    return new PreparedSpawnPlan(runtime, level, context, Map.of(), List.of(), false);
+                    return new PreparedSpawnPlan(runtime, level, context, Map.of(), List.of(), false, false);
                 } else if (result instanceof ParallelApi.Ready<?> ready) {
                     frozen.put(entry.key, entry.key.snapshotType().cast(ready.snapshot()));
+                    orderedFinalization |= ready.orderedFinalization();
                 } else {
                     perUnit.add(entry);
                 }
@@ -224,7 +244,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                 entry.nanos.add(System.nanoTime() - start);
             }
         }
-        return new PreparedSpawnPlan(runtime, level, context, Map.copyOf(frozen), List.copyOf(perUnit), true);
+        return new PreparedSpawnPlan(runtime, level, context, Map.copyOf(frozen), List.copyOf(perUnit), true, orderedFinalization);
     }
 
     /** Convenience for a standalone unit; production plans reuse the same prepared-plan identity. */
@@ -253,7 +273,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
     }
 
     public static final class PreparedSpawnPlan {
-        private static final PreparedSpawnPlan EMPTY = new PreparedSpawnPlan(null, null, null, Map.of(), List.of(), true);
+        private static final PreparedSpawnPlan EMPTY = new PreparedSpawnPlan(null, null, null, Map.of(), List.of(), true, false);
         @Nullable
         private final ParallelAdapterRuntime runtime;
         @Nullable
@@ -263,20 +283,26 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         private final Map<ParallelApi.DataKey<?>, Object> frozen;
         private final List<Entry<?>> perUnit;
         private final boolean workerReady;
+        private final boolean orderedFinalization;
 
         private PreparedSpawnPlan(@Nullable ParallelAdapterRuntime runtime, @Nullable ServerLevel level,
                 @Nullable ParallelApi.SpawnPlan context, Map<ParallelApi.DataKey<?>, Object> frozen,
-                List<Entry<?>> perUnit, boolean workerReady) {
+                List<Entry<?>> perUnit, boolean workerReady, boolean orderedFinalization) {
             this.runtime = runtime;
             this.level = level;
             this.context = context;
             this.frozen = frozen;
             this.perUnit = perUnit;
             this.workerReady = workerReady;
+            this.orderedFinalization = orderedFinalization;
         }
 
         public boolean workerReady() {
             return this.workerReady;
+        }
+
+        public boolean orderedFinalization() {
+            return this.orderedFinalization;
         }
 
         private void requireCurrent(ServerLevel level) {
@@ -303,6 +329,31 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                         this.frozen, true).run(level, action);
             }
         }
+    }
+
+    /** Carries an already-started unit across its parked server continuation; never prepares or replays it. */
+    public static <T> java.util.function.Supplier<T> captureOrderedSpawnContext(ServerLevel level, java.util.function.Supplier<T> action) {
+        final PreparedSpawn captured = CURRENT.get();
+        return () -> {
+            if (!level.getServer().isSameThread()
+                    || !(RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine)
+                    || !engine.isOrderedSpawnServerPhase(level)) {
+                throw new IllegalStateException("Prepared continuation requires an ordered server spawn phase");
+            }
+            if (captured != null && captured.runtime != null && (!captured.runtime.open || captured.level != level
+                    || captured.runtime.server != level.getServer() || captured.unit.gameTime() != level.getGameTime())) {
+                throw new IllegalStateException("Prepared spawn continuation has retired");
+            }
+            final PreparedSpawn previous = CURRENT.get();
+            if (captured == null) CURRENT.remove();
+            else CURRENT.set(captured);
+            try {
+                return action.get();
+            } finally {
+                if (previous == null) CURRENT.remove();
+                else CURRENT.set(previous);
+            }
+        };
     }
 
     public static <S> Optional<S> prepared(ParallelApi.DataKey<S> key) {
@@ -366,8 +417,10 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
                     || !level.dimension().equals(this.unit.dimension()) || level.getGameTime() != this.unit.gameTime()) {
                 return false;
             }
+            final boolean orderedServer = RegionThreadingManager.currentOrNull() instanceof RegionThreadingEngine engine
+                    && engine.isOrderedSpawnServerPhase(level);
             if (!this.workerReady || this.runtime.currentPhase() == ParallelApi.Phase.EXTERNAL
-                    || this.runtime.currentPhase() == ParallelApi.Phase.SERVER_SERVICE) {
+                    || (this.runtime.currentPhase() == ParallelApi.Phase.SERVER_SERVICE && !orderedServer)) {
                 throw new IllegalStateException("Prepared spawn body requires admitted worker or quiescent server execution");
             }
             if (!this.started.compareAndSet(false, true)) {
@@ -408,6 +461,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
             try {
                 final ParallelApi.Preparation<S> result = Objects.requireNonNull(this.preparation.prepare(unit), "Null preparation result");
                 if (result instanceof ParallelApi.Ready<S> ready) {
+                    if (ready.orderedFinalization()) throw new IllegalStateException("Ordered finalization must be requested by preparePlan");
                     snapshots.put(this.key, this.key.snapshotType().cast(ready.snapshot()));
                     this.ready.increment();
                     return true;

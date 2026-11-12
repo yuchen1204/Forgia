@@ -36,7 +36,10 @@ public final class ParallelApi {
         EXECUTION_CONTEXT,
         NATURAL_SPAWN_PREPARATION,
         NATURAL_SPAWN_PLAN_PREPARATION,
-        NATURAL_SPAWN_CLAIMS
+        NATURAL_SPAWN_CLAIMS,
+        ORDERED_SPAWN_FINALIZATION,
+        BLOCK_ENTITY_OPERATIONS,
+        SCHEDULED_TICK_DIAGNOSTICS
     }
 
     /** Phase describes execution, not permission to mutate arbitrary objects. */
@@ -58,10 +61,25 @@ public final class ParallelApi {
         Phase currentPhase();
 
         List<AdapterStatus> adapters();
+
+        /** Whole two-owner operations with explicit results; does not widen any worker tick declaration. */
+        default BlockEntityOperations blockEntities() {
+            throw new UnsupportedOperationException("This server does not support block entity operations");
+        }
+
+        /** Empty when no region engine is installed; collected/accepted/completed units remain distinct. */
+        default List<ScheduledTickStatus> scheduledTicks() {
+            return List.of();
+        }
     }
 
     /** Registration is only valid inside the registration event, on its server thread. */
     public interface Registrar {
+        /** Available during registration; this describes protocols, never adapter activation. */
+        default Set<Capability> capabilities() {
+            return Set.of();
+        }
+
         <S> void register(int apiMajorVersion, DataKey<S> key, NaturalSpawnPreparation<S> preparation);
 
         /**
@@ -127,8 +145,15 @@ public final class ParallelApi {
     /**
      * Snapshot must be deeply immutable and detached from live world objects. Runtime type checking cannot
      * prove immutability; do not include entities, chunks, mutable NBT, collections or shared RNGs.
+     * orderedFinalization may only be requested by preparePlan. It keeps selection on workers but moves
+     * the complete native finalization/admission continuation to the server with peers parked. The
+     * one-argument constructor retains the original worker-finalization protocol.
      */
-    public record Ready<S>(S snapshot) implements Preparation<S> {
+    public record Ready<S>(S snapshot, boolean orderedFinalization) implements Preparation<S> {
+        public Ready(S snapshot) {
+            this(snapshot, false);
+        }
+
         public Ready {
             Objects.requireNonNull(snapshot);
         }

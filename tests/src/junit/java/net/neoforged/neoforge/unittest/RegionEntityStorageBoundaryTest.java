@@ -622,11 +622,11 @@ class RegionEntityStorageBoundaryTest {
 
     @Test
     void configuredScheduledSpawnRunsInlineAndReturnsActualResults() {
-        // The requested scheduled worker slice stays gated, so the callback runs synchronously on the
-        // server thread and addFreshEntity returns the real result instead of a provisional one.
+        // This unclassified phase keeps its original live serial queue and synchronous join results.
         this.engine = new RegionThreadingEngine(2, false, false, false, false, true, false, RegionPolicy.FIXED_3X3);
         RegionThreadingManager.install(this.engine);
         final ServerLevel level = mockServerLevel();
+        doReturn(net.minecraft.util.profiling.InactiveProfiler.INSTANCE).when(level).getProfiler();
         attachEntityManager(level);
         final LevelTicks<Block> ticks = new LevelTicks<>(chunk -> true, () -> net.minecraft.util.profiling.InactiveProfiler.INSTANCE);
         ticks.addContainer(new ChunkPos(0, 0), new LevelChunkTicks<>());
@@ -645,7 +645,7 @@ class RegionEntityStorageBoundaryTest {
                 LockSupport.parkNanos(100_000L);
             }
         });
-        assertNull(dispatcher, "the production scheduled slice must stay on the vanilla inline path");
+        org.junit.jupiter.api.Assertions.assertNotNull(dispatcher, "production classifies callbacks before deciding whether to drain the live queue");
 
         NeoForge.EVENT_BUS.addListener(EntityJoinLevelEvent.class, recorder);
         try {
@@ -680,8 +680,8 @@ class RegionEntityStorageBoundaryTest {
         // duplicate and one for the cancelled join. The already-removed entity is rejected before the event.
         assertEquals(4, joinEvents.get(), "the join event must fire inline exactly once per admitted attempt");
         assertTrue(this.engine.diagnostics().scheduledTickWorkerExecutionEnabled());
-        assertFalse(this.engine.diagnostics().scheduledTickWorkerDispatchEffective());
         assertEquals(0L, this.engine.diagnostics().scheduledTicksOnWorkers());
+        assertEquals(1L, this.engine.scheduledTickStatus().getFirst().serialCompletions());
     }
 
     @Test

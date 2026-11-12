@@ -26,9 +26,13 @@ import org.jetbrains.annotations.Nullable;
  * <li>never adds an entity, and</li>
  * <li>only mutates its own block/container without writing outside the region lease it holds.</li>
  * </ul>
- * Every entry is interior-only and uses the same one-chunk bound as the random tick slice: the ticker's
- * chunk and all eight neighboring chunks must belong to the same region, so the writes the tick starts
- * stay inside the lease. Chained neighbor cascades that travel farther than one chunk, the scheduled tick
+ * Without border propagation, every entry is interior-only and uses the same one-chunk bound as the random
+ * tick slice: the ticker's chunk and all eight neighboring chunks must belong to the same region. With border
+ * propagation, only the audited furnace family may also run in a boundary chunk: its body writes its own
+ * inventory and block, and its neighbor/comparator effects use the existing border capture. The batch must
+ * check that the neighboring chunks are loaded before any body starts. Hoppers and pack-admitted types keep
+ * the interior rule because their bodies can read and mutate live neighboring containers.
+ * Chained neighbor cascades that travel farther than one chunk, the scheduled tick
  * a neighbor update can start (deferred to the server thread) and arbitrary modded cross-region writes are
  * outside this bound and are not claimed to be safe.
  * Every other known pattern stays on the server thread. In particular, a tick that queries entity
@@ -73,6 +77,11 @@ public final class RegionTickCompatibility {
             "minecraft:blast_furnace",
             "minecraft:hopper",
             "minecraft:smoker");
+    /** Only these audited bodies can replace the interior rule with border capture and loaded neighbors. */
+    private static final Set<String> BORDER_SAFE_BLOCK_ENTITY_TYPES = Set.of(
+            "minecraft:furnace",
+            "minecraft:blast_furnace",
+            "minecraft:smoker");
     /**
      * Types a declaration file, a mod or a pack author pinned to the server thread, by type id with the
      * reason of the declaration.
@@ -102,13 +111,9 @@ public final class RegionTickCompatibility {
     private static volatile Set<String> admittedTypes = Set.of();
 
     /**
-     * How often a ticker of each type was left on the server thread because no declaration admits it.
-     * <p>
-     * The block-entity slice can only be widened by naming types, and the engine cannot guess which type a pack
-     * spends its ticks in. This table is the evidence: it is bounded so a pack that spawns a new block-entity
-     * type every tick cannot grow it without limit, and {@code /neoforge regionthreading status} prints the
-     * largest entries. It costs one map lookup per collected ticker of an undeclared type and nothing on the
-     * worker path.
+     * How often a type was undeclared when an admission snapshot was built. Cached snapshots reuse the
+     * decision, so this is not a count of fallback ticks or time spent. Use it to identify encountered types;
+     * use dispatch deltas and profiling to identify hot tickers. Bounded to avoid unbounded modded type growth.
      */
     private static final int MAX_TRACKED_UNDECLARED_TYPES = 128;
 
@@ -163,11 +168,11 @@ public final class RegionTickCompatibility {
     }
 
     /**
-     * {@return true when the server tick of {@code type} starts neighbor updates and therefore may only
-     * run when the chunks around its position belong to the same region}
+     * {@return true when {@code type} is admitted under the conservative interior-chunk protocol}
      * <p>
-     * A declared server-thread-only type is never admitted, whatever the position: the declaration says the
-     * tick is not safe on a worker at all, so the interior-chunk rule cannot rescue it.
+     * The furnace family can additionally use boundary admission through
+     * {@link #decideBlockEntityTick(String, boolean, boolean)} when border propagation is enabled. A declared
+     * server-thread-only type is never admitted, whatever its position or the available propagation protocol.
      */
     public static boolean requiresInteriorRegion(@Nullable String type) {
         return type != null
@@ -176,18 +181,30 @@ public final class RegionTickCompatibility {
     }
 
     /**
-     * {@return the admission decision of a ticker of {@code type} whose chunk is {@code interiorChunk}}
-     * <p>
-     * This is the single place that combines the two halves of the declaration: a type outside the allowlist
-     * keeps its whole region on the server thread, and an allowlisted type still keeps it there when its own
-     * chunk is a boundary chunk of the region, because the writes it starts could leave the lease.
+     * {@return the admission decision without border propagation}
      */
     public static RegionBlockEntityTickAdmission.Decision decideBlockEntityTick(@Nullable String type, boolean interiorChunk) {
+        return decideBlockEntityTick(type, interiorChunk, false);
+    }
+
+    /**
+     * {@return the pre-body admission decision for the available propagation protocol}
+     * <p>
+     * Boundary admission is restricted to audited furnace-family bodies, even when a pack admits another
+     * type. Loaded-neighborhood availability is deliberately not part of this cached decision: the batch
+     * rechecks it each tick before it leases the chunk. Server-thread declarations always take precedence.
+     */
+    public static RegionBlockEntityTickAdmission.Decision decideBlockEntityTick(@Nullable String type, boolean interiorChunk, boolean borderUpdatesEnabled) {
         if (!requiresInteriorRegion(type)) {
             recordUndeclaredType(type);
             return RegionBlockEntityTickAdmission.Decision.TYPE_NOT_DECLARED;
         }
-        return interiorChunk ? RegionBlockEntityTickAdmission.Decision.ADMITTED : RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK;
+        if (interiorChunk) {
+            return RegionBlockEntityTickAdmission.Decision.ADMITTED;
+        }
+        return borderUpdatesEnabled && BORDER_SAFE_BLOCK_ENTITY_TYPES.contains(type)
+                ? RegionBlockEntityTickAdmission.Decision.ADMITTED_WITH_BORDER_UPDATES
+                : RegionBlockEntityTickAdmission.Decision.NOT_INTERIOR_CHUNK;
     }
 
     /** Records one ticker of {@code type} that no declaration admits. */

@@ -8,6 +8,7 @@ package net.neoforged.neoforge.unittest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -433,11 +434,11 @@ class RegionForeignChunkReadVersionTest {
         final AtomicInteger before = new AtomicInteger();
         final AtomicInteger after = new AtomicInteger();
         final var proto = mock(net.minecraft.world.level.chunk.ProtoChunk.class);
-        ticks.tick(1L, 65536, (pos, block) -> {
+        assertThrows(net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.class, () -> ticks.tick(1L, 65536, (pos, block) -> {
             before.incrementAndGet();
             RegionThreadingHooks.recordForeignChunkRead(level, WRITER_CHUNK.x, WRITER_CHUNK.z, proto);
             after.incrementAndGet();
-        }, this.engine.beginScheduledTickDispatcher(level, ScheduledTickPhase.BLOCK, PARKING_BARRIER));
+        }, this.engine.beginScheduledTickDispatcher(level, ScheduledTickPhase.BLOCK, PARKING_BARRIER)));
         assertEquals(1, before.get());
         assertEquals(0, after.get());
         assertEquals(1L, this.engine.diagnostics().borderUpdates().readOfVersionlessChunk());
@@ -445,7 +446,7 @@ class RegionForeignChunkReadVersionTest {
     }
 
     @Test
-    void unstableForeignReadAbandonsScheduledBodyWithoutReplay() {
+    void unstableForeignReadReportsScheduledBodyFailureWithoutReplay() {
         final ServerLevel level = this.mockLevel();
         final Map<Long, LevelChunk> chunks = new HashMap<>();
         final LevelChunk foreign = realChunk(level, WRITER_CHUNK);
@@ -462,11 +463,11 @@ class RegionForeignChunkReadVersionTest {
         foreign.beginChunkMutation();
         try {
             assertEquals(1L, foreign.chunkVersion() & 1L);
-            ticks.tick(1L, 65536, (pos, block) -> {
+            assertThrows(net.neoforged.neoforge.server.threading.region.RegionWorkerChunkUnavailableException.class, () -> ticks.tick(1L, 65536, (pos, block) -> {
                 before.incrementAndGet();
                 level.getBlockState(WRITER_POS);
                 after.incrementAndGet();
-            }, this.engine.beginScheduledTickDispatcher(level, ScheduledTickPhase.BLOCK, PARKING_BARRIER));
+            }, this.engine.beginScheduledTickDispatcher(level, ScheduledTickPhase.BLOCK, PARKING_BARRIER)));
         } finally {
             foreign.endChunkMutation();
         }

@@ -114,7 +114,7 @@ public final class ForgiaConfig {
                     .define("enableRegionThreadingBlockEntityTicks", false);
 
             enableRegionThreadingScheduledTicks = builder
-                    .comment("EXPERIMENTAL: Requests the bounded scheduled block and fluid tick slice. Requires enableRegionThreadingBridge. In production the effective dispatch stays gated because no scheduled callback class is admitted as entity-storage safe, so the vanilla inline loop runs; diagnostics report the request separately from the effective dispatch.")
+                    .comment("EXPERIMENTAL: Requests the bounded scheduled block and fluid tick slice. Requires enableRegionThreadingBridge. Production admits only complete block phases of vanilla redstone-lamp callbacks whose radius-two signal/shape footprint is loaded, contained in one fixed region and contains only audited inert vanilla blocks. Other block callbacks, fluids, unsafe footprints and over-budget phases retain the original serial LevelTicks loop and ordering. Diagnostics separate collected/admitted callbacks, native/serial completions, failures, skips, refusal reasons and timing. Default off.")
                     .translation("neoforge.configgui.enableRegionThreadingScheduledTicks")
                     .worldRestart()
                     .define("enableRegionThreadingScheduledTicks", false);
