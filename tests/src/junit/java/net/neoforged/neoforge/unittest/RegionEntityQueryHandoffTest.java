@@ -28,6 +28,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -155,10 +157,24 @@ class RegionEntityQueryHandoffTest {
         final Queue<Runnable> chunkSourceTasks = new ConcurrentLinkedQueue<>();
         final ServerLevel level = mockLevel(serverTasks, serverThread);
         final AtomicBoolean chunkSourceTaskRan = new AtomicBoolean();
-        chunkSourceTasks.add(() -> chunkSourceTaskRan.set(true));
+        final CountDownLatch chunkSourceServiced = new CountDownLatch(1);
+        chunkSourceTasks.add(() -> {
+            chunkSourceTaskRan.set(true);
+            chunkSourceServiced.countDown();
+        });
         final AtomicReference<String> result = new AtomicReference<>();
 
-        runScheduledTick(level, chunkSourceBarrier(chunkSourceTasks), 0, 0, (pos, type) -> result.set(RegionThreadingHooks.runOnServerThread(level, () -> "handoff")));
+        runScheduledTick(level, chunkSourceBarrier(chunkSourceTasks), 0, 0, (pos, type) -> {
+            // Without this prerequisite a fast handoff can complete in the barrier's first condition check,
+            // before a chunk-source wait is needed at all. Require both services instead of relying on timing.
+            try {
+                assertTrue(chunkSourceServiced.await(5, TimeUnit.SECONDS), "the barrier did not service chunk source work");
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(exception);
+            }
+            result.set(RegionThreadingHooks.runOnServerThread(level, () -> "handoff"));
+        });
 
         assertEquals("handoff", result.get());
         assertTrue(chunkSourceTaskRan.get(), "the barrier must keep servicing chunk source tasks while it waits");

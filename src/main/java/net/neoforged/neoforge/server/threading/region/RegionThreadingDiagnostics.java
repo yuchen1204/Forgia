@@ -347,7 +347,11 @@ public record RegionThreadingDiagnostics(
      * packed task. {@code partialPackFallbacks} counts the packs that could not lease every region they needed,
      * released the ones they took and leased the affected regions one by one instead: a fallback is never a
      * dropped region. {@code persistentWorkers} and {@code packedRegionLeases} report which of the two
-     * light-load changes is installed.
+     * light-load changes is installed. {@code dispatchBatches} counts larger persistent batches dispatched
+     * through ranges, {@code batchedTasks} their original indivisible tasks and {@code batchRunners} their
+     * executor submission attempts. {@code batchSteals} counts successful range transfers and
+     * {@code batchStolenTasks} the task indices transferred; an unstarted task may be transferred more than
+     * once. These are distinct from stealing an executor task from a worker's outer deque.
      */
     public record WorkerDispatchCounters(
             long submissions,
@@ -361,7 +365,19 @@ public record RegionThreadingDiagnostics(
             long packedRegions,
             long partialPackFallbacks,
             boolean persistentWorkers,
-            boolean packedRegionLeases) {}
+            boolean packedRegionLeases,
+            long dispatchBatches,
+            long batchedTasks,
+            long batchRunners,
+            long batchSteals,
+            long batchStolenTasks) {
+        public WorkerDispatchCounters(long submissions, long submitNanos, long wakeNanos, long idleWakeUps,
+                long spinWakeUps, long parkWakeUps, long steals, long packedTasks, long packedRegions,
+                long partialPackFallbacks, boolean persistentWorkers, boolean packedRegionLeases) {
+            this(submissions, submitNanos, wakeNanos, idleWakeUps, spinWakeUps, parkWakeUps, steals, packedTasks,
+                    packedRegions, partialPackFallbacks, persistentWorkers, packedRegionLeases, 0, 0, 0, 0, 0);
+        }
+    }
 
     /**
      * The counters of the region-partitioned POI storage.

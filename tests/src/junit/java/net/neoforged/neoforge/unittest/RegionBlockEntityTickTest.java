@@ -266,7 +266,10 @@ class RegionBlockEntityTickTest {
         assertEquals(0L, dispatch.partialPackFallbacks());
         assertTrue(dispatch.persistentWorkers());
         assertTrue(dispatch.packedRegionLeases());
-        assertEquals(0L, dispatch.submissions() - dispatch.packedTasks());
+        assertEquals(4L, dispatch.submissions(), "eight indivisible packs share four dispatcher runners");
+        assertEquals(1L, dispatch.dispatchBatches());
+        assertEquals(8L, dispatch.batchedTasks());
+        assertEquals(4L, dispatch.batchRunners());
         assertEquals(0, this.engine.diagnostics().runningRegionCount(), "a packed task must release every lease it held");
     }
 

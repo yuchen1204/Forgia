@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'tools/modpack-matrix'))
 from rcon import Rcon, RconError
 
-VERSION = '21.1.250.55-beta'
+VERSION = '21.1.250.56-beta'
 
 
 def arguments():
@@ -26,7 +26,10 @@ def arguments():
     parser.add_argument('--java', type=Path, required=True, help='JDK 21 java executable')
     parser.add_argument('--furnace-waves', action='store_true', help='Enable and verify actual fine-grained furnace waves')
     parser.add_argument('--inert-layout', action='store_true', help='Space furnaces four blocks apart without active notification receivers; verify native completion commits')
-    parser.add_argument('--installer', type=Path, default=REPO / f'projects/neoforge/build/libs/neoforge-{VERSION}-installer.jar')
+    parser.add_argument('--furnace-count', type=int, choices=(2, 6), default=2, help='Use six inert furnaces to exercise work stealing within one chunk')
+    parser.add_argument('--persistent-workers', action='store_true', help='Enable persistent workers and verify work-stealing batch dispatch')
+    parser.add_argument('--version', default=VERSION, help='Installed core version; defaults to the latest validated fixture version')
+    parser.add_argument('--installer', type=Path, help='Installer jar; defaults to the selected version in projects/neoforge/build/libs')
     return parser.parse_args()
 
 
@@ -39,19 +42,26 @@ def free_port():
 def main():
     args = arguments()
     root = args.run_dir.resolve()
-    positions = (20, 24) if args.inert_layout else (20, 22)
+    installer = args.installer or REPO / f'projects/neoforge/build/libs/neoforge-{args.version}-installer.jar'
+    if args.furnace_count == 6 and not args.inert_layout:
+        raise ValueError('--furnace-count 6 requires --inert-layout')
+    positions = [(x, 20) for x in ((20, 24) if args.inert_layout else (20, 22))]
+    if args.furnace_count == 6:
+        positions = [(x, z) for z in (17, 21) for x in (17, 21, 25)]
+    furnace_count = len(positions)
     if not re.search(r'^\s*eula\s*=\s*true\s*$', args.eula.read_text(), re.M | re.I):
         raise ValueError('--eula must name an already-accepted eula.txt')
     root.mkdir(parents=True, exist_ok=False)
     shutil.copytree(args.libraries.resolve(), root / 'libraries', symlinks=False)
     shutil.copy2(args.eula, root / 'eula.txt')
     with (root / 'installer.log').open('w') as log:
-        result = subprocess.run([str(args.java.resolve()), '-jar', str(args.installer.resolve()), '--installServer', str(root)],
+        result = subprocess.run([str(args.java.resolve()), '-jar', str(installer.resolve()), '--installServer', str(root)],
                                 cwd=root, stdout=log, stderr=subprocess.STDOUT, timeout=300)
     if result.returncode:
         raise RuntimeError(f'private installation exited {result.returncode}; see installer.log')
     (root / 'config').mkdir(exist_ok=True)
     (root / 'config/forgia.toml').write_text(f'''enableRegionThreadingFurnaceWorkWaves = {str(args.furnace_waves).lower()}
+enableRegionThreadingPersistentWorkers = {str(args.persistent_workers).lower()}
 enableRegionThreadingBridge = true
 enableRegionThreadingWorkers = true
 enableRegionThreadingEntityTicks = false
@@ -86,14 +96,15 @@ rcon.port={rcon_port}
 rcon.password={password}
 ''')
     properties.chmod(0o600)
-    vm_args = root / f'libraries/net/neoforged/neoforge/{VERSION}/unix_args.txt'
+    vm_args = root / f'libraries/net/neoforged/neoforge/{args.version}/unix_args.txt'
     log = (root / 'server.log').open('w')
     proc = subprocess.Popen([str(args.java.resolve()), '-Xms512M', '-Xmx2G', '-XX:+UseZGC', '-XX:+ZGenerational',
                              '@' + str(vm_args), 'nogui'], cwd=root, stdout=log, stderr=subprocess.STDOUT)
     client = None
     commands = []
-    summary = {'outcome': 'STARTING', 'core': VERSION, 'scope': 'same-chunk vanilla furnaces; shadow observation and optional real furnace waves',
-               'furnaceWavesEnabled': args.furnace_waves, 'inertLayout': args.inert_layout}
+    summary = {'outcome': 'STARTING', 'core': args.version, 'scope': 'same-chunk vanilla furnaces; shadow observation and optional real furnace waves',
+               'furnaceWavesEnabled': args.furnace_waves, 'inertLayout': args.inert_layout, 'persistentWorkersEnabled': args.persistent_workers,
+               'furnaceCount': furnace_count}
     try:
         deadline = time.monotonic() + 240
         while time.monotonic() < deadline:
@@ -134,11 +145,11 @@ rcon.password={password}
         command('forceload add 16 16 31 31')
         time.sleep(4)
         command('tick freeze')
-        command('fill 19 99 19 25 99 22 minecraft:stone')
-        for x in positions:
-            command(f'setblock {x} 100 20 minecraft:furnace')
-            command(f'item replace block {x} 100 20 container.0 with minecraft:iron_ore 2')
-            command(f'item replace block {x} 100 20 container.1 with minecraft:coal 1')
+        command('fill 16 99 16 26 99 22 minecraft:stone')
+        for x, z in positions:
+            command(f'setblock {x} 100 {z} minecraft:furnace')
+            command(f'item replace block {x} 100 {z} container.0 with minecraft:iron_ore 2')
+            command(f'item replace block {x} 100 {z} container.1 with minecraft:coal 1')
         if not args.inert_layout:
             command('setblock 20 100 21 minecraft:comparator[facing=north]')
         command('neoforge regionthreading workgraph start 20')
@@ -150,16 +161,16 @@ rcon.password={password}
         if 'remainingPhases=0, completedPhases=20' not in sample or 'shadow, partial coverage' not in sample:
             raise AssertionError('observation budget or coverage label missing: ' + sample)
         shadow = sample.split('Block entity work graph', 1)[-1]
-        for field, expected in [('planned', 2), ('invoked', 2), ('native', 2), ('serial', 0), ('failed', 0),
-                                ('repeated', 0), ('omitted', 0), ('overflowed', 0), ('waves', 1), ('maxWidth', 2)]:
+        for field, expected in [('planned', furnace_count), ('invoked', furnace_count), ('native', furnace_count), ('serial', 0), ('failed', 0),
+                                ('repeated', 0), ('omitted', 0), ('overflowed', 0), ('waves', 1), ('maxWidth', furnace_count)]:
             found = re.search(r'\b' + field + r'=(\d+)', shadow)
             if found is None or int(found.group(1)) != expected:
                 raise AssertionError(f'unexpected {field}, expected {expected}: ' + sample)
         wait_ticks(start + 430)
         command('tick freeze')
-        for x in positions:
-            state = command(f'data get block {x} 100 20')
-            (root / f'furnace-{x}.txt').write_text(state)
+        for x, z in positions:
+            state = command(f'data get block {x} 100 {z}')
+            (root / f'furnace-{x}-{z}.txt').write_text(state)
             if 'minecraft:iron_ore' in state or 'minecraft:coal' in state or 'minecraft:iron_ingot' not in state:
                 raise AssertionError('real smelting did not conserve/process the two inputs: ' + state)
             output = re.search(r'\{[^{}]*Slot:\s*2b[^{}]*\}', state)
@@ -182,11 +193,19 @@ rcon.password={password}
             summary.update(nativeFurnaceBodies=int(body_count.group(1)), simultaneousOriginalBodies=int(overlap.group(1)))
             if args.inert_layout:
                 changes = re.search(r'\bchanges=(\d+)', final_graph)
-                if changes is None or int(changes.group(1)) != 4:
-                    raise AssertionError('expected four native processing completion notifications: ' + final_graph)
+                if changes is None or int(changes.group(1)) != 2 * furnace_count:
+                    raise AssertionError(f'expected {2 * furnace_count} native processing completion notifications: ' + final_graph)
                 summary['nativeCompletionChanges'] = int(changes.group(1))
         raw = command('neoforge regionthreading status raw')
         (root / 'diagnostics.raw.txt').write_text(raw)
+        if args.persistent_workers:
+            if 'persistentWorkers=true' not in raw:
+                raise AssertionError('persistent worker pool was not installed')
+            for field in ['dispatchBatches', 'batchedTasks', 'batchRunners', 'batchSteals']:
+                found = re.search(r'\b' + field + r'=(\d+)', raw)
+                if found is None or (args.furnace_waves and field != 'batchSteals' and int(found.group(1)) == 0):
+                    raise AssertionError('missing/inactive work-stealing dispatcher counter ' + field)
+                summary[field] = int(found.group(1))
         for field in ['ownershipViolationCount', 'droppedDeferredEntityAdditions', 'droppedDeferredEntityRemovals']:
             found = re.search(r'\b' + field + r'=(\d+)', raw)
             if found is None or int(found.group(1)):
@@ -194,8 +213,8 @@ rcon.password={password}
         failure = re.search(r'tickFailures=(.*?), deferredUpdateBudgetChunkTicks=', raw, re.S)
         if failure is None or any(int(value) for value in re.findall(r'\b\w+=(\d+)', failure.group(1))):
             raise AssertionError('missing/nonzero tick failure counters')
-        summary.update(outcome='PASS', observedPhases=20, nativeInvocationsInLastSample=2, observedWidth=2,
-                       observedDepth=1, normalTicks=game_time()-start, outputIngots=4)
+        summary.update(outcome='PASS', observedPhases=20, nativeInvocationsInLastSample=furnace_count, observedWidth=furnace_count,
+                       observedDepth=1, normalTicks=game_time()-start, outputIngots=2 * furnace_count)
     except BaseException as failure:
         summary.update(outcome='FAIL', error=str(failure))
         raise

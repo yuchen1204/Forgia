@@ -1037,8 +1037,8 @@ public final class RegionThreadingEngine implements RegionThreading {
     /**
      * Creates an engine with the light-load dispatch of the worker pool and of the region leases selected.
      * <p>
-     * {@code persistentWorkers} hands a task to the slot of one persistent worker instead of a shared executor
-     * queue, and {@code packedRegionLeases} lets one task tick several regions of the same slice. Both are off by
+     * {@code persistentWorkers} dispatches through persistent deques and stealable task ranges instead of a
+     * shared executor queue, and {@code packedRegionLeases} lets one task tick several regions of the same slice. Both are off by
      * default, and off means the unchanged behaviour of every slice.
      */
     public RegionThreadingEngine(int workerThreads, boolean workerExecutionEnabled, boolean globalWorkerExecutionEnabled, boolean entityTickWorkerExecutionEnabled, boolean blockEntityTickWorkerExecutionEnabled, boolean scheduledTickWorkerExecutionEnabled, boolean chunkTickWorkerExecutionEnabled, boolean spawnWorkerExecutionEnabled, boolean persistentWorkers, boolean packedRegionLeases, RegionLayout layout, RegionEntityStorageMode entityStorageMode) {
@@ -5866,12 +5866,25 @@ public final class RegionThreadingEngine implements RegionThreading {
             @Nullable RegionBlockEntityWorkGraph.Phase sample, RegionTickBarrier barrier) {
         final RegionTaskBatch work = new RegionTaskBatch();
         final int lanes = Math.min(results.size(), this.workerPool.threadCount());
-        final int perLane = (results.size() + lanes - 1) / lanes;
-        for (int from = 0; from < results.size(); from += perLane) {
-            final List<FurnaceWorkResult> lane = results.subList(from, Math.min(from + perLane, results.size()));
-            work.add("vanilla furnace work lane", batch.groupWork(() -> {
-                for (final var result : lane) this.runFurnaceWorkBody(batch, result, sample);
-            }));
+        if (this.workerPool.isPersistent()) {
+            // Keep one batch scope per runner while allowing its unstarted furnace bodies to be stolen.
+            // These bodies already share an admitted dependency wave and the coordinator's outer leases;
+            // their notification commits retain the canonical results order after every runner joins.
+            final var dispatcher = new RegionWorkStealingDispatcher(results.size(), lanes,
+                    index -> this.runFurnaceWorkBody(batch, results.get(index), sample), this.workerPool::recordBatchSteal);
+            this.workerPool.recordBatchDispatch(results.size(), lanes);
+            for (int index = 0; index < lanes; ++index) {
+                final int runner = index;
+                work.add("vanilla furnace work runner", batch.groupWork(() -> dispatcher.run(runner)));
+            }
+        } else {
+            final int perLane = (results.size() + lanes - 1) / lanes;
+            for (int from = 0; from < results.size(); from += perLane) {
+                final List<FurnaceWorkResult> lane = results.subList(from, Math.min(from + perLane, results.size()));
+                work.add("vanilla furnace work lane", batch.groupWork(() -> {
+                    for (final var result : lane) this.runFurnaceWorkBody(batch, result, sample);
+                }));
+            }
         }
         final long start = System.nanoTime();
         final var joined = work.submit(this.workerPool);
@@ -7781,7 +7794,12 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.packedRegions.get(),
                 this.packedLeaseFallbacks.get(),
                 this.workerPool.isPersistent(),
-                this.packedRegionLeasesEnabled);
+                this.packedRegionLeasesEnabled,
+                dispatch.dispatchBatches(),
+                dispatch.batchedTasks(),
+                dispatch.batchRunners(),
+                dispatch.batchSteals(),
+                dispatch.batchStolenTasks());
     }
 
     private static void throwUnchecked(Throwable throwable) {

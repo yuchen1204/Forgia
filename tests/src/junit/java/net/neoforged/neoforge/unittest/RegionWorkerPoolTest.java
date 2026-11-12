@@ -470,6 +470,120 @@ class RegionWorkerPoolTest {
     }
 
     @Test
+    void concurrentCloseCallersBothWaitForAcceptedWork() throws Exception {
+        for (final boolean persistent : new boolean[] { false, true }) {
+            final Object pool = this.newPool(1, persistent);
+            final CountDownLatch started = new CountDownLatch(1);
+            final CountDownLatch release = new CountDownLatch(1);
+            assertTrue(submit(pool, "accepted", () -> {
+                started.countDown();
+                awaitUnchecked(release);
+            }));
+            awaitUnchecked(started);
+            final CountDownLatch firstClosed = new CountDownLatch(1);
+            final CountDownLatch secondClosed = new CountDownLatch(1);
+            final Thread first = new Thread(() -> {
+                unchecked(() -> close.invoke(pool));
+                firstClosed.countDown();
+            }, "first-pool-closer");
+            final Thread second = new Thread(() -> {
+                unchecked(() -> close.invoke(pool));
+                secondClosed.countDown();
+            }, "second-pool-closer");
+            first.start();
+            try {
+                awaitClosed(pool);
+                second.start();
+                assertFalse(secondClosed.await(100, TimeUnit.MILLISECONDS), "second close returned before the running task");
+                assertEquals(1, firstClosed.getCount());
+            } finally {
+                release.countDown();
+            }
+            assertTrue(firstClosed.await(10, TimeUnit.SECONDS));
+            assertTrue(secondClosed.await(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void workerCloseFailsFastWhileAnExternalCloserWaitsForThatWorker() throws Exception {
+        for (final boolean persistent : new boolean[] { false, true }) {
+            final Object pool = this.newPool(1, persistent);
+            final CountDownLatch started = new CountDownLatch(1);
+            final CountDownLatch attemptClose = new CountDownLatch(1);
+            final CountDownLatch workerFinished = new CountDownLatch(1);
+            final AtomicReference<Throwable> failure = new AtomicReference<>();
+            assertTrue(submit(pool, "close from worker during external close", () -> {
+                started.countDown();
+                awaitUnchecked(attemptClose);
+                try {
+                    close.invoke(pool);
+                } catch (Throwable throwable) {
+                    failure.set(throwable instanceof java.lang.reflect.InvocationTargetException target ? target.getCause() : throwable);
+                } finally {
+                    workerFinished.countDown();
+                }
+            }));
+            awaitUnchecked(started);
+            final Thread closer = new Thread(() -> unchecked(() -> close.invoke(pool)), "external-pool-closer");
+            closer.start();
+            try {
+                awaitClosed(pool);
+            } finally {
+                attemptClose.countDown();
+            }
+            assertTrue(workerFinished.await(10, TimeUnit.SECONDS), "worker close deadlocked on the external closer");
+            closer.join(10_000L);
+            assertFalse(closer.isAlive());
+            assertTrue(failure.get() instanceof IllegalStateException, String.valueOf(failure.get()));
+        }
+    }
+
+    @Test
+    void interruptingExecutorCloseStillDrainsAcceptedQueueEntries() throws Exception {
+        final Object pool = this.newPool(1, false);
+        final CountDownLatch started = new CountDownLatch(1);
+        final CountDownLatch interrupted = new CountDownLatch(1);
+        final AtomicBoolean release = new AtomicBoolean();
+        assertTrue(submit(pool, "running", () -> {
+            started.countDown();
+            while (!release.get()) {
+                if (Thread.interrupted()) interrupted.countDown();
+                java.util.concurrent.locks.LockSupport.parkNanos(100_000L);
+            }
+        }));
+        awaitUnchecked(started);
+        final CountDownLatch queued = new CountDownLatch(32);
+        for (int index = 0; index < 32; ++index) assertTrue(submit(pool, "queued", queued::countDown));
+        final AtomicBoolean interruptPreserved = new AtomicBoolean();
+        final Thread closer = new Thread(() -> {
+            unchecked(() -> close.invoke(pool));
+            interruptPreserved.set(Thread.currentThread().isInterrupted());
+        }, "interrupted-pool-closer");
+        closer.start();
+        try {
+            awaitClosed(pool);
+            closer.interrupt();
+            assertTrue(interrupted.await(10, TimeUnit.SECONDS));
+        } finally {
+            release.set(true);
+        }
+        closer.join(10_000L);
+        assertFalse(closer.isAlive());
+        assertTrue(queued.await(1, TimeUnit.SECONDS), "interrupt discarded tasks holding completion permits");
+        assertTrue(interruptPreserved.get());
+    }
+
+    private static void awaitClosed(Object pool) throws ReflectiveOperationException {
+        final var closed = pool.getClass().getDeclaredField("closed");
+        closed.setAccessible(true);
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!closed.getBoolean(pool)) {
+            if (System.nanoTime() > deadline) throw new IllegalStateException("close did not start");
+            Thread.yield();
+        }
+    }
+
+    @Test
     void executorFallbackKeepsTheUnchangedBehaviour() throws Exception {
         final Object pool = newPool(2, false);
         assertFalse((Boolean) unchecked(() -> isPersistent.invoke(pool)));

@@ -317,7 +317,7 @@ per pair, of which 600 ticks at 20 TPS dominate.
 |---|---|---|
 | A1 | Deferred cross-region block writes, then relax the interior-chunk rule | **done** (e82a76c47) |
 | A2 | Persistent workers + multi-region group leases (light-load overhead) | **done, off by default** (af9a44429): furnace −19 %, hopper −6 %, but the entity slice loses 2.3–2.7 ms because the per-worker slot loses the executor's dynamic balancing |
-| A2b | Work-stealing dispatch (per-worker deque, steal half) and per-ticker wrapper attribution | planned — this is what makes A2 a win for every slice instead of a trade-off |
+| A2b | Work-stealing dispatch and per-ticker wrapper attribution | **dispatcher implemented, default off**: persistent batches use bounded runners and steal half of unstarted ranges; furnace waves use the same dispatcher. [Implementation and dispatch-only measurements](WORK-STEALING-DISPATCHER.md). Full workload-matrix performance acceptance remains pending. |
 | A3 | Continuous region ticking (tick clock instead of a per-tick barrier) | **refuted** (measured, see below): the barrier wait is 75-99 % worker makespan and the barrier's own cost is 1.1-11.7 % of a tick, which A2's submission path already removes; the naive overlap bound is unreachable because the server thread's work between two barriers produces the next batch |
 | A4 | Dynamic region size (split/merge by load) | planned |
 | B1 | Cross-region game events (sculk vibration) | **done** (dbebf9803): per-column capture, same-tick replay on the target worker, 1650 events / 5657 deferred columns in the soak, none lost. Found and fixed that worker-posted events were silently dropped before |
@@ -353,8 +353,9 @@ the worker makespan, not the barrier schedule.
 - A callback that writes outside its lease and then reads the same position in the same tick sees the
   pre-write state. Counted, never silent. The block event phase is exempt because it captures nothing: its
   writes are inline and an event body reads back what it wrote.
-- The persistent worker pool and packed leases are off by default: they help the light slices and cost the
-  entity slice, and the next step is a work-stealing dispatcher rather than a global switch.
+- The persistent worker pool and packed leases are off by default. The historical slice measurements above
+  predate the [batched work-stealing dispatcher](WORK-STEALING-DISPATCHER.md); that dispatcher improves its
+  synthetic dispatch workloads, while the full slice/whole-server performance matrix still needs rerunning.
 - Cross-region effects are ordered per target region, not in one global vanilla order.
 - Modded callbacks that reach beyond the admitted radius are refused, not analysed. An entity tick that reaches
   such a chunk is truncated and counted in `truncatedEntityTicks`, and its runtime class is declared

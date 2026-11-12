@@ -495,7 +495,12 @@ final class RegionThreadingCommand {
                 + ", packedTasks=" + dispatch.packedTasks()
                 + ", packedRegions=" + dispatch.packedRegions()
                 + ", regionsPerPackedTask=" + regionsPerPackedTask(dispatch)
-                + ", partialPackFallbacks=" + dispatch.partialPackFallbacks()), false);
+                + ", partialPackFallbacks=" + dispatch.partialPackFallbacks()
+                + ", dispatchBatches=" + dispatch.dispatchBatches()
+                + ", batchedTasks=" + dispatch.batchedTasks()
+                + ", batchRunners=" + dispatch.batchRunners()
+                + ", batchSteals=" + dispatch.batchSteals()
+                + ", batchStolenTasks=" + dispatch.batchStolenTasks()), false);
         // A fifth independent line for the per-ticker attribution of the block-entity worker slice. The
         // accumulators are only filled while the attribution is enabled, which is off by default; the line keeps
         // its shape either way and reports zeros when nothing was measured.

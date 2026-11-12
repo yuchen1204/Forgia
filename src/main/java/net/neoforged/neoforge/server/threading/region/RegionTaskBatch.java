@@ -33,6 +33,10 @@ import org.jetbrains.annotations.Nullable;
  * permit, their own failure record and their own release of the state they acquired - packing only shares
  * the submission and the completion of a task between them - so a packed group behaves exactly like a
  * submitted one, and a failing group neither stops the groups packed with it nor completes their permits.
+ * <p>
+ * With persistent workers, a batch larger than the pool is published as stealable ranges and submits at
+ * most one runner per worker. Runners steal unstarted tasks, never the bodies or individual groups inside
+ * an explicit pack. The executor path and custom executors keep individual task submission.
  */
 @ApiStatus.Internal
 public final class RegionTaskBatch {
@@ -120,43 +124,63 @@ public final class RegionTaskBatch {
      * The barrier keeps an owner permit until {@link Barrier#setupComplete()}, so a batch can publish
      * itself before it knows how many groups it will hold. Groups are registered one by one right before
      * they are submitted, so a group that finishes immediately can never complete the barrier before the
-     * setup finished.
+     * setup finished. All permits are registered before any runner can claim a task, including a task whose
+     * original runner has not been submitted yet.
      */
     public void submitOpen(RegionWorkerExecutor executor, Barrier barrier) {
-        for (final Group group : this.groups) {
-            barrier.registerGroups(group.works().size());
-            this.submitGroup(executor, barrier, group);
-        }
+        if (this.groups.isEmpty()) return;
+        barrier.registerGroups(this.groupCount());
+        this.submitGroups(executor, barrier);
     }
 
     private void submitGroups(RegionWorkerExecutor executor, Barrier barrier) {
+        if (executor instanceof RegionWorkerPool pool && pool.isPersistent() && this.groups.size() > pool.threadCount()) {
+            final var dispatcher = new RegionWorkStealingDispatcher(this.groups.size(), pool.threadCount(),
+                    index -> runDispatchedGroup(barrier, this.groups.get(index)), pool::recordBatchSteal);
+            pool.recordBatchDispatch(this.groups.size(), dispatcher.runnerCount());
+            for (int index = 0; index < dispatcher.runnerCount(); ++index) {
+                final int runner = index;
+                submitTask(executor, barrier, "region batch runner " + runner, () -> dispatcher.run(runner));
+            }
+            return;
+        }
         for (final Group group : this.groups) {
-            this.submitGroup(executor, barrier, group);
+            submitTask(executor, barrier, group.description(), () -> runGroup(barrier, group));
         }
     }
 
-    private void submitGroup(RegionWorkerExecutor executor, Barrier barrier, Group group) {
-        final Runnable task = () -> {
-            Throwable failure = null;
-            for (final Runnable work : group.works()) {
-                try {
-                    work.run();
-                } catch (Throwable throwable) {
-                    barrier.recordFailure(throwable);
-                    if (failure == null) {
-                        failure = throwable;
-                    }
-                } finally {
-                    barrier.groupFinished();
-                }
+    private static void runDispatchedGroup(Barrier barrier, Group group) {
+        try {
+            runGroup(barrier, group);
+        } catch (Throwable throwable) {
+            // A runner drains multiple tasks and only rethrows its first failure. Keep every failing task's
+            // description and failure visible rather than hiding them behind the runner's description.
+            LOGGER.error("Region worker task failed: {}", group.description(), throwable);
+            throwUnchecked(throwable);
+        }
+    }
+
+    private static void runGroup(Barrier barrier, Group group) {
+        Throwable failure = null;
+        for (final Runnable work : group.works()) {
+            try {
+                work.run();
+            } catch (Throwable throwable) {
+                barrier.recordFailure(throwable);
+                if (failure == null) failure = throwable;
+            } finally {
+                barrier.groupFinished();
             }
-            if (failure != null) {
-                // The groups of this task are complete and recorded; the throwable is rethrown so the pool
-                // reports it like the failure of a single-group task, exactly as before packing existed.
-                throwUnchecked(failure);
-            }
-        };
-        if (!trySubmit(executor, group.description(), task)) {
+        }
+        if (failure != null) {
+            // All groups of this task released their permits. The dispatcher continues its remaining tasks
+            // before surfacing the failure, just as an ordinary packed task continues its remaining groups.
+            throwUnchecked(failure);
+        }
+    }
+
+    private static void submitTask(RegionWorkerExecutor executor, Barrier barrier, String description, Runnable task) {
+        if (!trySubmit(executor, description, task)) {
             barrier.recordRejected();
             try {
                 task.run();
@@ -314,7 +338,10 @@ public final class RegionTaskBatch {
         }
 
         /**
-         * {@return the number of groups the executor rejected and that therefore ran on the submitting thread}
+         * {@return the number of rejected executor submissions run inline, including batch runners}
+         * <p>
+         * One rejected runner may drain several unstarted tasks. This is a submission count, not a count of
+         * logical groups or bodies executed on the submitting thread.
          */
         public int rejectedCount() {
             return this.rejectedGroups.get();

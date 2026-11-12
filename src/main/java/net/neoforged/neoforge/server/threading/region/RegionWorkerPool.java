@@ -32,7 +32,9 @@ import org.jetbrains.annotations.Nullable;
  * be busy with the slowest region of the batch. The persistent path removes the shared queue lock, the executor's
  * worker publication and most of the wake-up latency of a per-tick batch, which is what a light workload pays for
  * in full. The executor path is kept and is used whenever the persistent path is not installed, so a shutdown or
- * a configuration that cannot use it falls back to the unchanged behaviour.
+ * a configuration that cannot use it falls back to the unchanged behaviour. Larger persistent batches also
+ * use {@link RegionWorkStealingDispatcher}: one runner per worker drains and steals ranges of unstarted
+ * tasks, avoiding a queue node and worker-selection scan for every independent region task.
  * <p>
  * The dispatch handshake is spin-then-park. A worker spins on the sequence number of its own deque, then scans
  * the deques of the other workers once per spin period, and only then parks with a bounded park. A submission
@@ -94,6 +96,11 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
     private final AtomicLong spinWakeUps = new AtomicLong();
     private final AtomicLong parkWakeUps = new AtomicLong();
     private final AtomicLong steals = new AtomicLong();
+    private final AtomicLong dispatchBatches = new AtomicLong();
+    private final AtomicLong batchedTasks = new AtomicLong();
+    private final AtomicLong batchRunners = new AtomicLong();
+    private final AtomicLong batchSteals = new AtomicLong();
+    private final AtomicLong batchStolenTasks = new AtomicLong();
     private volatile boolean closed;
 
     /**
@@ -322,6 +329,17 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
         }
     }
 
+    void recordBatchDispatch(int tasks, int runners) {
+        this.dispatchBatches.incrementAndGet();
+        this.batchedTasks.addAndGet(tasks);
+        this.batchRunners.addAndGet(runners);
+    }
+
+    void recordBatchSteal(int tasks) {
+        this.batchSteals.incrementAndGet();
+        this.batchStolenTasks.addAndGet(tasks);
+    }
+
     /**
      * {@return a snapshot of the dispatch counters of this pool}
      * <p>
@@ -337,7 +355,8 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
      */
     DispatchSnapshot dispatchSnapshot() {
         return new DispatchSnapshot(this.submissions.get(), this.submitNanos.get(), this.wakeNanos.get(),
-                this.idleWakeUps.get(), this.spinWakeUps.get(), this.parkWakeUps.get(), this.steals.get());
+                this.idleWakeUps.get(), this.spinWakeUps.get(), this.parkWakeUps.get(), this.steals.get(),
+                this.dispatchBatches.get(), this.batchedTasks.get(), this.batchRunners.get(), this.batchSteals.get(), this.batchStolenTasks.get());
     }
 
     /** {@return true when this pool dispatches through per-worker deques} */
@@ -350,19 +369,15 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
         if (this.workerThreads.contains(Thread.currentThread())) {
             throw new IllegalStateException("Cannot close the region worker pool from a region worker thread");
         }
-        if (this.closed) {
-            return;
-        }
-        this.closed = true;
-        // A submission that observed the open pool has to finish enqueuing before the workers are told to stop,
-        // otherwise its task could be pushed onto a deque whose worker already left the drain loop.
-        while (this.admissions.get() != 0) {
-            Thread.onSpinWait();
-        }
-        if (this.workers != null) {
-            this.closePersistent();
-        } else {
-            this.closeExecutor();
+        // Serialize external close callers, but check worker origin before acquiring the monitor: a worker
+        // must fail fast even while another thread holds the monitor and waits for that worker to finish.
+        synchronized (this) {
+            if (this.closed) return;
+            this.closed = true;
+            // No accepted submission may finish enqueuing after the workers stop draining.
+            while (this.admissions.get() != 0) Thread.onSpinWait();
+            if (this.workers != null) this.closePersistent();
+            else this.closeExecutor();
         }
     }
 
@@ -399,10 +414,10 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
                     break;
                 }
             } catch (InterruptedException exception) {
-                // The pool cannot be abandoned: a worker may still be mutating region state. Ask the
-                // running tasks to stop and keep waiting for termination.
+                // Interrupt running work without discarding accepted queue entries: shutdownNow would
+                // remove tasks whose batch permits and region leases still have to be released.
                 interrupted = true;
-                this.executor.shutdownNow();
+                for (final Thread worker : this.workerThreads) worker.interrupt();
             }
         }
         if (interrupted) {
@@ -421,7 +436,8 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
     /**
      * Dispatch counters of one pool.
      */
-    record DispatchSnapshot(long submissions, long submitNanos, long wakeNanos, long idleWakeUps, long spinWakeUps, long parkWakeUps, long steals) {}
+    record DispatchSnapshot(long submissions, long submitNanos, long wakeNanos, long idleWakeUps, long spinWakeUps, long parkWakeUps, long steals,
+            long dispatchBatches, long batchedTasks, long batchRunners, long batchSteals, long batchStolenTasks) {}
 
     /**
      * One persistent worker: its thread, the deque it owns and the sequence number that publishes a task.
@@ -565,7 +581,8 @@ final class RegionWorkerPool implements RegionWorkerExecutor, AutoCloseable {
             }
             final int first = 1 + Math.floorMod(this.stealCursor++, all.length - 1);
             for (int offset = 0; offset < all.length - 1; ++offset) {
-                final Worker victim = all[(this.index + first + offset) % all.length];
+                final int distance = 1 + (first - 1 + offset) % (all.length - 1);
+                final Worker victim = all[(this.index + distance) % all.length];
                 if (victim.pending() == 0L) {
                     continue;
                 }

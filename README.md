@@ -43,8 +43,9 @@ Forgia is not a finished Folia replacement. The honest list:
 
 - **Light loads do not win yet.** A 2048-hopper line runs at 3.7–4.0 ms against 3.3 ms inline and 4096
   furnaces at 2.7–3.3 ms against 2.6 ms. The worker body itself costs about 2.5× the inline cost per ticker,
-  and the persistent-pool work that removes the submission cost is off by default because it costs the
-  entity slice its dynamic balancing; the fix is a work-stealing dispatcher, not a global switch.
+  and the persistent pool remains off by default pending the complete workload matrix. The
+  [work-stealing dispatcher](region-threading/WORK-STEALING-DISPATCHER.md) now batches submissions and
+  steals unstarted task ranges; its dispatch-only measurements do not establish a whole-server speedup.
 - **The production soak is at parity, not ahead.** With everything on it lands at or below the inline mspt
   (median ratio 0.983, p50 5.60 ms against 6.22 ms), but a realistic world does not have enough parallel work
   to gain more than that at 3-chunk regions.

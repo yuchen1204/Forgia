@@ -202,4 +202,7 @@ wave dispatch, conservative serial fences and commit overhead can outweigh these
 This switch remains experimental/default-off until controlled per-workload performance and larger
 correctness coverage justify changing that policy. The [cost analysis and implementation plan](BLOCK-ENTITY-OPTIMIZATION-PLAN.md)
 records the repeated preparation/planning costs, a separate compact planning prototype and the acceptance
-criteria for the next performance work. That prototype is not installed in the production scheduler.
+criteria for the next performance work. That planner prototype is not installed in the production scheduler.
+The `.56-beta` [work-stealing dispatcher](WORK-STEALING-DISPATCHER.md) now lets persistent furnace runners
+steal unstarted original bodies within an already admitted wave; the eligibility and ordered-commit proof
+are unchanged. Its dispatch-only timing does not replace the historical furnace or full-server measurements.

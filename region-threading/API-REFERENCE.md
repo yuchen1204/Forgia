@@ -704,7 +704,7 @@ public static boolean isServerConfigLoaded();
 | `enableRegionThreadingBorderUpdates` | BooleanValue | false |
 | `regionThreadingForceWithKnownConflicts` | BooleanValue | false；实验绕过已知冲突的测试用途，不证明安全 |
 | `enableRegionThreadingGameEvents` | BooleanValue | false |
-| `enableRegionThreadingPersistentWorkers` | BooleanValue | false |
+| `enableRegionThreadingPersistentWorkers` | BooleanValue | false；持久 worker＋批量 Work-Stealing Dispatcher，需重启；见 [派发与计数](WORK-STEALING-DISPATCHER.md) |
 | `enableRegionThreadingPackedRegionLeases` | BooleanValue | false |
 | `regionThreadingWorkerThreads` | IntValue | 0，范围 0..512；0 为 max(1, CPU 数量−1) |
 | `regionThreadingMode` | EnumValue<RegionPolicy> | FIXED_3X3；另有 DYNAMIC |
@@ -734,6 +734,11 @@ public static boolean isServerConfigLoaded();
 | [实现验证记录](OWNERSHIP-PROTOCOLS-VALIDATION.md) | 单元／GameTest／补丁／facade 编译证据和已知限制 |
 
 这些命令当前属于管理员运维入口，通常需要权限等级 2。计数多为累计值，使用窗口差值；不要把请求、chunk 访问、ticker 调用和回调耗时混作一项。
+
+worker dispatch 行新增 `dispatchBatches`、`batchedTasks`、`batchRunners`、`batchSteals`、`batchStolenTasks`。
+`taskSubmissions` 是线程池实际接受的 runner／独立任务数量；`batchedTasks` 是这些 runner 处理的原始不可拆任务数量。
+`batchSteals` 是成功的区段转移次数，`batchStolenTasks` 是转移的任务索引数，同一未开始任务可能再次转移。
+它们不等于完成的原版正文数；实际熔炉正文仍读取 `workgraph` 命令的 `nativeCompleted`、`failed`、`skipped` 等指标。
 
 ## 12. 内部边界与未提供的能力
 

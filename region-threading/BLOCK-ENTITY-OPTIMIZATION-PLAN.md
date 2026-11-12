@@ -4,6 +4,9 @@
 没有证明有性能收益。这里区分现有行为、此次测量结果和待实现方案；生产调度器没有因本次分析而改变，
 `enableRegionThreadingFurnaceWorkWaves` 继续默认关闭。原版优先，暂不扩展模组机器支持。
 
+后续 P0 已实现 [Work-Stealing Dispatcher](WORK-STEALING-DISPATCHER.md)：批量 runner、未开始区段半量窃取、
+熔炉波次接入与派发专用配对测量。下文保留本方案提出时的证据；紧凑 planner 和证明缓存仍未接入。
+
 ## 已经知道什么
 
 - 当前完整源树推送前回归：**1155 项核心测试通过**，无失败、错误或跳过；root/tests 格式与许可证检查通过。

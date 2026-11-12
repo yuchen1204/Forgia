@@ -169,7 +169,7 @@ public final class ForgiaConfig {
 
             enableRegionThreadingPersistentWorkers = builder
                     .comment(
-                            "EXPERIMENTAL: Dispatches region worker work through one persistent worker per thread instead of a shared executor queue. The submitting thread hands the task to the slot of one worker and unparks it; the worker runs the task and spins a bounded number of iterations before it parks again. This removes the queue lock and most of the per-tick wake-up latency of a light workload. Requires enableRegionThreadingBridge. With the switch off, the worker pool hands its tasks to a fixed thread pool exactly like before.")
+                            "EXPERIMENTAL: Dispatches through persistent workers with per-worker deques. Batches larger than the worker count submit at most one runner per worker; an idle runner steals half of another runner's unstarted task range. Explicit packed leases remain indivisible. This reduces per-task submission overhead while retaining each group's ownership and completion barrier. Requires enableRegionThreadingBridge. With the switch off, tasks use the existing fixed thread pool.")
                     .translation("neoforge.configgui.enableRegionThreadingPersistentWorkers")
                     .worldRestart()
                     .define("enableRegionThreadingPersistentWorkers", false);

@@ -8,6 +8,7 @@ package net.neoforged.neoforge.unittest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -88,6 +89,10 @@ class FurnaceWorkWavesTest {
     private RegionThreadingEngine engine;
 
     private void setup() throws Exception {
+        this.setup(Boolean.getBoolean("forgia.furnace.persistentWorkers"));
+    }
+
+    private void setup(boolean persistentWorkers) throws Exception {
         doReturn(true).when(this.level).areEntitiesLoaded(anyLong());
         doReturn(true).when(this.level).shouldTickBlocksAt(any(BlockPos.class));
         doReturn(this.recipes).when(this.level).getRecipeManager();
@@ -108,8 +113,8 @@ class FurnaceWorkWavesTest {
         final var chunkSource = this.level.getChunkSource();
         doReturn(chunk).when(chunkSource).getChunkNow(anyInt(), anyInt());
         NeoForge.EVENT_BUS.addListener(this.fuel);
-        this.engine = new RegionThreadingEngine(2, false, false, false, true, false, false,
-                RegionLayout.FIXED_3X3, RegionEntityStorageMode.MAIN_THREAD_ONLY);
+        this.engine = new RegionThreadingEngine(2, false, false, false, true, false, false, false,
+                persistentWorkers, false, RegionLayout.FIXED_3X3, RegionEntityStorageMode.MAIN_THREAD_ONLY);
         this.engine.setBlockEntityAdmissionCacheEnabledForTesting(false);
         this.engine.setFurnaceWorkWavesEnabledForTesting(true);
         RegionThreadingManager.install(this.engine);
@@ -170,6 +175,73 @@ class FurnaceWorkWavesTest {
         assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
         assertEquals(2, this.engine.furnaceWorkMetrics().maxSimultaneousBodies());
         assertEquals(0, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        assertEquals(0, this.engine.diagnostics().ownershipViolationCount());
+    }
+
+    @Test
+    void persistentRunnersStealUnstartedOriginalBodiesAndCommitInCanonicalOrder() throws Exception {
+        this.setup(true);
+        final List<AbstractFurnaceBlockEntity> furnaces = new java.util.ArrayList<>();
+        final List<BlockPos> positions = List.of(new BlockPos(17, 64, 17), new BlockPos(21, 64, 17), new BlockPos(25, 64, 17),
+                new BlockPos(17, 64, 21), new BlockPos(21, 64, 21), new BlockPos(25, 64, 21));
+        for (final BlockPos pos : positions) {
+            final var furnace = this.furnace(pos, Blocks.FURNACE, 100);
+            field(AbstractFurnaceBlockEntity.class, furnace, "cookingProgress", 1);
+            furnaces.add(furnace);
+        }
+        final var slowEntered = new java.util.concurrent.CountDownLatch(1);
+        final var otherBodies = new java.util.concurrent.CountDownLatch(5);
+        final var release = new java.util.concurrent.CountDownLatch(1);
+        final List<BlockPos> commits = new CopyOnWriteArrayList<>();
+        doAnswer(call -> {
+            assertSame(this.main, Thread.currentThread());
+            commits.add(call.getArgument(0));
+            return null;
+        }).when(this.level).blockEntityChanged(any());
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            try {
+                if (source == furnaces.getFirst()) {
+                    slowEntered.countDown();
+                    if (!release.await(15, TimeUnit.SECONDS)) throw new AssertionError("slow original body was not released");
+                } else otherBodies.countDown();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(exception);
+            }
+        });
+        final var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        final Thread releaser = new Thread(() -> {
+            try {
+                assertTrue(slowEntered.await(10, TimeUnit.SECONDS));
+                assertTrue(otherBodies.await(10, TimeUnit.SECONDS), "unstarted bodies remained pinned behind the slow body");
+                assertTrue(commits.isEmpty(), "notifications committed while an original body was still running");
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                release.countDown();
+            }
+        }, "furnace-steal-progress-test");
+        final TickingBlockEntity[] tickers = new TickingBlockEntity[furnaces.size()];
+        for (int index = 0; index < tickers.length; ++index) tickers[index] = this.ticker(furnaces.get(index));
+        releaser.start();
+        try {
+            this.tick(tickers);
+        } finally {
+            release.countDown();
+            releaser.join(15_000L);
+        }
+        assertFalse(releaser.isAlive());
+        assertNull(failure.get());
+        assertEquals(positions, commits);
+        for (final var furnace : furnaces) {
+            assertEquals(2, furnace.getItem(0).getCount());
+            assertEquals(1, furnace.getItem(2).getCount());
+        }
+        assertEquals(6, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(6, this.engine.furnaceWorkMetrics().committedChanges());
+        assertEquals(2, this.engine.furnaceWorkMetrics().maxSimultaneousBodies());
+        assertTrue(this.engine.diagnostics().workerDispatch().batchSteals() > 0);
         assertEquals(0, this.engine.diagnostics().runningRegionCount());
         assertEquals(0, this.engine.diagnostics().ownershipViolationCount());
     }
