@@ -8,6 +8,7 @@ package net.neoforged.neoforge.unittest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -23,6 +24,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -157,6 +159,84 @@ class FurnaceWorkWavesTest {
         assertNotNull(plan);
         for (final var ticker : entries) assertTrue(plan.accept(ticker));
         plan.executeAndAwait();
+    }
+
+    @Test
+    void registeredAdapterCannotBypassItsAuditThroughTheFurnaceBridge() throws Exception {
+        this.setup();
+        final var server = mock(net.minecraft.server.MinecraftServer.class);
+        doReturn(server).when(this.level).getServer();
+        doAnswer(call -> Thread.currentThread() == this.main).when(server).isSameThread();
+        net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.initialize(this.level.getServer(), registrar -> registrar.registerBlockEntityTicks(1, ResourceLocation.parse("test:furnace_adapter"),
+                Set.of(ResourceLocation.parse("minecraft:furnace")), new net.neoforged.neoforge.server.threading.api.BlockEntityTickAdapter() {
+                    @Override
+                    public void prepare(ServerLevel level) {
+                        throw new AssertionError("Furnace mode must not prepare the other driver");
+                    }
+
+                    @Override
+                    public Decision check(BlockEntity source) {
+                        throw new AssertionError("Furnace mode must retain this complete serial fence");
+                    }
+                }));
+        try {
+            final var guarded = this.furnace(FIRST, Blocks.FURNACE, 100);
+            final var first = this.furnace(SECOND, Blocks.SMOKER, 100);
+            final var second = this.furnace(new BlockPos(23, 64, 17), Blocks.SMOKER, 100);
+            final var workers = new AtomicInteger();
+            this.engine.setFurnaceBodyObserverForTesting(source -> {
+                assertFalse(source == guarded);
+                assertNotSame(this.main, Thread.currentThread());
+                assertEquals("RESOURCE_SCOPED", BlockEntityExecutionEngineTest.currentMode());
+                workers.incrementAndGet();
+            });
+            this.tick(this.ticker(guarded), this.ticker(first), this.ticker(second));
+            assertEquals(99, readCounter(guarded, "litTime"));
+            assertEquals(99, readCounter(first, "litTime"));
+            assertEquals(99, readCounter(second, "litTime"));
+            assertEquals(2, workers.get());
+            assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+            assertEquals(1, this.engine.furnaceWorkMetrics().serialInvocations());
+            final var status = net.neoforged.neoforge.server.threading.api.ParallelApi.forServer(this.level.getServer())
+                    .orElseThrow().blockEntityTickAdapters().getFirst();
+            assertEquals(0, status.checks());
+            assertEquals(0, status.workerCompletions());
+            assertEquals(0, this.engine.diagnostics().runningRegionCount());
+        } finally {
+            net.neoforged.neoforge.server.threading.ParallelAdapterRuntime.close(this.level.getServer());
+        }
+    }
+
+    @Test
+    void subordinateFurnaceWorkersCannotAcquireTheFullRegionOwner() throws Exception {
+        this.setup();
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.SMOKER, 100);
+        final var checked = new AtomicInteger();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            assertEquals("RESOURCE_SCOPED", BlockEntityExecutionEngineTest.currentMode());
+            try {
+                final var field = RegionThreadingEngine.class.getDeclaredField("regionizer");
+                field.setAccessible(true);
+                final var regionizer = field.get(this.engine);
+                final var get = regionizer.getClass().getDeclaredMethod("get", net.neoforged.neoforge.server.threading.region.RegionCoordinate.class);
+                get.setAccessible(true);
+                final var region = get.invoke(regionizer, RegionLayout.FIXED_3X3.regionAt(this.level, source.getBlockPos()));
+                final var begin = region.getClass().getDeclaredMethod("beginOwnership");
+                begin.setAccessible(true);
+                final var failure = assertThrows(java.lang.reflect.InvocationTargetException.class, () -> begin.invoke(region));
+                assertTrue(failure.getCause() instanceof IllegalStateException);
+                checked.incrementAndGet();
+            } catch (ReflectiveOperationException failure) {
+                throw new AssertionError(failure);
+            }
+        });
+        this.tick(this.ticker(first), this.ticker(second));
+        assertEquals(2, checked.get());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
     }
 
     @Test

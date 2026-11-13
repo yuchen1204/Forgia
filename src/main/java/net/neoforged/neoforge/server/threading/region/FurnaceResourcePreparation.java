@@ -112,7 +112,7 @@ final class FurnaceResourcePreparation {
         return new BlockEntityResourceOwnership(this.level, boundaries, live, this.scratch);
     }
 
-    private Object home(RegionCoordinate coordinate) {
+    Object home(RegionCoordinate coordinate) {
         return this.homes.computeIfAbsent(coordinate, ignored -> new Object());
     }
 }

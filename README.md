@@ -146,6 +146,14 @@ ON-minus-OFF allocation increment by35.1–36.6%; whole-tick latency remains inc
 improving in only1/4build pairs and regressing in the10-minute ON/OFF check. This is an allocation reduction,
 not a validated server-latency improvement or broader BE admission.
 
+The next stage began with the [Modded Block Entity adaptation architecture investigation](region-threading/MODDED-BLOCK-ENTITY-ADAPTATION-ARCHITECTURE.md).
+Additional Resource Ownership MSPT tuning is frozen. The [first execution-contract migration](region-threading/BLOCK-ENTITY-EXECUTION-CONTRACT.md)
+now gives native adapter ticks and protected Furnace Waves a shared internal ticket/permit lifecycle and
+explicit exclusion between a Region owner and subordinate resource work. Existing auditing, switches,
+serial fallback and commit order stay in their original drivers; no new Mod BE admission or generic
+adapter registration protocol is enabled. Core1244, resource-on181, persistent199, actual unknown Furnace
+Mixin1, independent Create16 and unknown Create Mixin1 pass; full-server performance remains unmeasured.
+
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
 is silently dropped.

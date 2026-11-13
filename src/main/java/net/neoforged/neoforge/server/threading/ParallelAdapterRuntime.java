@@ -25,6 +25,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.neoforged.neoforge.server.threading.api.BlockEntityExecutionContract.AdapterDescriptor;
+import net.neoforged.neoforge.server.threading.api.BlockEntityExecutionContract.Mode;
 import net.neoforged.neoforge.server.threading.api.BlockEntityOperations;
 import net.neoforged.neoforge.server.threading.api.BlockEntityTickAdapter;
 import net.neoforged.neoforge.server.threading.api.ParallelApi;
@@ -200,13 +202,25 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         }
     }
 
+    /** Registration identity only: a descriptor never grants invocation permission. */
+    @Nullable
+    public static AdapterDescriptor blockEntityTickDescriptor(RegionBlockEntityTickAdmission admission) {
+        final TickEntry entry = tickEntry(admission.level(), admission.type());
+        return entry == null ? null : entry.descriptor;
+    }
+
     /** Called immediately before a native body, under its owner's region context. Never loads a chunk. */
     public static boolean admitBlockEntityTick(RegionBlockEntityTickAdmission admission) {
+        return admitBlockEntityTick(admission, blockEntityTickDescriptor(admission));
+    }
+
+    /** The bridge must not inherit a later registration with an equal id or type set. */
+    public static boolean admitBlockEntityTick(RegionBlockEntityTickAdmission admission, @Nullable AdapterDescriptor inspected) {
         if (!RegionBlockEntityTickScope.isAdmitted(admission.level(), admission.ticker(), admission.position())) {
             throw new IllegalStateException("Block-entity admission requires the exact native ticker's ownership");
         }
         final TickEntry entry = tickEntry(admission.level(), admission.type());
-        if (entry == null) return false;
+        if (entry == null || entry.descriptor != inspected) return false;
         final long start = System.nanoTime();
         entry.checks.increment();
         try {
@@ -236,8 +250,12 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
 
     /** Submission/rejection/serial fallback never count as a successful native body. */
     public static void completeBlockEntityTick(RegionBlockEntityTickAdmission admission) {
+        completeBlockEntityTick(admission, blockEntityTickDescriptor(admission));
+    }
+
+    public static void completeBlockEntityTick(RegionBlockEntityTickAdmission admission, @Nullable AdapterDescriptor inspected) {
         final TickEntry entry = tickEntry(admission.level(), admission.type());
-        if (entry != null) entry.completed.increment();
+        if (entry != null && entry.descriptor == inspected) entry.completed.increment();
     }
 
     @Override
@@ -563,6 +581,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
         private final ResourceLocation id;
         private final Set<ResourceLocation> types;
         private final BlockEntityTickAdapter adapter;
+        private final AdapterDescriptor descriptor;
         private final LongAdder checks = new LongAdder();
         private final LongAdder refusals = new LongAdder();
         private final LongAdder completed = new LongAdder();
@@ -574,6 +593,7 @@ public final class ParallelAdapterRuntime implements ParallelApi.Server, Paralle
             this.id = id;
             this.types = types;
             this.adapter = adapter;
+            this.descriptor = new AdapterDescriptor(id, types, Mode.REGION_OWNER);
             for (final var decision : BlockEntityTickAdapter.Decision.values()) this.reasons.put(decision, new LongAdder());
         }
 

@@ -69,6 +69,8 @@ final class RegionState {
     /** Number of ticking entities only the server thread may tick, i.e. always-ticking entities such as players. */
     private final AtomicInteger serverThreadOnlyEntityCount = new AtomicInteger();
     private volatile Thread ownerThread;
+    /** Internal BE authority; guarded by this monitor, always subordinate to the running lease. */
+    BlockEntityExecutionEngine.RegionGuard blockEntityExecution;
     /**
      * Upper bound of the foreign chunk keys this region records between two version checks.
      * <p>
@@ -468,7 +470,9 @@ final class RegionState {
         return this.taskQueue.cappedDrainCount();
     }
 
-    void beginOwnership() {
+    synchronized void beginOwnership() {
+        if (this.ownerThread != null || (this.blockEntityExecution != null && !this.blockEntityExecution.mayBeginOwnership()))
+            throw new IllegalStateException("Region already has an owner or subordinate block-entity work");
         this.ownerThread = Thread.currentThread();
         // A lease starts with no position of its own written outside it: the approximation of the read after
         // such a write is bounded by one lease, because the fixpoint applies the writes before the region's
@@ -476,8 +480,14 @@ final class RegionState {
         this.deferredWritePositions.clear();
     }
 
-    void endOwnership() {
+    synchronized void endOwnership() {
+        if (this.ownerThread != null && this.ownerThread != Thread.currentThread())
+            throw new IllegalStateException("Cannot release another thread's region ownership");
         this.ownerThread = null;
+    }
+
+    boolean hasOwner() {
+        return this.ownerThread != null;
     }
 
     boolean isOwnedByCurrentThread() {
@@ -569,6 +579,8 @@ final class RegionState {
     }
 
     synchronized void clearRunning() {
+        if (this.ownerThread != null || this.blockEntityExecution != null)
+            throw new IllegalStateException("Cannot release a region with live execution authority");
         this.lifecycleState.compareAndSet(RegionLifecycleState.TICKING, RegionLifecycleState.READY);
         this.notifyAll();
     }

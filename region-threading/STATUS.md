@@ -4,6 +4,20 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
+## Modded Block Entity Multithreading Adaptation
+
+The stage began with a [source architecture investigation](MODDED-BLOCK-ENTITY-ADAPTATION-ARCHITECTURE.md)
+based on `4ea694316`. The [first execution-contract migration](BLOCK-ENTITY-EXECUTION-CONTRACT.md) now shares
+an internal batch/ticket/permit implementation between native adapter ticks and protected Furnace Waves.
+Region guards exclude coarse ownership from subordinate resource bodies, require real Scope return and
+seal after join before canonical commits; failed/retired tickets cannot replay. Existing preparation,
+callback timing, dispatch, switches, serial fallback and commit implementations remain in place. There is
+no new adapter registration protocol, BE admission, capability/inventory permission or multi-home support.
+Core1244, ordinary-pool resource-on181, persistent199, actual unknown Furnace Mixin1, independent Create16
+and unknown Create Mixin1 pass, with formatting/license and API-facade checks. These are transformed JVM
+correctness tests, not new installed-server or performance measurements. Additional Resource Ownership
+MSPT tuning is frozen; the single canonical generic coordinator remains a later migration.
+
 ## General block-entity resource ownership
 
 The `.57-beta` [phase-one resource ownership foundation](GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md)

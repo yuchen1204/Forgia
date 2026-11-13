@@ -85,7 +85,10 @@ class BlockEntityTickAdapterTest {
         when(this.chunk.getBlockEntity(any(), any(LevelChunk.EntityCreationType.class))).thenAnswer(call -> this.entities.get(call.getArgument(0)));
         when(this.chunk.getBlockState(any())).thenReturn(Blocks.HOPPER.defaultBlockState());
         set(LevelChunk.class, this.chunk, "level", this.level);
-        this.engine = new RegionThreadingEngine(2, false, false, false, true);
+        this.engine = new RegionThreadingEngine(2, false, false, false, true, false, false, false,
+                Boolean.getBoolean("forgia.furnace.persistentWorkers"), false,
+                net.neoforged.neoforge.server.threading.region.RegionLayout.DYNAMIC,
+                net.neoforged.neoforge.server.threading.region.RegionEntityStorageMode.MAIN_THREAD_ONLY);
         this.engine.setBlockEntityAdmissionCacheEnabledForTesting(false);
         RegionThreadingManager.install(this.engine);
     }
@@ -119,6 +122,40 @@ class BlockEntityTickAdapterTest {
                     ResourceLocation.parse("test:other"), TYPES, be -> BlockEntityTickAdapter.Decision.ADMITTED));
         }));
         assertTrue(ParallelApi.forServer(this.server).isEmpty());
+    }
+
+    @Test
+    void auditedAdaptersInDifferentRegionsOverlapAndEveryOriginalTickerRunsOnce() throws Exception {
+        final var prepares = new AtomicInteger();
+        this.register(new BlockEntityTickAdapter() {
+            @Override
+            public void prepare(ServerLevel level) {
+                prepares.incrementAndGet();
+            }
+
+            @Override
+            public Decision check(BlockEntity source) {
+                assertNotEquals(BlockEntityTickAdapterTest.this.main, Thread.currentThread());
+                return Decision.ADMITTED;
+            }
+        });
+        final var rendezvous = new java.util.concurrent.CyclicBarrier(2);
+        final var bodies = new AtomicInteger();
+        final Runnable body = () -> {
+            assertEquals("REGION_OWNER", BlockEntityExecutionEngineTest.currentMode());
+            try {
+                rendezvous.await(10, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception failure) {
+                throw new AssertionError(failure);
+            }
+            bodies.incrementAndGet();
+        };
+        this.tick(this.ticker(POS, body), this.ticker(new BlockPos(4113, 64, 17), body));
+        assertEquals(1, prepares.get());
+        assertEquals(2, bodies.get());
+        assertEquals(2, this.status().checks());
+        assertEquals(2, this.status().workerCompletions());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
     }
 
     @Test
@@ -300,10 +337,10 @@ class BlockEntityTickAdapterTest {
         return (TickingBlockEntity) factory.invoke(this.chunk, entity, (BlockEntityTicker<HopperBlockEntity>) (level, at, state, source) -> body.run());
     }
 
-    private void tick(TickingBlockEntity ticker) {
+    private void tick(TickingBlockEntity... tickers) {
         final RegionBlockEntityTickPlan plan = this.engine.beginBlockEntityTickPlan(this.level, BARRIER);
         assertNotNull(plan);
-        assertTrue(plan.accept(ticker));
+        for (final var ticker : tickers) assertTrue(plan.accept(ticker));
         plan.executeAndAwait();
     }
 

@@ -14,8 +14,10 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
@@ -50,7 +52,7 @@ import org.jetbrains.annotations.Nullable;
  * into that queue is refused before its body and ticked on the server thread after the batch.
  */
 @ApiStatus.Internal
-final class RegionBlockEntityTickBatch extends RegionTickBatch {
+final class RegionBlockEntityTickBatch extends BlockEntityExecutionBatch {
     private final List<Group> groups = new ArrayList<>();
     private final Set<RegionState> leasedRegions = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Collection<RegionBlockEntityTickChunk> fallbackChunks = new ConcurrentLinkedQueue<>();
@@ -139,8 +141,9 @@ final class RegionBlockEntityTickBatch extends RegionTickBatch {
         return this.workGraph;
     }
 
-    RegionBlockEntityTickBatch(ServerLevel level, int blockUpdateEntryBudget) {
-        super(level, RegionTickSlice.BLOCK_ENTITY_TICK, blockUpdateEntryBudget);
+    RegionBlockEntityTickBatch(ServerLevel level, int blockUpdateEntryBudget, List<RegionBlockEntityTickChunk> chunks,
+            BooleanSupplier live, Function<BlockPos, RegionState> home) {
+        super(level, blockUpdateEntryBudget, chunks, live, home);
     }
 
     /**

@@ -631,6 +631,20 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
             this.claims = claims;
         }
 
+        /** Internal invocation bridge checks the real unconsumed grant, never an adapter description. */
+        boolean isReservedFor(Object domain, Object home) {
+            return this.domain == domain && this.claims.home == home && this.owner.open && this.owner.reserved
+                    && this.state.get() == RESERVED && this.boundary.getAsBoolean();
+        }
+
+        boolean entered() {
+            return this.state.get() == ENTERED;
+        }
+
+        boolean consumed() {
+            return this.state.get() == CONSUMED;
+        }
+
         Scope enter() {
             if (CURRENT.get() != null) throw new IllegalStateException("Nested resource ownership scopes are forbidden");
             this.owner.activeScopes.incrementAndGet();
