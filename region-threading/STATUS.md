@@ -14,6 +14,13 @@ container, hopper, capability or Create callbacks. The [`.58` performance follow
 shares immutable READ footprints only within fresh audited preparation, separates compact execution waves
 from graph diagnostics and avoids per-lease permission-table copies. Full mechanism paired p50/p95 and
 allocation records include fresh revalidation; they are not server MSPT or a whole-server speedup.
+The follow-up [tail investigation and actual `.58` installed-server A/B](BLOCK-ENTITY-RESOURCE-TAIL-AND-SERVER-AB.md)
+uses a fixed2GiB G1 heap, resource-on/off with waves enabled in both, and1/2/4/8workers; these definitions
+are separate from the historical measurements in the opening paragraph and tables below. It completed
+36resource-on/off pairs and two independent long-window reverse-order repeats. Resource-on increased
+mean MSPT in35/36short-matrix pairs; both long repeats also regressed, so admission expansion and
+default-on use remain unsupported. Full native tick values, CPU/GC/phase counters and equivalence checks
+are in [the server performance record](BLOCK-ENTITY-RESOURCE-SERVER-AB-PROFILE.json).
 
 ## Slices
 

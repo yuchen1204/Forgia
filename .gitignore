@@ -37,6 +37,8 @@ changelog.txt
 *.py
 !tools/audit-mobspawncontroller.py
 !tools/block-entity-workgraph-smoke.py
+!tools/block-entity-resource-ab/*.py
+tools/block-entity-resource-ab/__pycache__/
 !adapters/create/tools/server_smoke.py
 *.7z
 /logs/

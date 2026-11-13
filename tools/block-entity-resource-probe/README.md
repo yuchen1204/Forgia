@@ -23,6 +23,12 @@ its old totals by these new totals. Per-component quantiles are independently so
 to the directly measured total quantile. Allocation quantiles cover the coordinator thread only, excluding
 input construction, output formatting and the returned timing array; there are no workers.
 
+**Follow-up finding:** the historical `.58` 64/64 plan tail is reproducible blocking C2 compilation of
+JDK `List.of`/`ImmutableCollections.listCopy` with `-Xbatch` and insufficient per-shape warmup. See
+[the investigation and installed-server A/B](../../region-threading/BLOCK-ENTITY-RESOURCE-TAIL-AND-SERVER-AB.md).
+The current probe defaults to **2,000 further warmups/case and 101 measured samples**, reporting p99/max;
+legacy results remain unchanged. Warmup is explicit, not a filter that deletes slow measured samples.
+
 All proof predicates are constant true substitutes for current publications/bindings/held Regions.
 Actual dynamic world/recipe validation is deliberately **not** represented. Shared mode has one explicit
 publication proof per captured shared set, rather than pretending different attachment callbacks may be
@@ -42,17 +48,29 @@ javac -proc:none -cp projects/neoforge/build/classes/java/main \
 ./gradlew --stop
 java -Xms512m -Xmx1g -XX:+UseG1GC -Xbatch \
   -cp tmp/be-resource-opt/current-probe-classes:projects/neoforge/build/classes/java/main \
-  net.neoforged.neoforge.server.threading.region.OwnershipCostProbe 21 shared \
+  net.neoforged.neoforge.server.threading.region.OwnershipCostProbe 101 shared \
   > tmp/be-resource-opt/current-shared.jsonl
 ```
 
-Arguments are `[5..101 samples] [expanded|shared]`; defaults `21 expanded`.
+Arguments are `[5..101 samples] [expanded|shared]`; defaults `101 expanded`. Every JSON row records
+`caseWarmup`, `trace` and `sampleTrace` so profiling output is clearly labelled.
 The common `OwnershipCostProbe.java` compiles against both `.57` and `.58`. `SharedReadOwnershipCostProbe`
 uses the new production representation; reflective selection happens once **outside all timing**.
 Expanded mode uses exactly the old per-unit Binding construction on either production version.
 
-Before any measurements, warm all cases with three passes of 24 runs/case, plus 32 further runs before
-each case. Report p50/p95 for every component, full phase, and allocated bytes from 21 samples/case.
+Before any measurements, warm all cases with three passes of24runs/case, plus **2,000 further runs**
+before each case. `-Dforgia.probe.caseWarmup=N` permits an explicit diagnostic override. The historical
+`.58` harness used only32further runs and21samples; reproduce its exact measurements from the frozen
+original harness, or clearly label an override. Do not mix warmup or profiling settings across a pair.
+Report p50/p95/p99/max for every component, full phase, and allocated bytes p50/p95. The default101samples
+makes p95 the sixth-largest sample rather than the second-largest of21; neither proves all JIT is complete.
+
+Optional `-Dforgia.probe.sampleTrace=true` emits timestamp anchors and individual measured phase receipts
+to stderr **after** each case, with no per-sample timed I/O. `-Dforgia.probe.trace=true` emits JFR
+`forgia.OwnershipPlan` intervals with wall/threadCPU readings. Enable Compilation/Deoptimization/GC/monitor/
+park events at suitable thresholds: profile's default Compilation threshold100ms hides the5mscompiler tasks.
+Keep diagnostics and unprofiled timing separate. Starting JFR itself changes JDK call counts/JIT timing
+and can move the original spike outside its old location.
 
 ## Frozen production baseline
 
@@ -80,7 +98,7 @@ javac -proc:none \
   -d tmp/be-resource-opt/baseline-classes tools/block-entity-resource-probe/OwnershipCostProbe.java
 java -Xms512m -Xmx1g -XX:+UseG1GC -Xbatch \
   -cp tmp/be-resource-opt/baseline-classes:projects/neoforge/build/classes/java/main \
-  net.neoforged.neoforge.server.threading.region.OwnershipCostProbe 21 expanded \
+  net.neoforged.neoforge.server.threading.region.OwnershipCostProbe 101 expanded \
   > tmp/be-resource-opt/baseline-expanded.jsonl
 ```
 
@@ -94,7 +112,9 @@ Also run current `expanded` as an ablation/control, not a separately proven spee
 every accepted round, component/full p50/p95 and allocations; summarize as the median of each condition's
 three **round quantiles**, not as a pooled-sample quantile. Exploratory earlier runs are retained locally.
 
-The small fixed sample count, JIT/GC/frequency/timer effects and input-specific optimizations limit inference.
+The historical small sample count, JIT/GC/frequency/timer effects and input-specific optimizations limit inference.
+Current extra warmup addresses the observed blocking compilation inside the old measurement interval;
+it changes measurement protocol and does not constitute a production-code performance fix.
 Even a large reduction here is **not a whole-server speedup**, and small/light shapes may still regress.
 See [architecture](../../region-threading/GENERAL-BLOCK-ENTITY-RESOURCE-OWNERSHIP.md),
 [optimization details](../../region-threading/BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md),

@@ -126,6 +126,10 @@ large proof footprints initially had substantial allocation/planning costs. The
 [`.58` optimization](region-threading/BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md) shares fresh READ
 publications, separates execution planning from diagnostics and reuses immutable permission tables;
 paired mechanism measurements do not establish a whole-server speedup or change the default-off policy.
+The [tail-latency investigation and installed-server A/B](region-threading/BLOCK-ENTITY-RESOURCE-TAIL-AND-SERVER-AB.md)
+separates blocking JIT compilation in the old probe from full-tick costs on the frozen `.58` binary.
+The resource-on layer increased mean MSPT in35/36matrix pairs and both independent long-window repeats;
+it remains default-off, with no performance evidence supporting broader BE admission.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

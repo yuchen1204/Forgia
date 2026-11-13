@@ -114,6 +114,10 @@ resource set 比较、reserve、逐单元 scope／五次 require、close。直�
 但 **2 / 4 的 p50/p95、16 / 4 的 p50，以及 64 / 64 的 p95 存在回退**。
 64 / 64 的三个 after round 都在 plan 分段记录到同量级尾部；没有删除异常值，也没有将其断言为已知 GC 或 JIT 原因。
 当前小样本、预热、同步 JIT／deoptimization、GC 和频率影响仍在，不宣称已解决所有轻负载／尾延迟问题。
+后续 [逐样本编译证据与真实安装服对照](BLOCK-ENTITY-RESOURCE-TAIL-AND-SERVER-AB.md) 已重现并定位旧探针的特定5–7ms尖峰：
+`-Xbatch` 下JDK`List.of/listCopy`阻塞C2编译落入有限样本测量窗口。该结论不排除其他服务器尾延迟；本表保留原值，不重写为长预热结果。
+后续安装服36组配对中35组均值、34组p95回退；64炉／4workers的两次独立长窗口反序复验也均回退。
+完整数据见[安装服性能记录](BLOCK-ENTITY-RESOURCE-SERVER-AB-PROFILE.json)，不以机制分配下降推导整服收益。
 
 JSON 包含全部 **72 行**正式记录、各组件 p50/p95、allocation p50/p95，另含 12 行 current-expanded 单轮控制。
 早期探索的未精简小表／异步编译结果保留在本地，不冒充最终源码结果。
