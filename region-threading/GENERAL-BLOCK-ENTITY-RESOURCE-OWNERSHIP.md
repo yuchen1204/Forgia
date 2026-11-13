@@ -4,6 +4,7 @@
 通用资源身份、声明、非阻塞 lease 和线程 scope 已接入 Furnace Work Waves。
 `.58` 的实现与原始测量见[第二阶段记录](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md)；
 `.59` 减少身份表与 Claims／Planner 临时分配，保留动态证明，见[Hot Path 成本下降及安装服复验](BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md)。
+冻结`.59`的[混合负载验证](BLOCK-ENTITY-RESOURCE-MIXED-VALIDATION.md)进一步检查保守串行BE、正常世界Tick、动态变化和有界长期成本，不扩大并行准入。
 新增 `enableRegionThreadingBlockEntityResources`，默认 `false`，需重启。
 它还要求既有 BE worker、furnace waves 和 fixed region layout；单独打开本项不会启动任何新机器或 worker 路径。
 

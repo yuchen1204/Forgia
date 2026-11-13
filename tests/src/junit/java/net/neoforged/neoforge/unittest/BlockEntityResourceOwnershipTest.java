@@ -824,6 +824,70 @@ class BlockEntityResourceOwnershipTest {
         }
     }
 
+    @Test
+    void mixedHomeWavesExecuteTheSameStateAsCanonicalSerialIncludingUnknownFences() throws Exception {
+        final Object[] homes = { new Object(), new Object(), new Object(), new Object() };
+        final Object[] resources = java.util.stream.IntStream.range(0, 16).mapToObj(index -> new Object()).toArray();
+        final Object publication = new Object();
+        final Map<Object, java.util.function.BooleanSupplier> held = new java.util.IdentityHashMap<>();
+        for (final Object home : homes) held.put(home, () -> true);
+        final Random random = new Random(813584L);
+        try (final var executor = Executors.newFixedThreadPool(4)) {
+            for (int phase = 0; phase < 80; ++phase) {
+                final int[] expected = new int[resources.length];
+                final int[] actual = new int[resources.length];
+                final List<Claims> claims = new ArrayList<>();
+                final List<int[]> operations = new ArrayList<>();
+                final SharedReads shared = SharedReads.capture(this.level, List.of(publication), () -> true);
+                for (int index = 0; index < 48; ++index) {
+                    final int home = random.nextInt(homes.length);
+                    final int read = home * 4 + random.nextInt(4);
+                    final int write = home * 4 + random.nextInt(4);
+                    final boolean fence = index % 13 == 7;
+                    operations.add(new int[] { read, write, index + 1, fence ? 1 : 0 });
+                    final var builder = Claims.builder(this.level, homes[home]);
+                    if (!fence) {
+                        builder.sharedReads(shared)
+                                .claim(new Binding(new Identity(this.level, resources[read]), homes[home], () -> true, null), Access.READ)
+                                .claim(new Binding(new Identity(this.level, resources[write]), homes[home], () -> true, null), Access.WRITE);
+                    }
+                    claims.add(builder.build());
+                    expected[write] = expected[read] * 31 + index + 1;
+                }
+                final var plan = BlockEntityResourceOwnership.plan(claims);
+                for (final var wave : plan.dependencies().waves()) {
+                    if (!claims.get(wave.getFirst()).complete()) {
+                        assertEquals(1, wave.size());
+                        final int[] op = operations.get(wave.getFirst());
+                        actual[op[1]] = actual[op[0]] * 31 + op[2];
+                        continue;
+                    }
+                    try (final var owner = new Owner(this.level, held, () -> true)) {
+                        final var leases = owner.tryAcquireAll(wave.stream().map(claims::get).toList());
+                        assertNotNull(leases);
+                        final List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+                        for (int offset = 0; offset < wave.size(); ++offset) {
+                            final int[] op = operations.get(wave.get(offset));
+                            final var lease = leases.get(offset);
+                            futures.add(executor.submit(() -> {
+                                try (final var scope = lease.enter()) {
+                                    Scope.require(this.level, publication, Access.READ);
+                                    Scope.require(this.level, resources[op[0]], Access.READ);
+                                    Scope.require(this.level, resources[op[1]], Access.WRITE);
+                                    Thread.yield();
+                                    actual[op[1]] = actual[op[0]] * 31 + op[2];
+                                }
+                            }));
+                        }
+                        for (final var future : futures) future.get(5, TimeUnit.SECONDS);
+                        for (final var lease : leases) assertThrows(IllegalStateException.class, lease::enter);
+                    }
+                }
+                org.junit.jupiter.api.Assertions.assertArrayEquals(expected, actual, "mixed execution phase " + phase);
+            }
+        }
+    }
+
     // Tests reflect the internal grant/entry gates instead of exporting a permission-minting test API.
     private static final class Owner implements AutoCloseable {
         private final BlockEntityResourceOwnership delegate;

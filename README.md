@@ -134,6 +134,11 @@ The [`.59` hot-path cost reduction](region-threading/BLOCK-ENTITY-RESOURCE-HOT-P
 node-based proof tables and per-unit planner expansion with immutable arrays and call-local identity tables.
 Two installed-server build pairs confirm lower allocation with the resource layer active; dynamic proofs
 and admission remain intact. This reduces the existing layer's cost and does not establish a reason to enable it by default.
+The [mixed-workload validation](region-threading/BLOCK-ENTITY-RESOURCE-MIXED-VALIDATION.md) checks the frozen
+`.59` implementation with other serial block entities, normal world ticks and dynamic state changes;
+its real-server resource-on/off evidence is distinct from the old/new implementation cost comparison.
+The bounded30-minute pair passes full-state checks but increases mean MSPT18.8% and allocation82.5%
+with the resource layer on. The option remains off by default, and BE admission limits stay unchanged.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

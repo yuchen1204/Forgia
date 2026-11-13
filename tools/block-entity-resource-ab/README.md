@@ -134,6 +134,53 @@ repeats or profiled/unprofiled tick samples. See the [hot-path cost reduction](.
   before/after NBT hash and completion equivalence. It exports all active tick values so quantiles can
   be recalculated. It never replaces missing metrics with zero.
 
+## Mixed workload validation
+
+`mixed_workload.py` uses the same pinned binaries, private-world controller, exact scheduled freeze and
+external native-ring/JMX observer. It adds64vanilla furnace-family machines,32hoppers in closed loops,
+8brewing stands,8chests,8daylight sensors,8active comparator neighbours,8redstone clocks/lamps and32normal
+main-thread ageable entities. Only existing audited furnace bodies enter workers; all other BE operations
+remain complete serial fences. Normal scheduled/random/entity world ticks remain on their existing paths.
+The three selected vanilla recipes are explicitly pinned to200ticks by a vanilla datapack, including
+`minecraft:baked_potato_from_smoking`. Full BE inventories/progress/recipe-use state, deterministic entity
+fields, redstone checks and exact ordinary tick counters are checked independently of performance.
+
+```sh
+python3 -u tools/block-entity-resource-ab/mixed_workload.py \
+  --runs tmp/be-resource-mixed/steady \
+  --installation /absolute/path/to/private-installed-59 \
+  --version 21.1.250.59-beta \
+  --installer-sha256 a8af404408d99d4a3bc37267bcf829cc5a6c2637cd2fd8bf0f572018beac2fd4 \
+  --universal-sha256 772c6cff4dc2c83033a5465af753830a5b795703fa0a3b7b69c0c5866a42e25d \
+  --eula /absolute/path/to/already-accepted/eula.txt \
+  --java "$JAVA_HOME/bin/java" --classes tmp/be-resource-mixed/metrics-classes \
+  --layouts chunks regions --conditions off on --rounds 2 \
+  --warmup-ticks 1200 --window-ticks 600 --windows 2
+python3 tools/block-entity-resource-ab/export_mixed.py \
+  tmp/be-resource-mixed/steady tmp/be-resource-mixed/steady-export.json
+```
+
+Compile`JvmMetrics.java`as above before any performance runs. `--mode soak --layouts regions --rounds 1
+--window-ticks 1200 --windows 30` runs30minutes of exact active gameTicks per condition, plus startup/warmup
+and quiescent checkpoints. Checkpoints replenish furnace/brewing input and reset current stacks outside
+the active timing interval; hopper state, entities, recipe-use counts and redstone clock remain live.
+This is a bounded checkpointed soak, not an uninterrupted multiplayer/modpack production claim.
+
+`--mode dynamic --layouts regions --rounds 1` is separate correctness evidence: scheduled legal
+main-thread inventory/component edits and removal/replacement, completed recipe reloads with altered
+cooking time, and actual chunk unload/reload. A vanilla`perf`report audits chunk-holder absence and is
+explicitly excluded from performance comparisons. Fixture entities retain their UUIDs across reload.
+No unsafe asynchronous mutation is introduced or reclassified as supported. Export full independent
+runs only after normal save/exit; failed/pilot roots remain separate and never become accepted cells.
+
+A separate`mixed_pipeline.py`correctness-only run replaces8isolated machines with actual input
+Hopper→Furnace→output Hopper→chest lines, ordered to exercise a serial container tick before its furnace.
+It uses the same`--runs/--installation/--version/--installer-sha256/--universal-sha256/--eula/--java/--classes`
+arguments. Each condition executes two1200tick windows after preparation; full state,128tickableBE
+invocations per tick, pipeline ore/ingot conservation and actual extraction into sink chests are checked.
+It does not publish performance samples or broaden Hopper admission.
+
+See the [mixed validation report](../../region-threading/BLOCK-ENTITY-RESOURCE-MIXED-VALIDATION.md).
 Do not upload runtime directories: they contain worlds, properties/credentials, logs, JFR and jars.
 To stop gracefully, create `STOP` in that run root or signal the Python controller. It stops after a
 complete RCON exchange and closes its own connection. Do not race a second RCON controller's `stop`

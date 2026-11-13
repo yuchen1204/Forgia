@@ -135,6 +135,83 @@ class MeasurementsTest(unittest.TestCase):
         other['deltas']['furnace.nativeCompleted']=1
         with self.assertRaises(ValueError): equivalent(row,other)
 
+    def test_mixed_snbt_parser_reads_components_arrays_and_rejects_partial_data(self):
+        from mixed_workload import Snbt, contents
+        self.assertEqual(contents('Sheep has the following entity data: [I;1,2,3,4]'),[1,2,3,4])
+        self.assertEqual(contents('Storage has the following contents: {Age: -12}'),{'Age':-12})
+        self.assertEqual(Snbt.parse('{id:"minecraft:potion",components:{"minecraft:potion_contents":{potion:"minecraft:awkward"}},Age:-1000,UUID:[I;1,-2,3,4],Pos:[1.5d,64.0d,0.5d]}'),
+                         {'id':'minecraft:potion','components':{'minecraft:potion_contents':{'potion':'minecraft:awkward'}},
+                          'Age':-1000,'UUID':[1,-2,3,4],'Pos':[1.5,64.0,.5]})
+        for bad in ['{a:1,a:2}', '{a:[1,2,]}', '{a:1}extra', '[{},<...>]', '{a:']:
+            with self.assertRaises(ValueError): Snbt.parse(bad)
+
+    def test_mixed_fixture_keeps_inventory_loops_and_notification_receivers_in_the_same_home(self):
+        from mixed_workload import specification, build_functions
+        for layout in ['chunks','regions']:
+            spec=specification(layout)
+            self.assertEqual([sum(m['kind']==kind for m in spec['machines']) for kind in ['furnace','blast_furnace','smoker']], [32,16,16])
+            self.assertEqual(len(spec['hoppers']),32)
+            for i in range(8):
+                corners={tuple(v['pos']) for v in spec['hoppers'][i*4:i*4+4]}
+                self.assertEqual(len(corners),4)
+                self.assertEqual(len({(x//48,z//48) for x,y,z in corners}),1)
+            functions=build_functions(spec)
+            self.assertTrue(any('minecraft:hopper' in cmd for cmd in functions['setup']))
+            self.assertTrue(any('redstone_lamp[lit=false]' in cmd for cmd in functions['active_tick']))
+            self.assertEqual(sum('Age:-100000' in cmd for cmd in functions['setup']),32)
+
+    def test_mixed_correctness_oracle_rejects_missing_world_entity_and_conservation_effects(self):
+        import copy
+        from mixed_workload import specification, validate_window
+        spec=specification('chunks')
+        machines=[]
+        for m in spec['machines']:
+            x,y,z=m['pos']
+            machines.append(dict(id='minecraft:'+m['kind'],x=x,y=y,z=z,BurnTime=30000,Items=[
+                {'Slot':0,'id':'minecraft:'+m['input'],'count':64},{'Slot':1,'id':'minecraft:coal','count':64}]))
+        before=dict(machines=machines,hoppers=[{'Items':[{'Slot':0,'count':64}]} if i%4==0 else {} for i in range(32)],
+                    brewing=[{'Items':[{'Slot':j,'count':1} for j in range(3)]} for _ in range(8)],
+                    chests=[{'Items':[{'Slot':0,'count':64}]} for _ in range(8)],
+                    sheep=[{'Age':-100000} for _ in range(32)],entityCount=32,ticks=0,pulses=0,redstone=0)
+        after=copy.deepcopy(before)
+        for m,be in zip(spec['machines'],after['machines']):
+            be['BurnTime']-=200
+            be['Items'][0]['count']-=1
+            be['Items'].append({'Slot':2,'id':'minecraft:'+m['output'],'count':1})
+        for sheep in after['sheep']:sheep['Age']+=200
+        after.update(ticks=200,pulses=10,redstone=160)
+        self.assertEqual(validate_window(before,after,200,spec),64)
+        for kind in ['redstone','sheep','hoppers','machines']:
+            bad=copy.deepcopy(after)
+            if kind=='redstone':bad['redstone']-=1
+            elif kind=='sheep':bad['sheep'][0]['Age']-=1
+            elif kind=='hoppers':bad['hoppers'][0]['Items'][0]['count']+=1
+            else:bad['machines'][0]['Items'][0]['count']+=1
+            with self.assertRaises(AssertionError):validate_window(before,bad,200,spec)
+
+    def test_mixed_export_refuses_partial_processes_and_state_or_route_mismatches(self):
+        import copy
+        from export_mixed import load, equivalent
+        manifest={'parameters':{'rounds':1,'layouts':['chunks'],'conditions':['off','on'],'windows':2,'mode':'steady'}}
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name)
+            (root/'manifest.json').write_text(json.dumps(manifest))
+            with self.assertRaises(AssertionError):load(root)
+            directory=root/'r0-chunks-w4-off'
+            directory.mkdir()
+            (directory/'result.json').write_text(json.dumps({'outcome':'RUNNING','serverExit':0,'results':[]}))
+            with self.assertRaises(ValueError):load(root)
+        row=dict(window=0,ticks=600,outputs=192,fixtureSha256='fixture',beforeStateSha256='before',afterStateSha256='after',
+                 deltas={k:0 for k in ['furnace.nativeCompleted','furnace.serial','furnace.changes','furnace.failed','furnace.skipped','furnace.rejectedTasks']})
+        equivalent(row,copy.deepcopy(row))
+        for key in ['beforeStateSha256','afterStateSha256','fixtureSha256']:
+            other=copy.deepcopy(row)
+            other[key]='changed'
+            with self.assertRaises(AssertionError):equivalent(row,other)
+        other=copy.deepcopy(row)
+        other['deltas']['furnace.serial']=1
+        with self.assertRaises(AssertionError):equivalent(row,other)
+
     def test_no_missing_diagnostics_becomes_zero(self):
         with self.assertRaises(ValueError): graph('Block entity resource ownership: enabled=false')
         with self.assertRaises(ValueError): percentile([], .99)

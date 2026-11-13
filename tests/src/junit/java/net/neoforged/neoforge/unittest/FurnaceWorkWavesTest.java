@@ -932,6 +932,77 @@ class FurnaceWorkWavesTest {
     }
 
     @Test
+    void mixedSerialInventoryReplacementInvalidatesOnlyTheLaterWaveAndFreshTickRecovers() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.SMOKER, 100);
+        final var third = this.furnace(new BlockPos(25, 64, 17), Blocks.BLAST_FURNACE, 100);
+        final var fourth = this.furnace(new BlockPos(29, 64, 17), Blocks.FURNACE, 100);
+        final var beforeReplacement = third.getItem(0);
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(21, 64, 21)).when(fence).getPos();
+        doReturn("example:inventory_callback").when(fence).getType();
+        final var serialCallbacks = new AtomicInteger();
+        doAnswer(call -> {
+            assertSame(this.main, Thread.currentThread());
+            assertFalse(BlockEntityResourceOwnership.Scope.active());
+            assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions(), "earlier wave must already be joined");
+            third.setItem(0, beforeReplacement.copy());
+            serialCallbacks.incrementAndGet();
+            return null;
+        }).when(fence).tick();
+        this.tick(this.ticker(first), this.ticker(second), fence, this.ticker(third), this.ticker(fourth));
+        assertEquals(1, serialCallbacks.get());
+        assertFalse(beforeReplacement == third.getItem(0));
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(3, this.engine.furnaceWorkMetrics().serialInvocations());
+        for (final var source : List.of(first, second, third, fourth)) assertEquals(99, readCounter(source, "litTime"));
+        this.tick(this.ticker(first), this.ticker(second), this.ticker(third), this.ticker(fourth));
+        assertEquals(6, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(6, this.engine.furnaceWorkMetrics().nativeCompletions());
+        for (final var source : List.of(first, second, third, fourth)) {
+            assertEquals(98, readCounter(source, "litTime"));
+            assertEquals(2, source.getItem(0).getCount());
+            assertEquals(1, source.getItem(2).getCount());
+        }
+        assertEquals(0, this.engine.diagnostics().ownershipViolationCount());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void mixedSerialCallbackThrowAfterAnEffectCannotReplayEarlierOrLaterBodies() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var third = this.furnace(new BlockPos(25, 64, 17), Blocks.SMOKER, 100);
+        final var fourth = this.furnace(new BlockPos(29, 64, 17), Blocks.BLAST_FURNACE, 100);
+        final var effects = new AtomicInteger();
+        final var failure = new IllegalStateException("unknown callback after effect");
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(21, 64, 21)).when(fence).getPos();
+        doReturn("example:throwing_callback").when(fence).getType();
+        doAnswer(call -> {
+            assertSame(this.main, Thread.currentThread());
+            assertFalse(BlockEntityResourceOwnership.Scope.active());
+            assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+            effects.incrementAndGet();
+            throw failure;
+        }).when(fence).tick();
+        assertSame(failure, assertThrows(IllegalStateException.class,
+                () -> this.tick(this.ticker(first), this.ticker(second), fence, this.ticker(third), this.ticker(fourth))));
+        assertEquals(1, effects.get());
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        for (final var source : List.of(first, second)) assertEquals(99, readCounter(source, "litTime"));
+        for (final var source : List.of(third, fourth)) assertEquals(100, readCounter(source, "litTime"));
+        assertFalse(BlockEntityResourceOwnership.Scope.active());
+        assertFalse(FurnaceWorkScope.active());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
     void serialAndUnknownEffectsNeverRunWhileOriginalWorkersAreActive() throws Exception {
         this.setup();
         final var first = this.furnace(FIRST, Blocks.FURNACE, 100);

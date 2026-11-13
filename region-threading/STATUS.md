@@ -26,6 +26,14 @@ all current-operation validation and reduces proof-table construction with immut
 identity tables. Two independent build pairs with2/64/256furnaces and4workers lower real allocation
 and mean MSPT relative to resource-on `.58`; defaults and BE admission remain unchanged. See
 [complete cost data](BLOCK-ENTITY-RESOURCE-HOT-PATH-PROFILE.json), including controls and independent repeats.
+The [mixed-workload validation](BLOCK-ENTITY-RESOURCE-MIXED-VALIDATION.md) completed16accepted installed
+server processes,94windows and separate30-minute ON/OFF checks on the frozen`.59`binary. Supported
+furnace bodies coexist with conservative serial BE fences, world/entity ticks and legal dynamic changes;
+full state/work checks pass. Resource-on regresses mean/p95 in3/4short independent pairs; the long pair
+increases mean18.8%,p9534.2% and allocation82.5%. Connected Hopper pipelines remain serial where fenced.
+This bounded validation strengthens correctness evidence within the audited scope; it does not support
+default-on use, arbitrary callback safety or BE admission expansion. Complete records are in the
+[mixed workload profile](BLOCK-ENTITY-RESOURCE-MIXED-PROFILE.json), separate from the historical full-region soak below.
 
 ## Slices
 
