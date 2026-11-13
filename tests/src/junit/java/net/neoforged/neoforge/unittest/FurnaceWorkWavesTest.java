@@ -972,6 +972,92 @@ class FurnaceWorkWavesTest {
     }
 
     @Test
+    void previouslyEmptyInventorySlotCannotInheritAnUnchangedLocalDescriptor() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.SMOKER, 100);
+        final var third = this.furnace(new BlockPos(25, 64, 17), Blocks.BLAST_FURNACE, 100);
+        final var fourth = this.furnace(new BlockPos(29, 64, 17), Blocks.FURNACE, 100);
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(21, 64, 21)).when(fence).getPos();
+        doReturn("example:empty_slot_callback").when(fence).getType();
+        doAnswer(call -> {
+            third.setItem(2, new ItemStack(Items.IRON_INGOT));
+            return null;
+        }).when(fence).tick();
+        this.tick(this.ticker(first), this.ticker(second), fence, this.ticker(third), this.ticker(fourth));
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(3, this.engine.furnaceWorkMetrics().serialInvocations());
+        for (final var source : List.of(first, second, third, fourth)) assertEquals(99, readCounter(source, "litTime"));
+        assertEquals(1, third.getItem(2).getCount());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void sameStackReferenceBecomingNonemptyAfterSerialFenceCannotReuseAnOmittedWrite() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final var emptyOutput = new ItemStack(Items.IRON_INGOT, 0);
+        first.setItem(2, emptyOutput);
+        assertSame(emptyOutput, first.getItem(2));
+        assertTrue(emptyOutput.isEmpty());
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(21, 64, 21)).when(fence).getPos();
+        doReturn("example:in_place_empty_stack").when(fence).getType();
+        doAnswer(call -> {
+            emptyOutput.setCount(1);
+            assertSame(emptyOutput, first.getItem(2));
+            assertFalse(emptyOutput.isEmpty());
+            return null;
+        }).when(fence).tick();
+        this.tick(fence, this.ticker(first), this.ticker(second));
+        assertEquals(0, this.engine.blockEntityResourceMetrics().issuedLeases(), "a new WRITE identity must invalidate the planned wave");
+        assertEquals(0, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(3, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        assertEquals(1, first.getItem(2).getCount());
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
+    void changedSlotAttachmentsWithTheSamePermissionUnionStillReceiveFreshValidators() throws Exception {
+        this.setup();
+        this.engine.setBlockEntityResourcesEnabledForTesting(true);
+        final var first = this.furnace(FIRST, Blocks.FURNACE, 100);
+        final var second = this.furnace(SECOND, Blocks.FURNACE, 100);
+        final ItemStack input = first.getItem(0);
+        final ItemStack fuel = first.getItem(1);
+        final var fence = mock(TickingBlockEntity.class);
+        doReturn(new BlockPos(21, 64, 21)).when(fence).getPos();
+        doReturn("example:slot_permutation").when(fence).getType();
+        doAnswer(call -> {
+            first.setItem(0, fuel);
+            first.setItem(1, input);
+            return null;
+        }).when(fence).tick();
+        this.engine.setFurnaceBodyObserverForTesting(source -> {
+            if (source == first) {
+                assertSame(fuel, source.getItem(0));
+                assertSame(input, source.getItem(1));
+                BlockEntityResourceOwnership.Scope.require(this.level, fuel, BlockEntityResourceOwnership.Access.WRITE);
+                BlockEntityResourceOwnership.Scope.require(this.level, input, BlockEntityResourceOwnership.Access.WRITE);
+            }
+        });
+        this.tick(fence, this.ticker(first), this.ticker(second));
+        assertEquals(2, this.engine.blockEntityResourceMetrics().issuedLeases());
+        assertEquals(2, this.engine.furnaceWorkMetrics().nativeCompletions());
+        assertEquals(1, this.engine.furnaceWorkMetrics().serialInvocations());
+        assertEquals(99, readCounter(first, "litTime"));
+        assertEquals(99, readCounter(second, "litTime"));
+        assertEquals(0, this.engine.diagnostics().runningRegionCount());
+    }
+
+    @Test
     void mixedSerialCallbackThrowAfterAnEffectCannotReplayEarlierOrLaterBodies() throws Exception {
         this.setup();
         this.engine.setBlockEntityResourcesEnabledForTesting(true);

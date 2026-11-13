@@ -66,7 +66,10 @@ python3 tools/block-entity-resource-ab/analyze_jfr.py \
 Repeated park-event stack metadata expands a10MB binary JFR into over13GB of pretty JSON. `JfrEvents`
 reads one event at a time, retaining its exact timestamp/duration/thread plus explicitly labelled nearest
 caller/leaf/park classification and compilation/allocation fields; `analyze_jfr.py` streams those records.
-The binary JFR remains authoritative for full stacks. The analyzer refuses a whole JSON expansion over50MB.
+The binary JFR remains authoritative for full stacks. Execution/allocation samples additionally retain up to
+24 method names for initial-versus-fresh catalog/capture, phase planning and reservation attribution.
+Those caller categories are sampled evidence, not non-overlapping wall timers or exact allocation bytes.
+The analyzer refuses a whole JSON expansion over50MB.
 A small diagnostic JSON from `jfr print --json` is also supported for parser cross-checks. Never infer
 CPU time or exact bytes from execution/allocation sample weights.
 
@@ -160,7 +163,19 @@ python3 tools/block-entity-resource-ab/export_mixed.py \
   tmp/be-resource-mixed/steady tmp/be-resource-mixed/steady-export.json
 ```
 
-Compile`JvmMetrics.java`as above before any performance runs. `--mode soak --layouts regions --rounds 1
+Compile`JvmMetrics.java`as above before any performance runs. Mixed runs also accept
+`--jfr /absolute/path/to/settings.jfc`: recorder startup and another200ticks are discarded before the
+first measured window. Manifest and per-window `profiled` flags must agree, and the exporter refuses
+pooling profiled with unprofiled windows. Epoch bounds allow the same streaming JFR analyzer to clip
+sampled costs to the actual active measurement interval.
+
+For serial-fence attribution, `--fence-groups 8` registers the same64furnaces and32Hoppers as eight groups
+of eight machines followed by their existing four-Hopper loop. All positions, inputs, recipes, normal
+world workload and complete-state/conservation oracles remain identical; canonical ticker order changes.
+The normal default is `--fence-groups 0`. Keep these workloads separate, measure actual wave counters,
+and do not infer the cost of many waves from the ordinary fixture's many serial BE ticks.
+
+`--mode soak --layouts regions --rounds 1
 --window-ticks 1200 --windows 30` runs30minutes of exact active gameTicks per condition, plus startup/warmup
 and quiescent checkpoints. Checkpoints replenish furnace/brewing input and reset current stacks outside
 the active timing interval; hopper state, entities, recipe-use counts and redstone clock remain live.
@@ -181,6 +196,25 @@ invocations per tick, pipeline ore/ingot conservation and actual extraction into
 It does not publish performance samples or broaden Hopper admission.
 
 See the [mixed validation report](../../region-threading/BLOCK-ENTITY-RESOURCE-MIXED-VALIDATION.md).
+The [`.60` cost-attribution report](../../region-threading/BLOCK-ENTITY-RESOURCE-COST-ATTRIBUTION.md) keeps
+old/new resource-on costs distinct from each build's ON/OFF increment. Reproduce its standard mixed
+matrix using the same command above with these pins and an independent installation:
+
+```sh
+--version 21.1.250.60-beta \
+--installer-sha256 9f0b2bb19bf9840e88828b221e3103cce5c0a5e85de4ca35a4bb0b556c652741 \
+--universal-sha256 ec49ce19a10ae93769478e1a13cf14d38c042216b6bd6e7c16321b2ce831c6d4
+```
+
+Run `.59` and `.60` in reversed build order on the independent repeat, keep every complete window,
+and export each root separately. Use `--fence-groups 8` for the separate eight-wave control;
+`--mode soak --layouts regions --rounds 1 --window-ticks 1200 --windows 10` for the ten-minute check;
+`--mode dynamic` and `mixed_pipeline.py` for the existing complete correctness regressions.
+The asynchronous unload/reload diagnostic is checked per-side for holder absence, UUID persistence,
+outputs/conservation and exact total tickable bodies. Different IO histories can change before-state
+and native/serial route counts: keep those differences explicitly; never label them full-pair equality.
+These paths do not introduce asynchronous inventory mutation or expand BE admission.
+
 Do not upload runtime directories: they contain worlds, properties/credentials, logs, JFR and jars.
 To stop gracefully, create `STOP` in that run root or signal the Python controller. It stops after a
 complete RCON exchange and closes its own connection. Do not race a second RCON controller's `stop`

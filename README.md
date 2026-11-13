@@ -139,6 +139,12 @@ The [mixed-workload validation](region-threading/BLOCK-ENTITY-RESOURCE-MIXED-VAL
 its real-server resource-on/off evidence is distinct from the old/new implementation cost comparison.
 The bounded30-minute pair passes full-state checks but increases mean MSPT18.8% and allocation82.5%
 with the resource layer on. The option remains off by default, and BE admission limits stay unchanged.
+The [`.60` source cost attribution and optimization](region-threading/BLOCK-ENTITY-RESOURCE-COST-ATTRIBUTION.md)
+shares unchanged immutable local descriptions within a phase and reuses cleared identity-table capacity,
+while retaining every fresh audit and validator. Four reversed build/condition pairs reduce the measured
+ON-minus-OFF allocation increment by35.1–36.6%; whole-tick latency remains inconsistent, with mean/p95
+improving in only1/4build pairs and regressing in the10-minute ON/OFF check. This is an allocation reduction,
+not a validated server-latency improvement or broader BE admission.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

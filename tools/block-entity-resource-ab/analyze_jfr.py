@@ -40,6 +40,32 @@ def category(stack):
     return 'other JVM/server code'
 
 
+def ownership_stage(stack):
+    """Attribute sampled callers, not assumed durations. Fresh and plan captures have different lifetimes."""
+    def has(name):
+        return any(name in frame for frame in stack)
+    fresh = has('RegionThreadingEngine.executeFurnaceWave')
+    if has('FurnaceWorkPreparation.pureCatalog') or has('FurnaceWorkPreparation.plainIngredient') or has('FurnaceWorkPreparation.captureIngredientReads'):
+        return 'fresh catalog audit/publication' if fresh else 'initial catalog audit/publication'
+    if has('FurnaceResourcePreparation.capture') or has('FurnaceResourcePreparation.recapture'):
+        return 'fresh local claims capture' if fresh else 'initial local claims capture'
+    if has('BlockEntityResourceOwnership.plan'):
+        return 'whole-phase dependency and alias planning'
+    if has('BlockEntityResourceOwnership.tryAcquireAll'):
+        return 'fresh whole-wave reservation'
+    if has('BlockEntityResourceOwnership$Claims.sameResources'):
+        return 'fresh captured-set comparison'
+    if has('FurnaceWorkPreparation.aliased'):
+        return 'fresh whole-phase inventory alias audit' if fresh else 'initial whole-phase inventory alias audit'
+    if has('FurnaceWorkPreparation.prepare'):
+        return 'fresh local eligibility audit' if fresh else 'initial local eligibility audit'
+    if has('RegionThreadingEngine.tickFurnaceSerial'):
+        return 'canonical serial BE execution'
+    if has('RegionThreadingEngine.runFurnaceWorkBody'):
+        return 'worker body and scopes'
+    return 'other server/JVM work'
+
+
 def read_events(path):
     if path.suffix == '.ndjson':
         with path.open() as stream:
@@ -60,6 +86,10 @@ def analyze(path, intervals):
     allocation=collections.Counter()
     allocation_by_thread=collections.Counter()
     allocation_classes=collections.Counter()
+    stage_samples=collections.Counter()
+    stage_allocations=collections.Counter()
+    stage_classes=collections.Counter()
+    stage_leaves=collections.Counter()
     tops=collections.Counter()
     native_tops=collections.Counter()
     locks=collections.Counter()
@@ -79,7 +109,10 @@ def analyze(path, intervals):
         leaf=value.get('normalizedLeaf',stack[0] if stack else '')
         thread=value.get('eventThread') or value.get('sampledThread') or {}
         thread_name=thread.get('javaName','unknown')
+        stage=ownership_stage(value.get('normalizedAttributionStack',stack))
         if kind=='jdk.ExecutionSample':
+            stage_samples[(thread_name,stage)]+=1
+            stage_leaves[(thread_name,stage,leaf)]+=1
             samples[caller]+=1
             samples_by_thread[(thread_name,caller)]+=1
             if leaf: tops[leaf]+=1
@@ -89,7 +122,10 @@ def analyze(path, intervals):
             allocation[caller]+=value['weight']
             allocation_by_thread[(thread_name,caller)]+=value['weight']
             klass=value.get('objectClass') or {}
-            allocation_classes[klass.get('name','unknown').replace('/','.')]+=value['weight']
+            class_name=klass.get('name','unknown').replace('/','.')
+            allocation_classes[class_name]+=value['weight']
+            stage_allocations[(thread_name,stage)]+=value['weight']
+            stage_classes[(thread_name,stage,class_name)]+=value['weight']
         elif kind=='jdk.JavaMonitorEnter':
             locks[thread_name]+=overlap
         elif kind=='jdk.ThreadPark':
@@ -109,7 +145,12 @@ def analyze(path, intervals):
             method=value['method']
             deopts.append(dict(method=method['type']['name'].replace('/','.')+'.'+method['name'],
                 reason=value.get('reason'),action=value.get('action'),thread=thread_name))
-    return dict(eventCounts=dict(counts),executionSamplesByNearestAuditedCaller=dict(samples),
+    return dict(eventCounts=dict(counts),
+        executionSamplesByStage=[dict(thread=t,stage=s,samples=n) for (t,s),n in stage_samples.items()],
+        sampledAllocationWeightByStage=[dict(thread=t,stage=s,bytesWeight=n) for (t,s),n in stage_allocations.items()],
+        sampledAllocationClassesByStage=[dict(thread=t,stage=s,className=c,bytesWeight=n) for (t,s,c),n in stage_classes.most_common()],
+        sampledLeafMethodsByStage=[dict(thread=t,stage=s,leaf=l,samples=n) for (t,s,l),n in stage_leaves.most_common()],
+        executionSamplesByNearestAuditedCaller=dict(samples),
         executionSamplesByThreadAndCaller=[dict(thread=t,caller=label,samples=n) for (t,label),n in samples_by_thread.items()],
         sampledAllocationWeightByNearestAuditedCaller=dict(allocation),
         sampledAllocationWeightByThreadAndCaller=[dict(thread=t,caller=label,bytesWeight=n) for (t,label),n in allocation_by_thread.items()],

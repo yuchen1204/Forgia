@@ -3,7 +3,7 @@
 import unittest
 from server_ab import graph, positions, split_compounds, tick_samples, percentile, verify_artifacts
 from compare_builds import compatible, equivalent
-from analyze_jfr import epoch_ns, duration_ns, analyze
+from analyze_jfr import epoch_ns, duration_ns, analyze, ownership_stage
 import json
 import tempfile
 from pathlib import Path
@@ -91,6 +91,41 @@ class MeasurementsTest(unittest.TestCase):
             result=analyze(path,[(1_010_000_000,1_015_000_000)])
             self.assertEqual(result['gcPauseOverlapMs'],5)
             self.assertEqual(analyze(path,[(2_000_000_000,3_000_000_000)])['eventCounts'],{})
+
+    def test_source_attribution_distinguishes_fresh_capture_catalog_and_reservation(self):
+        engine = 'net.neoforged.neoforge.server.threading.region.RegionThreadingEngine.'
+        region = 'net.neoforged.neoforge.server.threading.region.'
+        initial = [region+'FurnaceWorkPreparation.pureCatalog', engine+'tickFurnaceWorkWaves']
+        fresh = [region+'FurnaceWorkPreparation.pureCatalog', engine+'executeFurnaceWave', engine+'tickFurnaceWorkWaves']
+        self.assertEqual(ownership_stage(initial), 'initial catalog audit/publication')
+        self.assertEqual(ownership_stage(fresh), 'fresh catalog audit/publication')
+        self.assertEqual(ownership_stage([region+'FurnaceResourcePreparation.capture', engine+'executeFurnaceWave']),
+                         'fresh local claims capture')
+        self.assertEqual(ownership_stage([region+'BlockEntityResourceOwnership$ResourceTable.slot',
+                                         region+'BlockEntityResourceOwnership.tryAcquireAll']), 'fresh whole-wave reservation')
+        self.assertEqual(ownership_stage([region+'BlockEntityResourceOwnership.plan']), 'whole-phase dependency and alias planning')
+
+    def test_interleaved_fences_preserve_every_original_registration_and_refill(self):
+        from mixed_workload import specification, build_functions
+        spec = specification('regions')
+        regular, fenced = build_functions(spec), build_functions(spec, 8)
+        self.assertEqual(sorted(regular['setup']), sorted(fenced['setup']))
+        self.assertEqual({k:v for k,v in regular.items() if k != 'setup'},
+                         {k:v for k,v in fenced.items() if k != 'setup'})
+        registrations = [line for line in fenced['setup']
+                         if any(' minecraft:'+name+'[' in line for name in ['furnace', 'blast_furnace', 'smoker', 'hopper'])]
+        self.assertEqual(len(registrations), 96)
+        for group in range(8):
+            self.assertTrue(all('minecraft:hopper' not in line for line in registrations[group*12:group*12+8]))
+            self.assertTrue(all('minecraft:hopper' in line for line in registrations[group*12+8:group*12+12]))
+        self.assertEqual(fenced['setup'][-1], 'function forgia_mixed:refill')
+
+    def test_profiled_and_unprofiled_mixed_windows_cannot_be_pooled(self):
+        from export_mixed import aggregate
+        with self.assertRaises(ValueError):
+            aggregate([{'profiled': True}, {'profiled': False}])
+        with self.assertRaises(ValueError):
+            aggregate([{'fenceGroups': 0}, {'fenceGroups': 8}])
 
     def test_candidate_build_requires_both_exact_hashes_and_a_safe_version(self):
         import hashlib

@@ -34,6 +34,15 @@ increases mean18.8%,p9534.2% and allocation82.5%. Connected Hopper pipelines rem
 This bounded validation strengthens correctness evidence within the audited scope; it does not support
 default-on use, arbitrary callback safety or BE admission expansion. Complete records are in the
 [mixed workload profile](BLOCK-ENTITY-RESOURCE-MIXED-PROFILE.json), separate from the historical full-region soak below.
+The [`.60` cost-attribution follow-up](BLOCK-ENTITY-RESOURCE-COST-ATTRIBUTION.md) first traces fresh catalog,
+Claims/Binding and planning/reservation costs, then shares immutable same-phase local descriptions and
+cleared scratch capacity. It retains current validators, one-shot leases, lifecycle/Region checks, default-off
+and the same BE admission. Four reversed independent build/condition pairs lower the resource allocation
+increment from3.54–3.61to2.28–2.30MB/s (35.1–36.6%). Mean/p95 improve in only1/4build pairs; the eight-wave
+fence control regresses in latency. The10-minute ON/OFF check increases mean16.9%,p9551.9%,p99146.3%
+and allocation51.2%, so stable full-tick latency benefit is not established. Core1230,fixed121,persistent121,
+actual unknown-Mixin1 and Python19pass; mixed/dynamic/pipeline regressions are retained, including an
+explicit one-body route difference after asynchronous unload/reload. See [full data](BLOCK-ENTITY-RESOURCE-COST-PROFILE.json).
 
 ## Slices
 

@@ -37,6 +37,7 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
     private final Object domain;
     private final Map<Object, BooleanSupplier> boundaries;
     private final BooleanSupplier live;
+    private final Scratch scratch;
     private final Thread coordinator = Thread.currentThread();
     private final AtomicInteger activeScopes = new AtomicInteger();
     private volatile boolean open = true;
@@ -44,10 +45,15 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
     private List<Lease> leases = List.of();
 
     BlockEntityResourceOwnership(Object domain, Map<Object, BooleanSupplier> heldRegions, BooleanSupplier live) {
+        this(domain, heldRegions, live, new Scratch());
+    }
+
+    BlockEntityResourceOwnership(Object domain, Map<Object, BooleanSupplier> heldRegions, BooleanSupplier live, Scratch scratch) {
         this.domain = Objects.requireNonNull(domain);
         this.boundaries = new IdentityHashMap<>(heldRegions.size());
         heldRegions.forEach((region, current) -> this.boundaries.put(Objects.requireNonNull(region), Objects.requireNonNull(current)));
         this.live = Objects.requireNonNull(live);
+        this.scratch = Objects.requireNonNull(scratch);
     }
 
     public enum Access {
@@ -192,6 +198,28 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
             this.complete = complete && (size != 0 || (shared != null && shared.size != 0));
         }
 
+        /** Share only immutable local descriptions; this does not validate any current attachment or publication. */
+        private Claims(Claims local, SharedReads fresh) {
+            this.domain = local.domain;
+            this.home = local.home;
+            this.instances = local.instances;
+            this.access = local.access;
+            this.index = local.index;
+            this.size = local.size;
+            this.bindings = local.bindings;
+            this.shared = fresh;
+            boolean complete = local.complete && fresh.domain == this.domain
+                    && this.bindings.length + fresh.count <= MAX_RESOURCES_PER_UNIT;
+            for (int slot = 0; complete && slot < this.size; ++slot) {
+                if (this.access[slot] == Access.WRITE && fresh.contains(this.instances[slot])) complete = false;
+            }
+            this.complete = complete;
+        }
+
+        Claims withFreshSharedReads(SharedReads fresh) {
+            return new Claims(this, Objects.requireNonNull(fresh));
+        }
+
         public static Builder builder(Object domain, Object home) {
             return new Builder(domain, home);
         }
@@ -324,76 +352,84 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
 
     /** Refuse inconsistent homes/global write aliases across the entire ordered phase, then compute depths. */
     public static Plan plan(List<Claims> input) {
+        return plan(input, new Scratch());
+    }
+
+    static Plan plan(List<Claims> input, Scratch scratch) {
         if (input.size() > RegionBlockEntityWorkGraph.MAX_UNITS) throw new IllegalArgumentException("Resource proof unit budget exceeded");
         final Map<SharedReads, Boolean> groups = new IdentityHashMap<>();
         final int entries = entryBudget(input, groups);
         if (entries < 0) throw new IllegalArgumentException("Resource proof phase budget exceeded");
-        final ResourceTable table = new ResourceTable(entries);
-        for (final SharedReads group : groups.keySet()) {
-            for (int slot = 0; slot < group.size; ++slot) table.flags[table.slot(group.domain, group.instances[slot])] |= ResourceTable.SHARED;
-        }
-        for (final Claims claims : input) {
-            if (!claims.complete) continue;
-            for (int local = 0; local < claims.size; ++local) {
-                final int slot = table.slot(claims.domain, claims.instances[local]);
-                table.flags[slot] |= claims.access[local] == Access.WRITE ? ResourceTable.WRITE : ResourceTable.READ;
+        final ResourceTable table = scratch.acquire(entries);
+        try {
+            for (final SharedReads group : groups.keySet()) {
+                for (int slot = 0; slot < group.size; ++slot) table.flags[table.slot(group.domain, group.instances[slot])] |= ResourceTable.SHARED;
             }
-            for (final Binding binding : claims.bindings) table.home(table.slot(claims.domain, binding.identity.instance), binding.home);
-        }
-        for (int slot = 0; slot < table.flags.length; ++slot) {
-            if ((table.flags[slot] & (ResourceTable.SHARED | ResourceTable.WRITE)) == (ResourceTable.SHARED | ResourceTable.WRITE)) table.flags[slot] |= ResourceTable.INVALID;
-        }
-        for (final SharedReads group : groups.keySet()) {
-            for (int local = 0; local < group.size; ++local) {
-                if (table.invalid(table.slot(group.domain, group.instances[local]))) {
-                    groups.put(group, Boolean.TRUE);
-                    break;
-                }
-            }
-        }
-        final List<Claims> effective = new ArrayList<>(input.size());
-        final List<List<Integer>> waves = new ArrayList<>();
-        final int[] writers = new int[table.flags.length];
-        final int[] readers = new int[table.flags.length];
-        int barrier = 0;
-        int maximum = -1;
-        int width = 0;
-        for (int index = 0; index < input.size(); ++index) {
-            Claims claims = input.get(index);
-            boolean invalid = groups.get(claims.shared) == Boolean.TRUE;
-            for (int local = 0; claims.complete && !invalid && local < claims.size; ++local) invalid = table.invalid(table.slot(claims.domain, claims.instances[local]));
-            if (claims.complete && invalid) claims = Claims.fence(claims.domain, claims.home);
-            effective.add(claims);
-            int depth = claims.complete ? barrier : maximum + 1;
-            if (claims.complete) {
-                // Shared publications cannot be written anywhere in this accepted phase. Local arrays
-                // suffice for dependency discovery; no per-unit Resource/Set/Depths expansion is needed.
+            for (final Claims claims : input) {
+                if (!claims.complete) continue;
                 for (int local = 0; local < claims.size; ++local) {
                     final int slot = table.slot(claims.domain, claims.instances[local]);
-                    depth = Math.max(depth, writers[slot]);
-                    if (claims.access[local] == Access.WRITE) depth = Math.max(depth, readers[slot]);
+                    table.flags[slot] |= claims.access[local] == Access.WRITE ? ResourceTable.WRITE : ResourceTable.READ;
+                }
+                for (final Binding binding : claims.bindings) table.home(table.slot(claims.domain, binding.identity.instance), binding.home);
+            }
+            for (int slot = 0; slot < table.flags.length; ++slot) {
+                if ((table.flags[slot] & (ResourceTable.SHARED | ResourceTable.WRITE)) == (ResourceTable.SHARED | ResourceTable.WRITE)) table.flags[slot] |= ResourceTable.INVALID;
+            }
+            for (final SharedReads group : groups.keySet()) {
+                for (int local = 0; local < group.size; ++local) {
+                    if (table.invalid(table.slot(group.domain, group.instances[local]))) {
+                        groups.put(group, Boolean.TRUE);
+                        break;
+                    }
                 }
             }
-            while (waves.size() <= depth) waves.add(new ArrayList<>());
-            final List<Integer> wave = waves.get(depth);
-            wave.add(index);
-            width = Math.max(width, wave.size());
-            maximum = Math.max(maximum, depth);
-            if (!claims.complete) {
-                // Depth arrays store predecessor depth + 1. A fence's new barrier dominates every
-                // previous entry, so no clearing, epoch cache or resource-history authority is needed.
-                barrier = depth + 1;
-            } else {
-                for (int local = 0; local < claims.size; ++local) {
-                    final int slot = table.slot(claims.domain, claims.instances[local]);
-                    if (claims.access[local] == Access.WRITE) {
-                        writers[slot] = depth + 1;
-                        readers[slot] = 0;
-                    } else readers[slot] = Math.max(readers[slot], depth + 1);
+            final List<Claims> effective = new ArrayList<>(input.size());
+            final List<List<Integer>> waves = new ArrayList<>();
+            final int[] writers = new int[table.flags.length];
+            final int[] readers = new int[table.flags.length];
+            int barrier = 0;
+            int maximum = -1;
+            int width = 0;
+            for (int index = 0; index < input.size(); ++index) {
+                Claims claims = input.get(index);
+                boolean invalid = groups.get(claims.shared) == Boolean.TRUE;
+                for (int local = 0; claims.complete && !invalid && local < claims.size; ++local) invalid = table.invalid(table.slot(claims.domain, claims.instances[local]));
+                if (claims.complete && invalid) claims = Claims.fence(claims.domain, claims.home);
+                effective.add(claims);
+                int depth = claims.complete ? barrier : maximum + 1;
+                if (claims.complete) {
+                    // Shared publications cannot be written anywhere in this accepted phase. Local arrays
+                    // suffice for dependency discovery; no per-unit Resource/Set/Depths expansion is needed.
+                    for (int local = 0; local < claims.size; ++local) {
+                        final int slot = table.slot(claims.domain, claims.instances[local]);
+                        depth = Math.max(depth, writers[slot]);
+                        if (claims.access[local] == Access.WRITE) depth = Math.max(depth, readers[slot]);
+                    }
+                }
+                while (waves.size() <= depth) waves.add(new ArrayList<>());
+                final List<Integer> wave = waves.get(depth);
+                wave.add(index);
+                width = Math.max(width, wave.size());
+                maximum = Math.max(maximum, depth);
+                if (!claims.complete) {
+                    // Depth arrays store predecessor depth + 1. A fence's new barrier dominates every
+                    // previous entry, so no clearing, epoch cache or resource-history authority is needed.
+                    barrier = depth + 1;
+                } else {
+                    for (int local = 0; local < claims.size; ++local) {
+                        final int slot = table.slot(claims.domain, claims.instances[local]);
+                        if (claims.access[local] == Access.WRITE) {
+                            writers[slot] = depth + 1;
+                            readers[slot] = 0;
+                        } else readers[slot] = Math.max(readers[slot], depth + 1);
+                    }
                 }
             }
+            return new Plan(effective, new BlockEntityWorkPlanner.ExecutionPlan(waves, width));
+        } finally {
+            scratch.release();
         }
-        return new Plan(effective, new BlockEntityWorkPlanner.ExecutionPlan(waves, width));
     }
 
     /** Charge logical uses before allocating a table; only storage for identical publications is shared. */
@@ -438,6 +474,31 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
         int slot = identityHash(instance) & mask;
         while (index[slot] != 0) slot = (slot + 1) & mask;
         index[slot] = value + 1;
+    }
+
+    /**
+     * Capacity only, owned by one coordinator for one phase. It retains no identity, home, occupancy or
+     * successful proof between calls. Planning and reservation still recompute all their separate checks.
+     */
+    static final class Scratch {
+        private final Thread coordinator = Thread.currentThread();
+        private ResourceTable table;
+        private boolean inUse;
+
+        private ResourceTable acquire(int entries) {
+            if (Thread.currentThread() != this.coordinator || this.inUse) throw new IllegalStateException("Resource scratch requires its idle phase coordinator");
+            if (this.table == null || this.table.flags.length < tableCapacity(entries)) this.table = new ResourceTable(entries);
+            this.inUse = true;
+            return this.table;
+        }
+
+        private void release() {
+            if (Thread.currentThread() != this.coordinator || !this.inUse) throw new IllegalStateException("Resource scratch released out of order");
+            Arrays.fill(this.table.keys, null);
+            Arrays.fill(this.table.homes, null);
+            Arrays.fill(this.table.flags, (byte) 0);
+            this.inUse = false;
+        }
     }
 
     /** Call-local, pre-sized pair-identity table. No user hash/equals, per-entry nodes or retained proof. */
@@ -492,42 +553,46 @@ public final class BlockEntityResourceOwnership implements AutoCloseable {
         final Map<SharedReads, Boolean> groups = new IdentityHashMap<>();
         final int entries = entryBudget(requests, groups);
         if (entries < 0) return null;
-        final ResourceTable table = new ResourceTable(entries);
-        for (final SharedReads group : groups.keySet()) {
-            for (int local = 0; local < group.size; ++local) table.flags[table.slot(group.domain, group.instances[local])] |= ResourceTable.SHARED;
-        }
-        final Set<Object> checkedHomes = Collections.newSetFromMap(new IdentityHashMap<>(this.boundaries.size()));
-        for (final Claims claims : requests) {
-            final BooleanSupplier boundary = this.boundaries.get(claims.home);
-            if (!claims.complete || claims.domain != this.domain || boundary == null || (checkedHomes.add(claims.home) && !boundary.getAsBoolean())) return null;
-            for (int local = 0; local < claims.size; ++local) {
-                final int slot = table.slot(claims.domain, claims.instances[local]);
-                final int occupied = table.flags[slot];
-                final int mode = claims.access[local] == Access.WRITE ? ResourceTable.WRITE : ResourceTable.READ;
-                if ((occupied & ResourceTable.WRITE) != 0 || (mode == ResourceTable.WRITE && (occupied & (ResourceTable.READ | ResourceTable.SHARED)) != 0)) return null;
-                table.flags[slot] |= mode;
+        final ResourceTable table = this.scratch.acquire(entries);
+        try {
+            for (final SharedReads group : groups.keySet()) {
+                for (int local = 0; local < group.size; ++local) table.flags[table.slot(group.domain, group.instances[local])] |= ResourceTable.SHARED;
             }
-            for (final Binding binding : claims.bindings) {
-                final int slot = table.slot(claims.domain, binding.identity.instance);
-                table.home(slot, binding.home);
-                if (table.invalid(slot)) return null;
+            final Set<Object> checkedHomes = Collections.newSetFromMap(new IdentityHashMap<>(this.boundaries.size()));
+            for (final Claims claims : requests) {
+                final BooleanSupplier boundary = this.boundaries.get(claims.home);
+                if (!claims.complete || claims.domain != this.domain || boundary == null || (checkedHomes.add(claims.home) && !boundary.getAsBoolean())) return null;
+                for (int local = 0; local < claims.size; ++local) {
+                    final int slot = table.slot(claims.domain, claims.instances[local]);
+                    final int occupied = table.flags[slot];
+                    final int mode = claims.access[local] == Access.WRITE ? ResourceTable.WRITE : ResourceTable.READ;
+                    if ((occupied & ResourceTable.WRITE) != 0 || (mode == ResourceTable.WRITE && (occupied & (ResourceTable.READ | ResourceTable.SHARED)) != 0)) return null;
+                    table.flags[slot] |= mode;
+                }
+                for (final Binding binding : claims.bindings) {
+                    final int slot = table.slot(claims.domain, binding.identity.instance);
+                    table.home(slot, binding.home);
+                    if (table.invalid(slot)) return null;
+                }
             }
+            for (int slot = 0; slot < table.flags.length; ++slot) {
+                if ((table.flags[slot] & (ResourceTable.SHARED | ResourceTable.WRITE)) == (ResourceTable.SHARED | ResourceTable.WRITE)) return null;
+            }
+            for (final Claims claims : requests) {
+                for (final Binding binding : claims.bindings) if (!binding.current.getAsBoolean()) return null;
+                if (claims.shared != null && groups.put(claims.shared, Boolean.TRUE) != Boolean.TRUE && !claims.shared.current.getAsBoolean()) return null;
+            }
+            // A pure validator may have observed a lifecycle transition; never publish a partial proof.
+            if (!this.live.getAsBoolean()) return null;
+            for (final Object home : checkedHomes) if (!this.boundaries.get(home).getAsBoolean()) return null;
+            final List<Lease> granted = new ArrayList<>(requests.size());
+            for (final Claims claims : requests) granted.add(new Lease(this, claims, this.boundaries.get(claims.home)));
+            this.leases = List.copyOf(granted);
+            this.reserved = true;
+            return this.leases;
+        } finally {
+            this.scratch.release();
         }
-        for (int slot = 0; slot < table.flags.length; ++slot) {
-            if ((table.flags[slot] & (ResourceTable.SHARED | ResourceTable.WRITE)) == (ResourceTable.SHARED | ResourceTable.WRITE)) return null;
-        }
-        for (final Claims claims : requests) {
-            for (final Binding binding : claims.bindings) if (!binding.current.getAsBoolean()) return null;
-            if (claims.shared != null && groups.put(claims.shared, Boolean.TRUE) != Boolean.TRUE && !claims.shared.current.getAsBoolean()) return null;
-        }
-        // A pure validator may have observed a lifecycle transition; never publish a partial proof.
-        if (!this.live.getAsBoolean()) return null;
-        for (final Object home : checkedHomes) if (!this.boundaries.get(home).getAsBoolean()) return null;
-        final List<Lease> granted = new ArrayList<>(requests.size());
-        for (final Claims claims : requests) granted.add(new Lease(this, claims, this.boundaries.get(claims.home)));
-        this.leases = List.copyOf(granted);
-        this.reserved = true;
-        return this.leases;
     }
 
     private void checkCoordinator() {

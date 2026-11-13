@@ -22,6 +22,10 @@ def load(root):
             detail_path=directory/f'window-{saved["window"]}.json'
             detail=json.loads(detail_path.read_text())
             assert saved==detail['result']
+            if bool(saved.get('profiled', False)) != bool(parameters.get('jfr')):
+                raise AssertionError('JFR diagnostic flag differs from pinned manifest')
+            if saved.get('fenceGroups', 0) != parameters.get('fence_groups', 0):
+                raise AssertionError('Serial fence registration differs from pinned manifest')
             bg,ag=detail['beforeGraph'],detail['afterGraph']
             recomputed={key:value-bg[key] for key,value in ag.items() if key!='furnace.maxSimultaneousBodies'}
             if recomputed!=saved['deltas']:
@@ -89,10 +93,15 @@ def load(root):
 
 
 def aggregate(rows):
+    if len({bool(r.get('profiled', False)) for r in rows}) > 1:
+        raise ValueError('Profiled diagnostics cannot be pooled with primary unprofiled windows')
+    if len({r.get('fenceGroups', 0) for r in rows}) > 1:
+        raise ValueError('Different canonical fence workloads cannot be pooled')
     ticks=sum(r['ticks'] for r in rows)
     allocation_seconds=sum(r['metrics']['allocationObservationSeconds'] for r in rows)
     cpu_seconds=sum(r['metrics']['cpuObservationSeconds'] for r in rows)
-    return dict(mspt=timing([v for r in rows for v in r['nativeActiveTickMs']]),
+    return dict(profiled=bool(rows[0].get('profiled', False)),
+                mspt=timing([v for r in rows for v in r['nativeActiveTickMs']]),
                 ticks=ticks,windows=len(rows),outputs=sum(r['outputs'] for r in rows),
                 allocatedBytesPerSecond=sum(r['metrics']['serverAndWorkerAllocatedBytes'] for r in rows)/allocation_seconds,
                 cpuPercentOneCore=sum(r['metrics']['cpuSeconds'] for r in rows)/cpu_seconds*100,

@@ -1,10 +1,11 @@
 # General Block Entity Resource Ownership — 第一阶段与性能改进
 
-版本：当前候选 `21.1.250.59-beta`；基础协议交付于 `.57-beta`，fresh-pass 共享 READ 与compact执行规划交付于 `.58-beta`。
+版本：当前候选 `21.1.250.60-beta`；基础协议交付于 `.57-beta`，fresh-pass 共享 READ 与compact执行规划交付于 `.58-beta`。
 通用资源身份、声明、非阻塞 lease 和线程 scope 已接入 Furnace Work Waves。
 `.58` 的实现与原始测量见[第二阶段记录](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md)；
 `.59` 减少身份表与 Claims／Planner 临时分配，保留动态证明，见[Hot Path 成本下降及安装服复验](BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md)。
 冻结`.59`的[混合负载验证](BLOCK-ENTITY-RESOURCE-MIXED-VALIDATION.md)进一步检查保守串行BE、正常世界Tick、动态变化和有界长期成本，不扩大并行准入。
+`.60`的[资源成本归因与热路径优化](BLOCK-ENTITY-RESOURCE-COST-ATTRIBUTION.md)减少同phase不可变本地描述及临时身份表的重复分配；fresh审计、所有validator、预算、Lease和外层Region约束保持。独立反序对照中ON−OFF分配增量下降35.1–36.6%，但完整Tick时延改善没有稳定通过，继续默认关闭。
 新增 `enableRegionThreadingBlockEntityResources`，默认 `false`，需重启。
 它还要求既有 BE worker、furnace waves 和 fixed region layout；单独打开本项不会启动任何新机器或 worker 路径。
 
@@ -77,6 +78,12 @@ removal 状态、当前 ticker/delegate、实际库存对象，以及配方管�
 初始计划之后，前面的串行 fence／mailbox 可能修改世界。真正进入波次前，会在外层 region 排他内重新准备操作，
 重新建立当前资源集并与原计划比较。资源 identity／访问模式／home 改变则整波在任何正文开始前转完整串行，
 不能带着旧依赖进入 worker。内容变化虽可能不改变 identity，也仍经过原有动态燃烧、组件、配方、周边效果检查。
+
+`.60`只在同phase的fresh候选与初始source、实际chunk、三个槽位引用及其捕获时的空／非空状态均相同时，
+共享不可变本地Binding／permission数组，并关联全新SharedReads。空stack可在引用不变时原地变为非空，
+因此引用相等本身不够；变化时完整重捕获。每次reservation仍运行所有普通validator occurrence和fresh shared proof。
+规划与reservation可复用单coordinator的scratch容量，但每次结束都清空keys／homes／flags，重新计算全部冲突，
+没有跨Tick成功证明缓存或权限占用残留；逻辑预算不因共享存储而减少。
 
 通用 planner API 对超预算输入抛出拒绝；Furnace 桥在到达 phase 上限时停止积累，
 将该 phase 全部置为 serial fences，保留完整原 tick。不会对部分已执行正文做回退。

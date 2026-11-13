@@ -24,6 +24,7 @@ final class FurnaceResourcePreparation {
     private final RegionLayout layout;
     private final Map<RegionCoordinate, Object> homes = new HashMap<>();
     private final Map<LevelChunk, Binding> chunks = new IdentityHashMap<>();
+    private final BlockEntityResourceOwnership.Scratch scratch = new BlockEntityResourceOwnership.Scratch();
     private int bindings;
     private boolean budgetExceeded;
 
@@ -51,6 +52,21 @@ final class FurnaceResourcePreparation {
         return claims;
     }
 
+    BlockEntityResourceOwnership.Plan plan(List<Claims> claims) {
+        return BlockEntityResourceOwnership.plan(claims, this.scratch);
+    }
+
+    Claims recapture(FurnaceWorkPreparation.Candidate captured, FurnaceWorkPreparation.Candidate fresh, Claims planned) {
+        // A fresh prepare() has already re-audited every current item/component, recipe and notification.
+        // Share only immutable local descriptors when all attachments and their captured empty/nonempty
+        // state match. A zero-count stack can become nonempty in place without changing its reference.
+        // Reservation still executes every original local validator against current world state.
+        // Changed slots take a complete capture, preserving safe permutations of the same permission set.
+        return captured.sameLocalAttachments(fresh)
+                ? planned.withFreshSharedReads(java.util.Objects.requireNonNull(fresh.recipeReads()))
+                : this.capture(fresh);
+    }
+
     Claims capture(FurnaceWorkPreparation.Candidate candidate) {
         final var admission = candidate.admission();
         if (!this.layout.isFixed() || admission.level() != this.level) return this.fence(admission);
@@ -75,7 +91,7 @@ final class FurnaceResourcePreparation {
         builder.claim(chunkBinding, Access.READ);
         for (int slot = 0; slot < 3; ++slot) {
             final int capturedSlot = slot;
-            final var stack = source.getItem(slot);
+            final var stack = candidate.item(slot);
             if (!stack.isEmpty()) builder.claim(new Binding(new Identity(this.level, stack), home,
                     () -> source.getItem(capturedSlot) == stack, null), Access.WRITE);
         }
@@ -93,7 +109,7 @@ final class FurnaceResourcePreparation {
             // No regionizer/lifecycle lock or world callback runs when a worker checks this predicate.
             boundaries.put(this.home(region.coordinate()), () -> region.isRunning() && !region.isDead());
         }
-        return new BlockEntityResourceOwnership(this.level, boundaries, live);
+        return new BlockEntityResourceOwnership(this.level, boundaries, live, this.scratch);
     }
 
     private Object home(RegionCoordinate coordinate) {

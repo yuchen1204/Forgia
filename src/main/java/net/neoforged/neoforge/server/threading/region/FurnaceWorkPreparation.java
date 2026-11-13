@@ -126,11 +126,15 @@ final class FurnaceWorkPreparation {
                 || (this.captureResources ? chunk.getBlockEntities().get(position) : chunk.getBlockEntity(position, LevelChunk.EntityCreationType.CHECK)) != source
                 || chunk.getBlockState(position) != source.getBlockState())
             return this.refuse(FurnaceWorkMetrics.Refusal.UNAVAILABLE_CHUNK);
-        for (int slot = 0; slot < 3; ++slot) if (!plain(source.getItem(slot))) return this.refuse(FurnaceWorkMetrics.Refusal.CUSTOM_ITEM);
+        final ItemStack input = source.getItem(0);
+        final ItemStack fuel = source.getItem(1);
+        final ItemStack output = source.getItem(2);
+        if (!plain(input) || !plain(fuel) || !plain(output)) return this.refuse(FurnaceWorkMetrics.Refusal.CUSTOM_ITEM);
         if (!this.catalogs.computeIfAbsent(source.furnaceWorkRecipeType(), this::pureCatalog)) return this.refuse(FurnaceWorkMetrics.Refusal.CUSTOM_RECIPE);
         if (source.furnaceWorkMayNotify() && !this.inertNotifications(position)) return this.refuse(FurnaceWorkMetrics.Refusal.ACTIVE_NOTIFICATIONS);
         return new Candidate(admission, source, chunk, this.recipes,
-                this.captureResources ? this.catalogResources.get(source.furnaceWorkRecipeType()) : null);
+                this.captureResources ? this.catalogResources.get(source.furnaceWorkRecipeType()) : null, input, fuel, output,
+                (input.isEmpty() ? 0 : 1) | (fuel.isEmpty() ? 0 : 2) | (output.isEmpty() ? 0 : 4));
     }
 
     private boolean inertNotifications(net.minecraft.core.BlockPos position) {
@@ -241,7 +245,22 @@ final class FurnaceWorkPreparation {
     }
 
     record Candidate(RegionBlockEntityTickAdmission admission, AbstractFurnaceBlockEntity source, LevelChunk chunk,
-            RecipeManager recipes, @Nullable BlockEntityResourceOwnership.SharedReads recipeReads) {}
+            RecipeManager recipes, @Nullable BlockEntityResourceOwnership.SharedReads recipeReads,
+            ItemStack input, ItemStack fuel, ItemStack output, int nonemptySlots) {
+        boolean sameLocalAttachments(Candidate other) {
+            return this.source == other.source && this.chunk == other.chunk && this.nonemptySlots == other.nonemptySlots
+                    && this.input == other.input && this.fuel == other.fuel && this.output == other.output;
+        }
+
+        ItemStack item(int slot) {
+            return switch (slot) {
+                case 0 -> this.input;
+                case 1 -> this.fuel;
+                case 2 -> this.output;
+                default -> throw new IndexOutOfBoundsException(slot);
+            };
+        }
+    }
 
     /** Public inventory references must be exclusive, even if a mod aliases two otherwise vanilla instances. */
     static Set<AbstractFurnaceBlockEntity> aliased(List<RegionBlockEntityTickAdmission> admissions) {

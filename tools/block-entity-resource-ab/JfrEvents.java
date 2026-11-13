@@ -55,10 +55,17 @@ public final class JfrEvents {
                 final String type = event.getEventType().getName();
                 if (!TYPES.contains(type)) continue;
                 final List<RecordedFrame> stack = event.getStackTrace() == null ? List.of() : event.getStackTrace().getFrames();
+                final boolean sampled = type.equals("jdk.ExecutionSample") || type.equals("jdk.ObjectAllocationSample");
+                final StringBuilder attributionStack = new StringBuilder("[");
+                int capturedFrames = 0;
                 String category = "other JVM/server code";
                 boolean found = false, workerPark = false, barrierPark = false;
                 for (final RecordedFrame frame : stack) {
                     final String name = method(frame.getMethod());
+                    if (sampled && capturedFrames < 24) {
+                        if (capturedFrames++ != 0) attributionStack.append(',');
+                        attributionStack.append(quote(name));
+                    }
                     if (name.contains("RegionWorkerPool")) workerPark = true;
                     if (name.contains("RegionTickBarrier") || name.contains("managedBlock")) barrierPark = true;
                     if (!found) {
@@ -81,6 +88,7 @@ public final class JfrEvents {
                         .append(",\"normalizedLeaf\":").append(quote(stack.isEmpty() ? "" : method(stack.getFirst().getMethod())))
                         .append(",\"normalizedParkLabel\":").append(quote(workerPark ? "worker pool idle/dispatch park" : barrierPark
                                 ? "server/worker barrier or managed block" : "other/20TPS limiter/JMX"));
+                if (sampled) line.append(",\"normalizedAttributionStack\":").append(attributionStack.append(']'));
                 if (type.equals("jdk.ObjectAllocationSample")) {
                     line.append(",\"weight\":").append(event.getLong("weight"))
                             .append(",\"objectClass\":{\"name\":").append(quote(event.getClass("objectClass").getName())).append('}');

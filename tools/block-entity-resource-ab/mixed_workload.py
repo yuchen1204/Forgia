@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import signal
+import subprocess
 import sys
 import time
 import zipfile
@@ -168,7 +169,10 @@ def xyz(p):
     return ' '.join(map(str, p))
 
 
-def build_functions(spec):
+def build_functions(spec, fence_groups=0):
+    if fence_groups not in (0, 8):
+        raise ValueError('Furnace/Hopper registration groups must be 0 or 8')
+    machine_setup, hopper_setup = [], []
     setup = ['scoreboard players set ticks fm 0',
              'scoreboard players set pulses fm 0', 'scoreboard players set redstone fm 0', 'scoreboard players set events fm 0',
              'scoreboard players set active fm 1', 'kill @e[tag=forgia_mixed]', 'time set 1000']
@@ -177,7 +181,8 @@ def build_functions(spec):
         nbt = ('{BurnTime:30000,CookTime:100,CookTimeTotal:200,Items:'
                '[{Slot:0b,id:"minecraft:' + machine['input'] + '",count:64},'
                '{Slot:1b,id:"minecraft:coal",count:64}]}')
-        setup.append(f'setblock {xyz(machine["pos"])} minecraft:{machine["kind"]}[lit=true]{nbt}')
+        machine_setup.append(f'setblock {xyz(machine["pos"])} minecraft:{machine["kind"]}[lit=true]{nbt}')
+        setup.append(machine_setup[-1])
         refill.append(f'data merge block {xyz(machine["pos"])} {nbt}')
     for row in spec['watched']:
         x, y, z = row['pos']
@@ -185,7 +190,8 @@ def build_functions(spec):
                   f'setblock {x} {y} {z} minecraft:comparator[facing=east]']
     for hopper in spec['hoppers']:
         nbt = '{Items:[{Slot:0b,id:"minecraft:iron_nugget",count:64}]}' if hopper['filled'] else ''
-        setup.append(f'setblock {xyz(hopper["pos"])} minecraft:hopper[facing={hopper["face"]}]{nbt}')
+        hopper_setup.append(f'setblock {xyz(hopper["pos"])} minecraft:hopper[facing={hopper["face"]}]{nbt}')
+        setup.append(hopper_setup[-1])
     for row in spec['brewing']:
         nbt = ('{Fuel:20b,BrewTime:0s,Items:[{Slot:0b,id:"minecraft:potion",count:1,components:{"minecraft:potion_contents":{potion:"minecraft:water"}}},'
                '{Slot:1b,id:"minecraft:potion",count:1,components:{"minecraft:potion_contents":{potion:"minecraft:water"}}},'
@@ -218,6 +224,14 @@ def build_functions(spec):
         active += [f'execute if score phase fm matches 6 if block {p} minecraft:redstone_lamp[lit=false] run scoreboard players add redstone fm 1',
                    f'execute if score phase fm matches 14 if block {p} minecraft:redstone_lamp[lit=true] run scoreboard players add redstone fm 1']
     setup += ['scoreboard players set phase fm 0']
+    if fence_groups:
+        # Same objects/positions/work, but eight groups of eight furnaces separated by the existing
+        # four-Hopper loops. Only canonical ticker registration order changes; no new body admission.
+        registrations = set(machine_setup+hopper_setup+['function forgia_mixed:refill'])
+        setup = [line for line in setup if line not in registrations]
+        for group in range(8):
+            setup += machine_setup[group*8:(group+1)*8]+hopper_setup[group*4:(group+1)*4]
+        setup.append('function forgia_mixed:refill')
     return dict(setup=setup, refill=refill, tick=tick, active_tick=active, high=high, low=low)
 
 
@@ -268,7 +282,7 @@ class MixedInstalled(Installed):
         self.spec = specification(self.layout)
         self.functions = self.root/'world/datapacks/forgia_ab/data/forgia_mixed/function'
         self.functions.mkdir(parents=True)
-        for name, lines in build_functions(self.spec).items():
+        for name, lines in build_functions(self.spec, getattr(self.args, 'fence_groups', 0)).items():
             (self.functions/(name+'.mcfunction')).write_text('\n'.join(lines)+'\n')
         tags = self.functions.parents[1]/'minecraft/tags/function'
         tags.mkdir(parents=True, exist_ok=True)
@@ -384,7 +398,10 @@ class MixedInstalled(Installed):
                       deltas=delta, metrics=observed, activeInnerStartNs=active_start, activeInnerEndNs=active_end,
                       maxSimultaneousOriginalBodiesSinceBoot=after_graph['furnace.maxSimultaneousBodies'],
                       allFullBEStateConservationAndWorldTicksVerified=True, actualPoolAndThreadsVerified=True,
-                      fixtureSha256=self.fixture_hash)
+                      fixtureSha256=self.fixture_hash, profiled=bool(self.args.jfr),
+                      fenceGroups=getattr(self.args, 'fence_groups', 0),
+                      activeInnerStartEpochNs=active_start+time.time_ns()-time.monotonic_ns(),
+                      activeInnerEndEpochNs=active_end+time.time_ns()-time.monotonic_ns())
         dump(self.root/f'window-{index}.json', dict(result=result, beforeState=before, afterState=after,
                                                   beforeGraph=bg, afterGraph=after_graph, beforeRaw=raw_before, afterRaw=raw_after))
         self.results.append(result)
@@ -499,6 +516,14 @@ class MixedInstalled(Installed):
             self.dynamic()
             return
         self.advance(self.args.warmup_ticks)
+        if self.args.jfr:
+            # Diagnostic-only recorder; keep startup and its own 200-tick warmup outside all windows.
+            with (self.root/'jfr-start.txt').open('w') as stream:
+                subprocess.run([str(self.args.java.with_name('jcmd')), str(self.proc.pid), 'JFR.start',
+                                'name=forgia_mixed', 'settings='+str(self.args.jfr),
+                                'filename='+str(self.root/'steady.jfr'), 'dumponexit=true'],
+                               check=True, stdout=stream, stderr=subprocess.STDOUT)
+            self.advance(200)
         for index in range(self.args.windows):
             # Quiescent input/output reset is identical on both conditions and exercises new stack identities.
             self.command('function forgia_mixed:refill')
@@ -522,6 +547,9 @@ def main():
     parser.add_argument('--warmup-ticks', type=int, default=1200)
     parser.add_argument('--window-ticks', type=int, default=600)
     parser.add_argument('--windows', type=int, default=2)
+    parser.add_argument('--fence-groups', type=int, choices=[0, 8], default=0,
+                        help='Separate eight furnace groups using the existing Hopper fences')
+    parser.add_argument('--jfr', type=Path, help='Diagnostic-only JFR settings; never pool with unprofiled results')
     args = parser.parse_args()
     for key in ['runs', 'installation', 'eula', 'classes', 'java']:
         setattr(args, key, getattr(args, key).resolve())
@@ -530,7 +558,10 @@ def main():
     if not re.search(r'^\s*eula\s*=\s*true\s*$', args.eula.read_text(), re.M|re.I):
         raise ValueError('Existing accepted EULA required')
     args.counts = [64]
-    args.jfr = None
+    if args.jfr:
+        args.jfr = args.jfr.resolve()
+        if args.mode == 'dynamic':
+            raise ValueError('JFR diagnostics require steady/soak mode')
     verify_artifacts(args)
     args.runs.mkdir(parents=True, exist_ok=False)
     manifest = dict(version=args.version, installerSha256=args.installer_sha256, universalSha256=args.universal_sha256,

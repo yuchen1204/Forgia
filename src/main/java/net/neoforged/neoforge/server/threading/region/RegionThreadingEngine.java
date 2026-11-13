@@ -5805,7 +5805,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                     for (int index = 0; index < ordered.size(); ++index) claims.set(index, resources.fence(ordered.get(index)));
                 }
                 final long planStart = resources == null ? 0L : System.nanoTime();
-                final var resourcePlan = resources == null ? null : BlockEntityResourceOwnership.plan(claims);
+                final var resourcePlan = resources == null ? null : resources.plan(claims);
                 final var plan = resourcePlan == null ? BlockEntityWorkPlanner.planExecution(footprints) : resourcePlan.dependencies();
                 if (resourcePlan != null) {
                     for (int index = 0; index < candidates.size(); ++index) {
@@ -5894,7 +5894,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 current &= verified != null && !aliases.contains(captured.source())
                         && captured.source() == verified.source() && captured.chunk() == verified.chunk();
                 if (resources != null) {
-                    final var fresh = verified == null ? resources.fence(ordered.get(index)) : resources.capture(verified);
+                    final var fresh = verified == null ? resources.fence(ordered.get(index)) : resources.recapture(captured, verified, claims.get(index));
                     freshClaims.add(fresh);
                     current &= claims.get(index).sameResources(fresh, compared);
                 }
