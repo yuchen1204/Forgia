@@ -2,6 +2,10 @@
 
 基线为 `f74fb11b5e243ce3c0979e99c51d37e76c6d7f86`。本轮落实[架构计划](CANONICAL-BLOCK-ENTITY-COORDINATOR.md)的 C1 测试阶段，新增 31 个可执行案例与共享夹具。**四种配置下均为 23 项通过、8 项目标契约失败；这不是全绿结果，也没有实现生产 Coordinator。** 红测直接保留 canonical 断言，不捕获断言当作成功，不加 `@Disabled` 或默认排除。
 
+## C2 后续修复状态
+
+以下 C1 数字为 `f6b48e24` 发布时的真实历史基线。[C2 collection 实施](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md)保留本测试类的所有原断言，接入实际 Level list ordinal 后，all-serial chunk 顺序、两条 driver 的 Foreign 插入及两条 driver 的 Fence 激活资格共 5 项已转绿。原 31 项在 C2 每配置为 28 通过／3 failure；另新增 8 项 collection 测试全部通过。剩余 Native Unknown Fence、Adapter refusal 前缀及 Native mixed input 是 C3 目标，仍真实失败，不再将已修复的原 5 项称作预期失败。C2 的当前命令／矩阵以其报告为准；本文件下文保留 C1 执行历史，不覆盖原收据。
+
 ## 1. 实际文件与执行路径
 
 | 文件 | 职责 |

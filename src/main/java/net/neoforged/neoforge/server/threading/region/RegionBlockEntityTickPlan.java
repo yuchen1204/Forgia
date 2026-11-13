@@ -23,26 +23,14 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Block-entity tickers of one level tick that are ticked on their owning region worker instead of the
- * server thread.
+ * One level's block-entity phase. The actual Level entry uses {@link #collectCanonical()} after pending
+ * merge and fresh onLoad: list indexes are the sole phase ordinals and ineligible entries remain available
+ * for a later serial eligibility check. The lock protects only membership copying, never user callbacks.
  * <p>
- * The server thread decides per chunk, not per ticker. It walks the level's chunk index of chunks that hold
- * block-entity tickers and decides for each of them whether the chunk is block-ticking
- * ({@code shouldTickBlocksAt} and its full status) and whether its entities finished loading
- * ({@code areEntitiesLoaded}); only then does it hand the chunk and its admission snapshot to the batch. A
- * chunk whose tickers cannot be handed over produces no tick and is counted by reason: the vanilla loop would
- * either skip it (no block ticking, entities still loading) or tick it on the server thread (the chunk is
- * gone, or the plan itself is off).
- * <p>
- * The worker then iterates the snapshot's admitted tickers, revalidates each binding, skips removed tickers,
- * invokes the tick and routes a refusal to the existing server-thread fallback. Tickers that cannot be
- * resolved to a live, leasable region are ticked on the server thread after the batch rather than being
- * dropped, and the batch preserves the order of the level's own ticker list within each region.
- * <p>
- * The admission of a chunk is cached by {@link RegionBlockEntityTickChunkCache}: the allowlist decision, the
- * interior-chunk rule and the exact binding capture are taken from the chunk's snapshot and reused while it
- * is current. The entity-load eligibility of the chunk stays a server-thread read per tick, evaluated once per
- * chunk instead of once per ticker.
+ * The historical chunk-indexed {@link #collect()} and explicit {@link #accept(TickingBlockEntity)} bridges
+ * remain for compatibility and their regression tests. Cached chunk admissions provide declaration/binding
+ * templates, not canonical order or lasting eligibility. This collection change retains both execution
+ * drivers; their worker-prefix and Fence scheduling are a separate migration.
  */
 @ApiStatus.Internal
 public final class RegionBlockEntityTickPlan {
@@ -73,6 +61,8 @@ public final class RegionBlockEntityTickPlan {
     private final List<LevelChunk> registeredChunks = new ArrayList<>(CHUNK_CAPACITY_HINT);
     /** Creation sequence of the explicitly accepted tickers, so their order survives the region grouping. */
     private long explicitSequence;
+    private boolean canonicalSequence;
+    private List<TickingBlockEntity> canonicalTickers = List.of();
 
     RegionBlockEntityTickPlan(RegionThreadingEngine engine, ServerLevel level, RegionTickBarrier barrier) {
         this.engine = engine;
@@ -89,6 +79,7 @@ public final class RegionBlockEntityTickPlan {
      * reason is counted so the skipped work is observable.
      */
     public void collect() {
+        if (this.canonicalSequence) throw new IllegalStateException("Cannot mix canonical and indexed membership");
         this.level.collectForeignBlockEntityTickers(this.foreignTickers);
         for (final TickingBlockEntity ticker : this.foreignTickers) {
             // A ticker the level owns itself has no chunk whose snapshot the workers could iterate, so it
@@ -125,6 +116,68 @@ public final class RegionBlockEntityTickPlan {
     }
 
     /**
+     * Captures the actual Level list after its pending merge and fresh onLoad boundary. Ordinals are list
+     * indexes, including entries subsequently skipped. Cached admissions are templates only: their wrapper
+     * creation sequences never enter this phase. All user getters run after the Level released its lock.
+     * The old indexed collector remains available to its compatibility callers.
+     */
+    public void collectCanonical() {
+        if (this.canonicalSequence || !this.chunks.isEmpty() || !this.explicitUnits.isEmpty()) {
+            throw new IllegalStateException("A canonical phase must collect exactly once from Level membership");
+        }
+        this.canonicalSequence = true;
+        this.canonicalTickers = List.copyOf(this.level.snapshotBlockEntityTickers());
+        final boolean runsNormally = this.level.tickRateManager().runsNormally();
+        final List<TickingBlockEntity> removed = new ArrayList<>();
+        try {
+            for (int ordinal = 0; ordinal < this.canonicalTickers.size(); ++ordinal) {
+                final TickingBlockEntity ticker = this.canonicalTickers.get(ordinal);
+                if (ticker.isRemoved()) {
+                    removed.add(ticker);
+                    continue;
+                }
+                if (!runsNormally) continue;
+                final BlockPos position = ticker.getPos().immutable();
+                final long key = ChunkPos.asLong(position);
+                ExplicitUnit unit = this.explicitUnits.get(key);
+                if (unit == null) {
+                    final ServerChunkCache source = this.level.getChunkSource();
+                    final LevelChunk chunk = source == null ? null : source.getChunkNow(position.getX() >> 4, position.getZ() >> 4);
+                    final var cache = chunk == null ? null : this.snapshot(chunk, this.engine.regionLayout());
+                    unit = new ExplicitUnit(key, chunk, cache);
+                    this.explicitUnits.put(key, unit);
+                }
+                final var template = unit.cache == null ? null : unit.cache.admission(ticker);
+                final RegionBlockEntityTickAdmission admission;
+                if (template != null && template.isCurrentForCollection()) {
+                    admission = template.withSequence(ordinal);
+                } else {
+                    final String type = ticker.getType();
+                    admission = new RegionBlockEntityTickAdmission(this.level, ticker, position, type,
+                            LevelChunk.captureBlockEntityTickBinding(ticker, this.level),
+                            RegionTickCompatibility.decideBlockEntityTick(this.level, type,
+                                    this.engine.isInteriorRegionChunk(new ChunkPos(key)), this.engine.borderUpdatesEnabled()),
+                            ordinal);
+                }
+                // Ineligible entries stay in the phase. They cannot go to a worker using the initial
+                // decision; the complete server call rechecks eligibility at its actual list position.
+                unit.add(admission, (!LevelChunk.isChunkOwnedTicker(ticker) || template != null)
+                        && (unit.cache == null || unit.cache.allAdmitted())
+                        && (unit.chunk == null || unit.chunk.isLoaded() && unit.chunk.getFullStatus().isOrAfter(FullChunkStatus.BLOCK_TICKING))
+                        && this.level.shouldTickBlocksAt(position) && this.level.areEntitiesLoaded(key));
+            }
+        } finally {
+            this.level.removeCollectedBlockEntityTickers(removed);
+        }
+    }
+
+    /** Actual immutable reference membership; the index of each entry is its phase-local ordinal. */
+    @org.jetbrains.annotations.VisibleForTesting
+    public List<TickingBlockEntity> canonicalTickers() {
+        return this.canonicalTickers;
+    }
+
+    /**
      * Admits one explicitly named ticker to the batch.
      * <p>
      * This is the per-ticker counterpart of the chunk-indexed {@link #collect()}: it is what a ticker the
@@ -137,6 +190,7 @@ public final class RegionBlockEntityTickPlan {
      * @return {@code true} when the ticker was admitted to the worker batch
      */
     public boolean accept(TickingBlockEntity ticker) {
+        if (this.canonicalSequence) throw new IllegalStateException("Cannot append explicit work to canonical membership");
         final BlockPos position = ticker.getPos();
         final int chunkX = SectionPos.blockToSectionCoord(position.getX());
         final int chunkZ = SectionPos.blockToSectionCoord(position.getZ());
@@ -212,13 +266,14 @@ public final class RegionBlockEntityTickPlan {
             for (final ExplicitUnit unit : this.explicitUnits.values()) {
                 this.chunks.add(unit.toUnit());
             }
-            this.engine.tickBlockEntities(this.level, this.chunks, barrier);
+            this.engine.tickBlockEntities(this.level, this.chunks, barrier, this.canonicalSequence);
         } finally {
             this.chunks.clear();
             this.explicitUnits.clear();
             this.foreignTickers.clear();
             this.chunkVisits.clear();
             this.registeredChunks.clear();
+            this.canonicalTickers = List.of();
         }
     }
 
@@ -291,8 +346,12 @@ public final class RegionBlockEntityTickPlan {
         }
 
         void add(RegionBlockEntityTickAdmission admission) {
+            this.add(admission, true);
+        }
+
+        void add(RegionBlockEntityTickAdmission admission, boolean eligible) {
             this.admissions.add(admission);
-            this.allAdmitted &= admission.isAdmitted() && admission.isCurrent();
+            this.allAdmitted &= eligible && admission.isAdmitted() && admission.isCurrent();
         }
 
         RegionBlockEntityTickChunk toUnit() {

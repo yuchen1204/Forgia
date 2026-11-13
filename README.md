@@ -162,6 +162,11 @@ Furnace execution bridges. That design phase changed documentation only. The sub
 the original Level serial oracle and both existing drivers. Across fixed/persistent workers and resource
 off/on, each run has23new cases passing and8target-contract failures exposing old order/fence gaps.
 The failures remain visible in the normal JUnit task; no production coordinator or admission change is included.
+The subsequent [C2 canonical collection migration](region-threading/CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md)
+now takes phase ordinals from actual Level membership after pending merge/onLoad, keeps dynamic eligibility,
+and restores global serial-fallback order. Five C1 failures turn green; the remaining three native fence/prefix
+failures stay enabled. Eight added collection cases pass, as do the original safety regressions. Both legacy
+drivers remain; C3 native effects/fences must pass before C4 Furnace integration, with admission/defaults unchanged.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

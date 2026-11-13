@@ -124,6 +124,8 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
         doCallRealMethod().when(this.level).unregisterBlockEntityTickerChunk(any());
         doCallRealMethod().when(this.level).collectBlockEntityTickerChunks(any());
         doCallRealMethod().when(this.level).collectForeignBlockEntityTickers(any());
+        doCallRealMethod().when(this.level).snapshotBlockEntityTickers();
+        doCallRealMethod().when(this.level).removeCollectedBlockEntityTickers(any());
         doCallRealMethod().when(this.level).nextBlockEntityTickerSequence();
         doCallRealMethod().when(this.level).markBlockEntityTickerRemoved();
         invoke(phaseMethod(), doCallRealMethod().when(this.level));

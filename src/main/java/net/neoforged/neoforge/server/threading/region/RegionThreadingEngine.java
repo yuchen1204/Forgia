@@ -5623,11 +5623,15 @@ public final class RegionThreadingEngine implements RegionThreading {
      * ticks after the batch observes the removals of the batch it belongs to.
      */
     void tickBlockEntities(ServerLevel level, List<RegionBlockEntityTickChunk> chunks, RegionTickBarrier barrier) {
+        this.tickBlockEntities(level, chunks, barrier, false);
+    }
+
+    void tickBlockEntities(ServerLevel level, List<RegionBlockEntityTickChunk> chunks, RegionTickBarrier barrier, boolean canonicalSequence) {
         if (chunks.isEmpty()) {
             return;
         }
         if (this.furnaceWorkWavesEnabled && this.layout.isFixed()) {
-            this.tickFurnaceWorkWaves(level, chunks, barrier);
+            this.tickFurnaceWorkWaves(level, chunks, barrier, canonicalSequence);
             return;
         }
 
@@ -5636,6 +5640,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
         final RegionBlockEntityTickBatch batch = new RegionBlockEntityTickBatch(level, this.deferredBlockUpdateBudget, chunks,
                 () -> !this.regionizer.isLevelClosed(level), pos -> this.regionizer.get(this.layout.regionAt(level, pos)));
+        batch.canonicalSequence(canonicalSequence);
         final TickBatchPublication publication = this.publishTickBatch(batch, level);
         if (publication == TickBatchPublication.LEVEL_CLOSED) {
             // The level clear completed after this snapshot was collected. Its region state is retired
@@ -5649,7 +5654,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             // The engine was shut down between the snapshot and the batch; the collected tickers still
             // have to tick, but no batch may be published after shutdown started.
             try {
-                for (final RegionBlockEntityTickChunk chunk : chunks) this.tickBlockEntityChunkInline(batch, chunk, null);
+                this.tickBlockEntityChunksInline(batch, chunks, null);
             } finally {
                 batch.execution().close();
             }
@@ -5767,10 +5772,11 @@ public final class RegionThreadingEngine implements RegionThreading {
             Mode.RESOURCE_SCOPED);
 
     /** Execute current-operation resource waves; the historical shadow graph is diagnostics only. */
-    private void tickFurnaceWorkWaves(ServerLevel level, List<RegionBlockEntityTickChunk> chunks, RegionTickBarrier barrier) {
+    private void tickFurnaceWorkWaves(ServerLevel level, List<RegionBlockEntityTickChunk> chunks, RegionTickBarrier barrier, boolean canonicalSequence) {
         final long resourcePhaseStart = this.blockEntityResourcesEnabled ? System.nanoTime() : 0L;
         final FurnaceWorkBatch batch = new FurnaceWorkBatch(level, chunks,
                 () -> !this.regionizer.isLevelClosed(level), pos -> this.regionizer.get(this.layout.regionAt(level, pos)));
+        batch.canonicalSequence(canonicalSequence);
         final TickBatchPublication publication = this.publishTickBatch(batch, level);
         if (publication == TickBatchPublication.LEVEL_CLOSED) {
             this.skippedBlockEntityTicks.addAndGet(countBlockEntityTickers(chunks));
@@ -5779,7 +5785,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
         if (publication == TickBatchPublication.SHUTDOWN) {
             try {
-                for (final var chunk : chunks) this.tickBlockEntityChunkInline(batch, chunk, null);
+                this.tickBlockEntityChunksInline(batch, chunks, null);
             } finally {
                 batch.execution().close();
             }
@@ -5808,7 +5814,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 long proofNanos = 0L;
                 int admitted = 0;
                 for (final var admission : ordered) {
-                    final var candidate = preparation.prepare(admission);
+                    final var candidate = batch.eligibleNow(admission) ? preparation.prepare(admission) : null;
                     final boolean eligible = candidate != null && !aliased.contains(candidate.source());
                     if (candidate == null) this.furnaceWorkMetrics.refused(preparation.refusal());
                     else if (!eligible) this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.SHARED_INVENTORY);
@@ -5920,7 +5926,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             final Map<BlockEntityResourceOwnership.SharedReads, BlockEntityResourceOwnership.SharedReads> compared = resources == null ? Map.of() : new java.util.IdentityHashMap<>();
             for (final int index : wave) {
                 final var captured = candidates.get(index);
-                final var verified = preparation.prepare(ordered.get(index));
+                final var verified = batch.eligibleNow(ordered.get(index)) ? preparation.prepare(ordered.get(index)) : null;
                 current &= verified != null && !aliases.contains(captured.source())
                         && captured.source() == verified.source() && captured.chunk() == verified.chunk();
                 if (resources != null) {
@@ -6615,11 +6621,19 @@ public final class RegionThreadingEngine implements RegionThreading {
         final ServerLevel level = batch.level();
         final BlockEntityFallbackPhase phase = this.openBlockEntityFallbackPhase(batch);
         try {
-            for (final RegionBlockEntityTickChunk chunk : batch.fallbackChunks()) {
-                this.tickBlockEntityChunkInline(batch, chunk, batch.workGraph());
-            }
-            for (final RegionBlockEntityTickAdmission ticker : batch.fallbackTickers()) {
-                this.tickBlockEntitySerial(batch, ticker, batch.workGraph());
+            if (batch.canonicalSequence()) {
+                final List<RegionBlockEntityTickAdmission> ordered = new ArrayList<>();
+                for (final var chunk : batch.fallbackChunks()) ordered.addAll(chunk.admissions());
+                ordered.addAll(batch.fallbackTickers());
+                ordered.sort(Comparator.comparingLong(RegionBlockEntityTickAdmission::sequence));
+                for (final var admission : ordered) this.tickBlockEntitySerial(batch, admission, batch.workGraph());
+            } else {
+                for (final RegionBlockEntityTickChunk chunk : batch.fallbackChunks()) {
+                    this.tickBlockEntityChunkInline(batch, chunk, batch.workGraph());
+                }
+                for (final RegionBlockEntityTickAdmission ticker : batch.fallbackTickers()) {
+                    this.tickBlockEntitySerial(batch, ticker, batch.workGraph());
+                }
             }
         } finally {
             if (phase != null) {
@@ -6718,6 +6732,14 @@ public final class RegionThreadingEngine implements RegionThreading {
     }
 
     /** Ticks the tickers of one chunk on the server thread, in their collected order. */
+    private void tickBlockEntityChunksInline(BlockEntityExecutionBatch batch, List<RegionBlockEntityTickChunk> chunks,
+            @Nullable RegionBlockEntityWorkGraph.Phase graph) {
+        final List<RegionBlockEntityTickAdmission> ordered = new ArrayList<>();
+        for (final var chunk : chunks) ordered.addAll(chunk.admissions());
+        if (batch.canonicalSequence()) ordered.sort(Comparator.comparingLong(RegionBlockEntityTickAdmission::sequence));
+        for (final var admission : ordered) this.tickBlockEntitySerial(batch, admission, graph);
+    }
+
     private void tickBlockEntityChunkInline(BlockEntityExecutionBatch batch, RegionBlockEntityTickChunk chunk,
             @Nullable RegionBlockEntityWorkGraph.Phase graph) {
         for (final RegionBlockEntityTickAdmission admission : chunk.admissions()) this.tickBlockEntitySerial(batch, admission, graph);
@@ -6725,6 +6747,7 @@ public final class RegionThreadingEngine implements RegionThreading {
 
     private void tickBlockEntitySerial(BlockEntityExecutionBatch batch, RegionBlockEntityTickAdmission admission,
             @Nullable RegionBlockEntityWorkGraph.Phase graph) {
+        if (!batch.eligibleNow(admission)) return;
         try (final var permit = batch.execution().beginSerial(admission)) {
             this.tickBlockEntityInline(batch.level(), admission.ticker(), graph);
             permit.succeeded();

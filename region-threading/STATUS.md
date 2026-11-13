@@ -4,7 +4,20 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C1 behavior tests
+## Canonical Block Entity Coordinator — C2 collection migration
+
+The [C2 implementation and validation record](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md) captures the actual
+Level ticker list after pending merge and fresh onLoad, copies only references under the membership lock,
+and assigns one phase ordinal per entry. Cached creation sequences no longer define this Level path's order.
+Native canonical fallback now merges by ordinal, and initially ineligible suffix entries remain available for
+fresh server eligibility checks. Five of the eight C1 failures are fixed; three native fence/prefix assertions
+remain enabled. Eight new collection cases pass. Original Native/Furnace/Adapter/kernel/resource/lifecycle
+regressions are rerun across real fixed/persistent × resources off/on, with the full core result in the report.
+No unified Coordinator yet; both execution drivers and their old indexed/explicit helper bridges remain.
+Admission, switches and budgets stay unchanged. C3 Native migration precedes C4 Furnace integration in the
+current authorized plan; unsafe effect bridges stop further migration. No performance or installed-server claim.
+
+## Canonical Block Entity Coordinator — C1 behavior tests (historical baseline)
 
 The [C1 execution and failure record](CANONICAL-BLOCK-ENTITY-C1-TESTS.md) adds31behavior cases using the actual
 Level serial loop, original native/Furnace drivers, complete original furnace bodies, controlled fixed dispatch

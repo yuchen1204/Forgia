@@ -19,8 +19,8 @@ import org.jetbrains.annotations.ApiStatus;
  * and reused while the chunk's snapshot is current (see {@link RegionBlockEntityTickChunkCache}), so the
  * batch does not re-evaluate the allowlist and the interior-chunk rule of every ticker on every tick.
  * <p>
- * {@code sequence} is the creation order of the ticker, so a worker group can tick the admissions of its
- * chunks in the order the level's own ticker list would have ticked them.
+ * {@code sequence} is the phase ordinal on the canonical Level path. The retained indexed collector uses
+ * wrapper creation order only for its legacy callers; cached admissions are copied before ordinals change.
  */
 @ApiStatus.Internal
 public record RegionBlockEntityTickAdmission(
@@ -34,6 +34,11 @@ public record RegionBlockEntityTickAdmission(
 
     public RegionBlockEntityTickAdmission {
         position = position.immutable();
+    }
+
+    /** Copies a binding template without inheriting its legacy creation sequence. */
+    RegionBlockEntityTickAdmission withSequence(long ordinal) {
+        return new RegionBlockEntityTickAdmission(this.level, this.ticker, this.position, this.type, this.binding, this.decision, ordinal);
     }
 
     /** Checks before invocation; a changed binding or position must use server-thread fallback. */

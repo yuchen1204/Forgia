@@ -4,7 +4,15 @@
 
 上一片 [Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，但 Native 与 Furnace 仍各自选择顺序、分组、回退及提交。本方案在现有 Ticket、Permit、RegionGuard 上增加一个服务器线程 Coordinator，先统一输入顺序和 Fence，再逐片接入原执行桥。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 1. 当前源码路径及仍独立的职责
+## 最新实施状态：C2
+
+C0 源码映射与下文方案是 `233905042` 时的历史设计。后续 [C1](CANONICAL-BLOCK-ENTITY-C1-TESTS.md) 建立真实红测，[C2 实施记录](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md)在 `f6b48e24` 基线上接入实际 Level membership：pending merge／fresh onLoad 后锁内复制引用，锁外取 getter 与审计；同 phase ordinal 不再来自 chunk creation／explicit 两个数值域。Native canonical fallback 按 ordinal 合并，后项动态 eligibility 不再被起点永久剔除。
+
+C2 修复 C1 的 5 项 collection／顺序红测；Native 越过 Unknown、v1 拒绝后越过 B、Native mixed input 的 3 项调度断言仍失败且保持启用。尚无统一 phase-level Coordinator；旧 Native／Furnace drivers 与 indexed／explicit helpers 均保留，原准入／默认配置不变。C2 实际测试矩阵、patch generation／apply 和边界见其记录，不能把下文的协议草案写成已实现。
+
+本轮连续任务采用 **C2 Canonical Collection → C3 Native Coordinator/Fence → C4 Furnace 接入**，覆盖第 8 节原设计表中 C3/C4 的先后。阶段必须逐片达到自己的门槛，Native effect bridge 无法证明安全时停止后续阶段；不会为了完成 C4 将任意 level-end tasks 提前 drain、复用 Fence 前的 v1 prepared 成功或关闭既有功能。
+
+## 1. C0 基线源码路径及仍独立的职责
 
 ### 1.1 Level 入口、收集与序号来源
 
