@@ -4,6 +4,17 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
+## Canonical Block Entity Coordinator — design phase
+
+The [source map, interface design, migration and test plan](CANONICAL-BLOCK-ENTITY-COORDINATOR.md) is based on
+`233905042`. It identifies distinct native group/fallback and Furnace wave/commit drivers, mixed sequence
+provenance, missing post-fence v1 preparation guarantees and native effect-queue ordering limits. The proposal
+uses the real level ticker-list order, a shared coordinator over existing tickets/permits/guards, contiguous
+worker prefixes and complete serial fences with fresh suffix audits. Furnace preparation, resource ownership
+and notification commits remain protected; Create remains independent. This round changes three documentation
+files only. There is no coordinator implementation, new API, patch/config/admission change or new runtime/test
+result. Resource Ownership MSPT tuning remains frozen; the phased plan starts with behavior tests before routing.
+
 ## Modded Block Entity Multithreading Adaptation
 
 The stage began with a [source architecture investigation](MODDED-BLOCK-ENTITY-ADAPTATION-ARCHITECTURE.md)

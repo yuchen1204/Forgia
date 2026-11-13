@@ -154,6 +154,12 @@ serial fallback and commit order stay in their original drivers; no new Mod BE a
 adapter registration protocol is enabled. Core1244, resource-on181, persistent199, actual unknown Furnace
 Mixin1, independent Create16 and unknown Create Mixin1 pass; full-server performance remains unmeasured.
 
+The [Canonical BE Coordinator design and test plan](region-threading/CANONICAL-BLOCK-ENTITY-COORDINATOR.md)
+maps the remaining independent drivers at `233905042`. It proposes one level-list order, contiguous worker
+prefixes, complete serial fences and fresh audit results after state changes, while retaining the protected
+Furnace execution bridges. This phase changes documentation only; coordinator code, a new adapter protocol
+and new scheduling tests have not been implemented or run.
+
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
 is silently dropped.
