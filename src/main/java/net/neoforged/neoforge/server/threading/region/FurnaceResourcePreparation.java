@@ -23,6 +23,7 @@ final class FurnaceResourcePreparation {
     private final ServerLevel level;
     private final RegionLayout layout;
     private final Map<RegionCoordinate, Object> homes = new HashMap<>();
+    private final Map<LevelChunk, Binding> chunks = new IdentityHashMap<>();
     private int bindings;
     private boolean budgetExceeded;
 
@@ -58,15 +59,20 @@ final class FurnaceResourcePreparation {
         final var source = candidate.source();
         final var chunk = candidate.chunk();
         final var position = admission.position();
-        final BooleanSupplier chunkCurrent = () -> chunk.getLevel() == this.level && chunk.isLoaded()
-                && chunk.getPos().toLong() == ChunkPos.asLong(position)
-                && this.level.getChunkSource().getChunkNow(position.getX() >> 4, position.getZ() >> 4) == chunk;
+        final Binding chunkBinding = this.chunks.computeIfAbsent(chunk, loaded -> new Binding(new Identity(this.level, loaded), home,
+                () -> loaded.getLevel() == this.level && loaded.isLoaded()
+                        && this.level.getChunkSource().getChunkNow(loaded.getPos().x, loaded.getPos().z) == loaded,
+                null));
+        final BooleanSupplier chunkCurrent = chunkBinding.current();
         builder.claim(new Binding(new Identity(this.level, source), home,
-                () -> chunkCurrent.getAsBoolean() && LevelChunk.furnaceWorkMatchesChunk(admission.ticker(), chunk)
+                () -> chunkCurrent.getAsBoolean() && chunk.getPos().toLong() == ChunkPos.asLong(position)
+                        && LevelChunk.furnaceWorkMatchesChunk(admission.ticker(), chunk)
                         && admission.isCurrent() && !source.isRemoved() && source.getLevel() == this.level
                         && chunk.getBlockEntities().get(position) == source,
                 position), Access.WRITE);
-        builder.claim(new Binding(new Identity(this.level, chunk), home, chunkCurrent, null), Access.READ);
+        // Share only the immutable description inside this phase. Each unit still executes this chunk
+        // validator, and its source proof independently checks the admission's exact chunk coordinates.
+        builder.claim(chunkBinding, Access.READ);
         for (int slot = 0; slot < 3; ++slot) {
             final int capturedSlot = slot;
             final var stack = source.getItem(slot);
@@ -80,7 +86,7 @@ final class FurnaceResourcePreparation {
     }
 
     BlockEntityResourceOwnership underHeldRegions(List<RegionState> leased, BooleanSupplier live) {
-        final Map<Object, BooleanSupplier> boundaries = new IdentityHashMap<>();
+        final Map<Object, BooleanSupplier> boundaries = new IdentityHashMap<>(leased.size());
         for (final RegionState region : leased) {
             if (region.coordinate().level() != this.level) throw new IllegalStateException("Resource proof received a foreign region lease");
             // Only the engine's coordinator calls this after acquiring its own exact region leases.

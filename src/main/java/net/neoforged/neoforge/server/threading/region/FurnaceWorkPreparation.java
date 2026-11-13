@@ -152,12 +152,15 @@ final class FurnaceWorkPreparation {
         if (type != RecipeType.SMELTING && type != RecipeType.BLASTING && type != RecipeType.SMOKING) return false;
         final var catalog = this.recipes.getAllRecipesFor((RecipeType) type);
         if (catalog.size() > 4096) return false;
-        final Set<ItemStack> reads = this.captureResources ? java.util.Collections.newSetFromMap(new IdentityHashMap<>()) : null;
+        final Set<ItemStack> reads = this.captureResources ? java.util.Collections.newSetFromMap(new IdentityHashMap<>(Math.min(
+                BlockEntityResourceOwnership.MAX_RESOURCES_PER_UNIT + 1, catalog.size() * 2))) : null;
+        final int[] ingredientBudget = new int[1];
         for (final Object entry : catalog) {
             final var recipe = ((net.minecraft.world.item.crafting.RecipeHolder<?>) entry).value();
             if (!RECIPES.contains(recipe.getClass())) return refusedCatalog((net.minecraft.world.item.crafting.RecipeHolder<?>) entry, recipe.getClass().getName());
             for (final var ingredient : recipe.getIngredients()) {
-                if (!plainIngredient(ingredient, 0, new int[] { 256 })) return refusedCatalog((net.minecraft.world.item.crafting.RecipeHolder<?>) entry,
+                ingredientBudget[0] = 256;
+                if (!plainIngredient(ingredient, 0, ingredientBudget)) return refusedCatalog((net.minecraft.world.item.crafting.RecipeHolder<?>) entry,
                         "ingredient " + (ingredient.getClass() != Ingredient.class ? ingredient.getClass().getName()
                                 : ingredient.isCustom() ? ingredient.getCustomIngredient().getClass().getName() : "unverified values"));
                 // Audited ordinary ingredient resolution is deterministic; publish its lazy cache before workers.

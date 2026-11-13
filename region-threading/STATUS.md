@@ -21,6 +21,11 @@ are separate from the historical measurements in the opening paragraph and table
 mean MSPT in35/36short-matrix pairs; both long repeats also regressed, so admission expansion and
 default-on use remain unsupported. Full native tick values, CPU/GC/phase counters and equivalence checks
 are in [the server performance record](BLOCK-ENTITY-RESOURCE-SERVER-AB-PROFILE.json).
+The [`.59` allocation and validation-cost follow-up](BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md) retains
+all current-operation validation and reduces proof-table construction with immutable arrays and packed
+identity tables. Two independent build pairs with2/64/256furnaces and4workers lower real allocation
+and mean MSPT relative to resource-on `.58`; defaults and BE admission remain unchanged. See
+[complete cost data](BLOCK-ENTITY-RESOURCE-HOT-PATH-PROFILE.json), including controls and independent repeats.
 
 ## Slices
 

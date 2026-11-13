@@ -1,13 +1,15 @@
-# Installed `.58` Resource Ownership A/B
+# Installed Resource Ownership A/B
 
-This is a real installed Minecraft server fixture using the frozen production `.58` binary. It measures
+This is a real installed Minecraft server fixture with pinned installer and universal hashes. Historical
+commands default to the frozen production `.58` binary. It measures
 incremental Resource Ownership overhead with **Furnace waves already enabled in both conditions**.
 It is not a modpack/multiplayer claim or a comparison against vanilla/stock NeoForge.
 
 The observer is an **external, read-only local JMX client** using the JVM's built-in local management
-service, started before warmup. No helper mod, Mixin, bytecode instrumentation agent, server class edit,
-new worker admission or source rebuild is installed. The native100-slot Minecraft tick ring and standard
-JVM MXBeans provide full server tick duration, CPU, GC, heap and server/worker allocation. Complete
+service, started before warmup. The native100-slot Minecraft tick ring and standard
+JVM MXBeans provide full server tick duration, CPU, GC, heap and server/worker allocation. No helper mod,
+Mixin, bytecode instrumentation agent or new admission is installed by the observer. The production build
+under test is pinned explicitly. Complete
 quiescent NBT and existing engine counters prove that equivalent real work completed.
 
 ## Reproduce
@@ -68,6 +70,29 @@ The binary JFR remains authoritative for full stacks. The analyzer refuses a who
 A small diagnostic JSON from `jfr print --json` is also supported for parser cross-checks. Never infer
 CPU time or exact bytes from execution/allocation sample weights.
 
+## Compare builds
+
+A new candidate must provide all three of `--version`, `--installer-sha256` and `--universal-sha256`, and an
+independent `--installation` with that exact core. The historical `.58` defaults remain enforced; selecting
+another version does not disable verification. Keep the resource flag, VM, workload and observation
+protocol identical across builds. `--conditions on` measures both builds with the resource layer active;
+use another pair with `--conditions off` as a control. Reverse build launch order in separate fresh roots
+for an independent JVM repeat. Keep profiled pairs separate.
+
+After both runs save and exit normally:
+
+```sh
+python3 tools/block-entity-resource-ab/compare_builds.py \
+  /absolute/path/to/before-run-root /absolute/path/to/after-run-root \
+  tmp/build-comparison.json
+```
+
+The comparer verifies complete per-window NBT hashes, body/lease/notification/output counts and matching
+workload parameters, exports all native tick values, and computes allocation rates and phase times per
+exact gameTick. It refuses missing or duplicate windows. `export_results.py --unpaired` explicitly exports
+a single resource condition without making an ON/OFF equivalence claim. Do not pool independent JVM
+repeats or profiled/unprofiled tick samples. See the [hot-path cost reduction](../../region-threading/BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md).
+
 ## Metric definitions and safeguards
 
 - `chunk`: up to256 furnaces in a single chunk, vertical/horizontal spacing4blocks.
@@ -86,7 +111,7 @@ CPU time or exact bytes from execution/allocation sample weights.
   is collected in bounded groups of64because Vanilla abbreviates long SNBT lists at128elements.
   `<...>`, incomplete snapshots, wrong outputs, conservation errors, skipped/failed/rejected bodies,
   refused resources, tick failures or ownership violations stop the run.
-- `ticks`, output items, original body and lease deltas cover the exact200gameTick window.
+- `ticks`, output items, original body and lease deltas cover the exact configured gameTick window.
 - `metrics.mspt` uses only reconstructed native tick times wholly inside the proven-active inner interval:
   unfreeze acknowledged +100ms through the last below-target gameTime query -100ms. No frozen polling,
   snapshot, startup or warmup duration contributes. Native`tickServer` time excludes the20TPS limiter sleep

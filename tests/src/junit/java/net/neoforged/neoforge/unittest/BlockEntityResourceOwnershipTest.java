@@ -610,6 +610,220 @@ class BlockEntityResourceOwnershipTest {
         }
     }
 
+    @Test
+    void publishedClaimsStayDetachedWhenTheirBuilderGrowsUpgradesAndBuildsAgain() {
+        final var calls = new AtomicInteger();
+        final var firstBinding = new Binding(new Identity(this.level, this.x), this.region, () -> {
+            calls.incrementAndGet();
+            return true;
+        }, null);
+        final var builder = Claims.builder(this.level, this.region).claim(firstBinding, Access.READ);
+        final Claims before = builder.build();
+        builder.claim(firstBinding, Access.WRITE);
+        for (int index = 0; index < 20; ++index) builder.claim(this.binding(new Object()), Access.READ);
+        final Claims after = builder.build();
+        assertFalse(before.sameResources(after));
+        assertEquals(Set.of(new BlockEntityWorkPlanner.Resource(this.level, this.x)), before.unit().reads());
+        assertTrue(before.unit().writes().isEmpty());
+        try (final var owner = this.ownership()) {
+            final var leases = owner.tryAcquireAll(List.of(before));
+            assertNotNull(leases);
+            try (final var scope = leases.getFirst().enter()) {
+                Scope.require(this.level, this.x, Access.READ);
+                assertThrows(IllegalStateException.class, () -> Scope.require(this.level, this.x, Access.WRITE));
+            }
+        }
+        assertEquals(1, calls.get());
+        try (final var owner = this.ownership()) {
+            final var leases = owner.tryAcquireAll(List.of(after));
+            assertNotNull(leases);
+            try (final var scope = leases.getFirst().enter()) {
+                Scope.require(this.level, this.x, Access.WRITE);
+            }
+        }
+        assertEquals(3, calls.get(), "normalization must preserve both old attachment occurrences");
+        builder.claim(new Binding(new Identity(new Object(), this.x), this.region, () -> true, null), Access.READ);
+        assertFalse(builder.build().complete());
+        assertTrue(before.complete());
+        assertTrue(after.complete());
+    }
+
+    @Test
+    void arrayAndIndexedClaimsKeepReferenceIdentityAtSmallLargeAndMaximumSizes() {
+        for (final int count : new int[] { 1, 8, 9, 64, 512 }) {
+            final List<Object> objects = new ArrayList<>();
+            final var builder = Claims.builder(this.level, this.region);
+            for (int index = 0; index < count; ++index) {
+                final Object instance = new IdentityOnly();
+                objects.add(instance);
+                builder.claim(this.binding(instance), index % 2 == 0 ? Access.READ : Access.WRITE);
+            }
+            final Claims local = builder.build();
+            assertTrue(local.complete());
+            final var publication = SharedReads.capture(this.level, objects, () -> true);
+            final Claims shared = Claims.builder(this.level, this.region).sharedReads(publication).build();
+            objects.add(new IdentityOnly());
+            for (final Claims claims : List.of(local, shared)) {
+                try (final var owner = this.ownership()) {
+                    final var leases = owner.tryAcquireAll(List.of(claims));
+                    assertNotNull(leases);
+                    try (final var scope = leases.getFirst().enter()) {
+                        for (int index = 0; index < count; ++index) {
+                            final Object instance = objects.get(index);
+                            Scope.require(this.level, instance, Access.READ);
+                            if (claims == local && index % 2 != 0) Scope.require(this.level, instance, Access.WRITE);
+                            else assertThrows(IllegalStateException.class, () -> Scope.require(this.level, instance, Access.WRITE));
+                        }
+                        assertThrows(IllegalStateException.class, () -> Scope.require(this.level, objects.getLast(), Access.READ));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void collidingPairHashesWrapWithoutAliasingOrLeavingPartialReservations() {
+        final List<Object> resources = new ArrayList<>();
+        while (resources.size() < 12) {
+            final Object instance = new IdentityOnly();
+            final int hash = 31 * System.identityHashCode(this.level) + System.identityHashCode(instance);
+            if (((hash ^ (hash >>> 16)) & 127) == 127) resources.add(instance);
+        }
+        final var builder = Claims.builder(this.level, this.region);
+        for (final Object instance : resources) builder.claim(this.binding(instance), Access.READ);
+        final Claims reads = builder.build();
+        final Claims writer = this.claims(resources.get(5), Access.WRITE);
+        assertEquals(List.of(List.of(0), List.of(1), List.of(2)), BlockEntityResourceOwnership.plan(List.of(reads, writer, reads)).dependencies().waves());
+        final Claims grouped = Claims.builder(this.level, this.region).sharedReads(SharedReads.capture(this.level, resources, () -> true)).build();
+        assertTrue(reads.sameResources(grouped));
+        try (final var owner = this.ownership()) {
+            assertNull(owner.tryAcquireAll(List.of(reads, writer)));
+            final var leases = owner.tryAcquireAll(List.of(reads, grouped));
+            assertNotNull(leases);
+            for (final var lease : leases) {
+                try (final var scope = lease.enter()) {
+                    for (final Object instance : resources) Scope.require(this.level, instance, Access.READ);
+                    assertThrows(IllegalStateException.class, () -> Scope.require(this.level, resources.get(5), Access.WRITE));
+                    assertThrows(IllegalStateException.class, () -> Scope.require(this.level, new IdentityOnly(), Access.READ));
+                }
+            }
+        }
+    }
+
+    @Test
+    void positionedBindingsRejectAliasesAtFirstAndSubsequentPositionsAndDetachMutableCoordinates() {
+        final var mutable = new net.minecraft.core.BlockPos.MutableBlockPos(17, 64, 17);
+        final Binding first = new Binding(new Identity(this.level, this.x), this.region, () -> true, mutable);
+        mutable.move(1, 0, 0);
+        assertEquals(new net.minecraft.core.BlockPos(17, 64, 17), first.position());
+        final Binding duplicate = new Binding(new Identity(this.level, this.y), this.region, () -> true, first.position());
+        assertFalse(Claims.builder(this.level, this.region).claim(first, Access.READ).claim(duplicate, Access.READ).build().complete());
+        final Binding other = new Binding(new Identity(this.level, new Object()), this.region, () -> true, mutable);
+        final Binding otherAlias = new Binding(new Identity(this.level, new Object()), this.region, () -> true, mutable);
+        assertFalse(Claims.builder(this.level, this.region).claim(first, Access.READ).claim(other, Access.READ).claim(otherAlias, Access.READ).build().complete());
+        assertTrue(Claims.builder(this.level, this.region).claim(first, Access.READ).claim(other, Access.READ).claim(first, Access.READ).build().complete());
+    }
+
+    @Test
+    void fullLogicalBudgetWithDuplicatedBindingsKeepsEveryValidatorAndTheWideWave() {
+        final var calls = new AtomicInteger();
+        final var binding = new Binding(new Identity(this.level, this.x), this.region, () -> {
+            calls.incrementAndGet();
+            return true;
+        }, null);
+        final var builder = Claims.builder(this.level, this.region);
+        for (int index = 0; index < 512; ++index) builder.claim(binding, Access.READ);
+        final Claims proof = builder.build();
+        final List<Claims> phase = java.util.Collections.nCopies(256, proof);
+        final var plan = BlockEntityResourceOwnership.plan(phase);
+        assertEquals(1, plan.dependencies().waves().size());
+        assertEquals(256, plan.dependencies().maxWidth());
+        try (final var owner = this.ownership()) {
+            assertNotNull(owner.tryAcquireAll(phase));
+        }
+        assertEquals(BlockEntityResourceOwnership.MAX_BINDINGS_PER_PHASE, calls.get());
+        assertThrows(IllegalArgumentException.class, () -> BlockEntityResourceOwnership.plan(java.util.Collections.nCopies(257, proof)));
+    }
+
+    @Test
+    void packedPhaseMatchesReferenceAliasAndDiagnosticPlannerAcrossDomainsHomesAndFormats() {
+        final Random random = new Random(20261116L);
+        final Object[] domains = { this.level, new IdentityOnly() };
+        final Object[] homes = { this.region, new IdentityOnly(), new IdentityOnly() };
+        final List<Object> objects = new ArrayList<>();
+        for (int index = 0; index < 32; ++index) objects.add(new IdentityOnly());
+        for (int iteration = 0; iteration < 2000; ++iteration) {
+            final List<ReferenceClaim> inputs = new ArrayList<>();
+            final List<Claims> claims = new ArrayList<>();
+            for (int index = random.nextInt(30); index > 0; --index) {
+                final Object domain = domains[random.nextInt(domains.length)];
+                final Object home = homes[random.nextInt(homes.length)];
+                final var builder = Claims.builder(domain, home);
+                final List<Binding> bindings = new ArrayList<>();
+                final Set<Identity> writes = new java.util.HashSet<>();
+                final List<Object> shared = new ArrayList<>();
+                if (random.nextBoolean()) {
+                    for (int count = random.nextInt(12); count > 0; --count) shared.add(objects.get(random.nextInt(objects.size())));
+                    builder.sharedReads(SharedReads.capture(domain, shared, () -> true));
+                }
+                for (int count = 1 + random.nextInt(12); count > 0; --count) {
+                    final boolean global = random.nextInt(6) == 0;
+                    final Access mode = !global && random.nextBoolean() ? Access.WRITE : Access.READ;
+                    final Binding binding = new Binding(new Identity(domain, objects.get(random.nextInt(objects.size()))), global ? null : home, () -> true, null);
+                    builder.claim(binding, mode);
+                    bindings.add(binding);
+                    if (mode == Access.WRITE) writes.add(binding.identity());
+                }
+                final Claims proof = random.nextInt(8) == 0 ? Claims.fence(domain, home) : builder.build();
+                inputs.add(new ReferenceClaim(proof, domain, bindings, writes, shared));
+                claims.add(proof);
+            }
+            final Map<Identity, Object> seenHomes = new java.util.HashMap<>();
+            final Set<Identity> global = new java.util.HashSet<>();
+            final Set<Identity> writes = new java.util.HashSet<>();
+            final Set<Identity> invalid = new java.util.HashSet<>();
+            for (final ReferenceClaim input : inputs) {
+                if (!input.claims.complete()) continue;
+                writes.addAll(input.writes);
+                for (final Object instance : input.shared) global.add(new Identity(input.domain, instance));
+                for (final Binding binding : input.bindings) {
+                    if (binding.home() == null) global.add(binding.identity());
+                    else {
+                        final Object before = seenHomes.putIfAbsent(binding.identity(), binding.home());
+                        if (before != null && before != binding.home()) invalid.add(binding.identity());
+                    }
+                }
+            }
+            for (final Identity identity : global) if (writes.contains(identity)) invalid.add(identity);
+            final List<BlockEntityWorkPlanner.Unit> expectedUnits = new ArrayList<>();
+            final var plan = BlockEntityResourceOwnership.plan(claims);
+            for (int index = 0; index < inputs.size(); ++index) {
+                final var input = inputs.get(index);
+                final boolean accepted = input.claims.complete() && input.bindings.stream().noneMatch(binding -> invalid.contains(binding.identity()))
+                        && input.shared.stream().noneMatch(instance -> invalid.contains(new Identity(input.domain, instance)));
+                assertEquals(accepted, plan.claims().get(index).complete(), "reference alias case " + iteration);
+                expectedUnits.add(accepted ? input.claims.unit() : new BlockEntityWorkPlanner.Unit(Set.of(), Set.of(), true));
+            }
+            final var expected = BlockEntityWorkPlanner.plan(expectedUnits);
+            assertEquals(expected.waves(), plan.dependencies().waves(), "reference directed case " + iteration);
+            assertEquals(expected.maxWidth(), plan.dependencies().maxWidth());
+        }
+    }
+
+    private record ReferenceClaim(Claims claims, Object domain, List<Binding> bindings, Set<Identity> writes, List<Object> shared) {}
+
+    private static final class IdentityOnly {
+        @Override
+        public int hashCode() {
+            throw new AssertionError("Resource tables must use reference identity");
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            throw new AssertionError("Resource tables must not call user equals");
+        }
+    }
+
     // Tests reflect the internal grant/entry gates instead of exporting a permission-minting test API.
     private static final class Owner implements AutoCloseable {
         private final BlockEntityResourceOwnership delegate;

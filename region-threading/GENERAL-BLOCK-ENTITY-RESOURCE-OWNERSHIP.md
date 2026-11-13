@@ -1,7 +1,9 @@
 # General Block Entity Resource Ownership — 第一阶段与性能改进
 
-版本：`21.1.250.58-beta`；基础协议交付于 `.57-beta`。通用资源身份、声明、非阻塞 lease 和线程 scope 已接入 Furnace Work Waves。
-本次增加 fresh-pass 共享 READ、compact 执行规划和 lease 表复用，见 [第二阶段实现与前后测量](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md)。
+版本：当前候选 `21.1.250.59-beta`；基础协议交付于 `.57-beta`，fresh-pass 共享 READ 与compact执行规划交付于 `.58-beta`。
+通用资源身份、声明、非阻塞 lease 和线程 scope 已接入 Furnace Work Waves。
+`.58` 的实现与原始测量见[第二阶段记录](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION.md)；
+`.59` 减少身份表与 Claims／Planner 临时分配，保留动态证明，见[Hot Path 成本下降及安装服复验](BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md)。
 新增 `enableRegionThreadingBlockEntityResources`，默认 `false`，需重启。
 它还要求既有 BE worker、furnace waves 和 fixed region layout；单独打开本项不会启动任何新机器或 worker 路径。
 
@@ -175,8 +177,9 @@ FurnaceWorkScope 继续负责原始正文 entry/success tail、精确 ticker/tas
 这是单线程机制开销，**不是 Minecraft body 或整服 MSPT 测量**。
 最终数据与具体复现参数见 [性能记录](BLOCK-ENTITY-RESOURCE-OWNERSHIP-PROFILE.json)。
 
-下表保留 `.57` 首次探针的历史结果（没有 fresh revalidation），不代表 `.58` 当前成本。
+下表保留 `.57` 首次探针的历史结果（没有 fresh revalidation），不代表 `.58` 或 `.59` 成本。
 `.58` [完整阶段配对数据](BLOCK-ENTITY-RESOURCE-OWNERSHIP-OPTIMIZATION-PROFILE.json)包含第二次 fresh capture 和资源集比较。
+`.59` 的[分配与安装服复验记录](BLOCK-ENTITY-RESOURCE-HOT-PATH-PROFILE.json)使用相同长预热协议比较两版 shared 实现，另存真实服务器样本。
 
 | 单元数 | 每单元 claims | 总开销 p50 ms | 分配 B/phase |
 |---:|---:|---:|---:|
@@ -188,8 +191,9 @@ FurnaceWorkScope 继续负责原始正文 entry/success tail、精确 ticker/tas
 每组 21 个样本；完整预热安排、组件定义与其他 8 组数据在 JSON／工具 README。
 总开销直接计时，组件中位数独立计算，不能要求各自 p50 相加严格等于总 p50。
 
-共享资源很多时，逐单元 map/set、重复身份、验证器与既有有向图诊断的分配显著。
-当前交付优先保证闭包和生命周期正确，不把增加并发或签发更多 lease 宣称为性能提升。
+上述历史实现的逐单元 map/set、重复身份、验证器与有向图诊断产生了显著分配。
+`.59` 改用不可变数组和临时身份表降低当前路径成本，完整闭包与生命周期证明继续保留；
+增加并发或签发更多 lease 本身仍不表示性能提升。
 
 ## 7. 第一阶段 `.57` 历史验证方法与证据
 

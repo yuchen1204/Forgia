@@ -28,6 +28,10 @@ JDK `List.of`/`ImmutableCollections.listCopy` with `-Xbatch` and insufficient pe
 [the investigation and installed-server A/B](../../region-threading/BLOCK-ENTITY-RESOURCE-TAIL-AND-SERVER-AB.md).
 The current probe defaults to **2,000 further warmups/case and 101 measured samples**, reporting p99/max;
 legacy results remain unchanged. Warmup is explicit, not a filter that deletes slow measured samples.
+The later [`.59` hot-path allocation comparison](../../region-threading/BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md)
+uses this same current harness in **shared mode for both builds**, with three independent pairs and the
+same warmup. Frozen production classes differ; the measurement protocol does not. Actual installed-server
+validation and allocation records are separate from these constant-predicate mechanism measurements.
 
 All proof predicates are constant true substitutes for current publications/bindings/held Regions.
 Actual dynamic world/recipe validation is deliberately **not** represented. Shared mode has one explicit
@@ -40,7 +44,7 @@ omitted. Production still validates every distinct ordinary Binding and every di
 export JAVA_HOME=/absolute/path/to/jdk-21
 export PATH="$JAVA_HOME/bin:$PATH"
 ./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 \
-  -PforgiaVersion=21.1.250.58-beta :neoforge:compileJava
+  -PforgiaVersion=21.1.250.59-beta :neoforge:compileJava
 mkdir -p tmp/be-resource-opt/current-probe-classes
 javac -proc:none -cp projects/neoforge/build/classes/java/main \
   -d tmp/be-resource-opt/current-probe-classes tools/block-entity-resource-probe/*CostProbe.java
@@ -54,7 +58,7 @@ java -Xms512m -Xmx1g -XX:+UseG1GC -Xbatch \
 
 Arguments are `[5..101 samples] [expanded|shared]`; defaults `101 expanded`. Every JSON row records
 `caseWarmup`, `trace` and `sampleTrace` so profiling output is clearly labelled.
-The common `OwnershipCostProbe.java` compiles against both `.57` and `.58`. `SharedReadOwnershipCostProbe`
+The common `OwnershipCostProbe.java` compiles against `.57`, `.58` and `.59`. `SharedReadOwnershipCostProbe`
 uses the new production representation; reflective selection happens once **outside all timing**.
 Expanded mode uses exactly the old per-unit Binding construction on either production version.
 
@@ -73,6 +77,13 @@ Keep diagnostics and unprofiled timing separate. Starting JFR itself changes JDK
 and can move the original spike outside its old location.
 
 ## Frozen production baseline
+
+For the `.59` cost comparison, preserve the original `.58` universal/installer and extract ownership/planner
+classes from **both pinned jars into separate directories**. Compile both probe source files separately
+against each directory, put its frozen classes first on the runtime classpath, and run `101 shared` on both.
+The [hot-path profile](../../region-threading/BLOCK-ENTITY-RESOURCE-HOT-PATH-PROFILE.json) records the exact
+artifact hashes, warmup and all three pairs. Build the current source as `.59`; keep the original `.58`
+artifacts as the baseline. The `.57` instructions below describe the earlier expanded/shared comparison.
 
 Do not compare only to the old published numbers. Preserve the actual `.57` production classes before
 building `.58`, or extract the ownership/planner classes from the `.57` universal jar:

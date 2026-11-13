@@ -8,8 +8,11 @@ import statistics
 from server_ab import dump, tick_samples, timing
 
 
-def export(root, output):
+def export(root, output, unpaired=False):
     manifest=json.loads((root/'manifest.json').read_text())
+    labels=manifest['parameters'].get('conditions',['off','on'])
+    if not unpaired and set(labels)!={'off','on'}:
+        raise ValueError('ON/OFF export requires both conditions; use explicit unpaired export for a build comparison')
     rows=[]
     cases=[]
     for directory in sorted(root.glob('r*-*-w*-*')):
@@ -50,10 +53,17 @@ def export(root, output):
             normalized['nativeActiveTickMs']=[round(v,6) for v in times]
             normalized['localReceiptSha256']=hashlib.sha256(detail_path.read_bytes()).hexdigest()
             rows.append(normalized)
+    expected={(round_,layout,workers,count,label=='on',window)
+              for round_ in range(manifest['parameters']['rounds']) for layout in manifest['parameters']['layouts']
+              for workers in manifest['parameters']['workers'] for count in manifest['parameters']['counts']
+              for label in labels for window in range(manifest['parameters']['windows'])}
+    actual={(r['round'],r['layout'],r['workers'],r['count'],r['resources'],r['window']) for r in rows}
+    if not expected or actual!=expected or len(actual)!=len(rows):
+        raise ValueError('Incomplete/duplicate experiment windows')
     identities=sorted({(r['round'],r['layout'],r['workers'],r['count']) for r in rows})
     for round_,layout,workers,count in identities:
         conditions={}
-        for flag,label in [(False,'off'),(True,'on')]:
+        for flag,label in [(label=='on',label) for label in labels]:
             windows=sorted([r for r in rows if (r['round'],r['layout'],r['workers'],r['count'],r['resources'])==(round_,layout,workers,count,flag)],key=lambda r:r['window'])
             if len(windows)!=manifest['parameters']['windows']:
                 raise ValueError('Missing paired steady window')
@@ -77,6 +87,9 @@ def export(root, output):
                 allocationObservationSeconds=sum(r['metrics']['allocationObservationSeconds'] for r in windows),
                 observedGameTicks=sum(r['ticks'] for r in windows),
                 cumulativeMaxBodies=max(r['maxSimultaneousOriginalBodiesSinceBoot'] for r in windows))
+        if unpaired:
+            cases.append(dict(round=round_,layout=layout,workers=workers,count=count,conditions=conditions))
+            continue
         for window in range(manifest['parameters']['windows']):
             off=next(r for r in rows if (r['round'],r['layout'],r['workers'],r['count'],r['resources'],r['window'])==(round_,layout,workers,count,False,window))
             on=next(r for r in rows if (r['round'],r['layout'],r['workers'],r['count'],r['resources'],r['window'])==(round_,layout,workers,count,True,window))
@@ -89,11 +102,12 @@ def export(root, output):
         cases.append(dict(round=round_,layout=layout,workers=workers,count=count,off=off,on=on,
                           afterBeforeMsptRatios=ratios,completeStateEquivalent=True))
     record=dict(manifest=manifest,
-        methodology='Per-condition MSPT pools only the two consecutive inner-active windows in one JVM; not independent JVM repetitions or confidence intervals. Complete per-tick samples below. CPU/GC are MXBean deltas in these inner intervals. Exact body/state counter window is separately200gameTicks. Native time ring endpoint ambiguity and observer overhead documented. No full-modpack or arbitrary BE speedup.',
-        pairs=cases,windows=rows)
+        methodology='Per-condition MSPT pools the configured consecutive inner-active windows in one JVM; not independent JVM repetitions or confidence intervals. Complete per-tick samples below. CPU/GC are MXBean deltas in these inner intervals. Exact body/state counters use the separately configured gameTick window. Native time ring endpoint ambiguity and observer overhead documented. No full-modpack or arbitrary BE speedup.',
+        pairs=[] if unpaired else cases,windows=rows)
+    if unpaired: record['unpairedConditions']=cases
     dump(output,record)
-    print('EXPORTED',len(cases),'pairs',len(rows),'windows',sum(r['metrics']['mspt']['samples'] for r in rows),'native tick samples')
-    for case in cases:
+    print('EXPORTED',len(cases),'unpaired cases' if unpaired else 'pairs',len(rows),'windows',sum(r['metrics']['mspt']['samples'] for r in rows),'native tick samples')
+    for case in [] if unpaired else cases:
         a,b=case['off']['mspt'],case['on']['mspt']
         print(case['layout'],case['workers'],case['count'],
               f"mean {a['mean']:.3f}->{b['mean']:.3f},p95 {a['p95']:.3f}->{b['p95']:.3f}",
@@ -105,5 +119,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('runs',type=Path)
     parser.add_argument('output',type=Path)
+    parser.add_argument('--unpaired',action='store_true',help='Explicit single-condition evidence for comparing pinned builds; no ON/OFF equivalence claim')
     args=parser.parse_args()
-    export(args.runs,args.output)
+    export(args.runs,args.output,args.unpaired)

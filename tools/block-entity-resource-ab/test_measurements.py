@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Correctness tests for the measurement protocol, not elapsed-time speed assertions."""
 import unittest
-from server_ab import graph, positions, split_compounds, tick_samples, percentile
+from server_ab import graph, positions, split_compounds, tick_samples, percentile, verify_artifacts
+from compare_builds import compatible, equivalent
 from analyze_jfr import epoch_ns, duration_ns, analyze
 import json
 import tempfile
@@ -90,6 +91,49 @@ class MeasurementsTest(unittest.TestCase):
             result=analyze(path,[(1_010_000_000,1_015_000_000)])
             self.assertEqual(result['gcPauseOverlapMs'],5)
             self.assertEqual(analyze(path,[(2_000_000_000,3_000_000_000)])['eventCounts'],{})
+
+    def test_candidate_build_requires_both_exact_hashes_and_a_safe_version(self):
+        import hashlib
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as root:
+            repo=Path(root)
+            args=SimpleNamespace(version='21.1.250.59-beta',installation=repo/'installed',
+                                 installer_sha256=hashlib.sha256(b'installer').hexdigest(),
+                                 universal_sha256=hashlib.sha256(b'core').hexdigest())
+            installer=repo/f'projects/neoforge/build/libs/neoforge-{args.version}-installer.jar'
+            core=args.installation/f'libraries/net/neoforged/neoforge/{args.version}/neoforge-{args.version}-universal.jar'
+            installer.parent.mkdir(parents=True)
+            core.parent.mkdir(parents=True)
+            installer.write_bytes(b'installer')
+            core.write_bytes(b'core')
+            verify_artifacts(args,repo)
+            core.write_bytes(b'changed')
+            with self.assertRaises(ValueError): verify_artifacts(args,repo)
+            core.write_bytes(b'core')
+            installer.write_bytes(b'changed')
+            with self.assertRaises(ValueError): verify_artifacts(args,repo)
+            args.version='../escape'
+            with self.assertRaises(ValueError): verify_artifacts(args,repo)
+
+    def test_build_comparison_refuses_workload_state_and_completion_changes(self):
+        import copy
+        manifest={'jvm':['same'],'java':'jdk21','seed':813584,'parameters':{
+            'counts':[64],'layouts':['chunk'],'workers':[4],'rounds':1,'windows':2,
+            'warmup_ticks':1200,'window_ticks':600,'conditions':['on'],'jfr':None}}
+        compatible(manifest,copy.deepcopy(manifest))
+        other=copy.deepcopy(manifest)
+        other['parameters']['conditions']=['off']
+        with self.assertRaises(ValueError): compatible(manifest,other)
+        row=dict(stateBeforeSha256='before',stateAfterSha256='after',ticks=600,outputItems=192,initialCookTime=100,
+                 deltas={key:0 for key in ['furnace.nativeCompleted','furnace.changes','furnace.serial','furnace.failed',
+                                          'furnace.skipped','furnace.rejectedTasks','resource.issuedLeases','resource.refusedWaves']})
+        equivalent(row,copy.deepcopy(row))
+        other=copy.deepcopy(row)
+        other['stateAfterSha256']='different'
+        with self.assertRaises(ValueError): equivalent(row,other)
+        other=copy.deepcopy(row)
+        other['deltas']['furnace.nativeCompleted']=1
+        with self.assertRaises(ValueError): equivalent(row,other)
 
     def test_no_missing_diagnostics_becomes_zero(self):
         with self.assertRaises(ValueError): graph('Block entity resource ownership: enabled=false')

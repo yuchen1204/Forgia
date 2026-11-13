@@ -130,6 +130,10 @@ The [tail-latency investigation and installed-server A/B](region-threading/BLOCK
 separates blocking JIT compilation in the old probe from full-tick costs on the frozen `.58` binary.
 The resource-on layer increased mean MSPT in35/36matrix pairs and both independent long-window repeats;
 it remains default-off, with no performance evidence supporting broader BE admission.
+The [`.59` hot-path cost reduction](region-threading/BLOCK-ENTITY-RESOURCE-HOT-PATH-REDUCTION.md) replaces
+node-based proof tables and per-unit planner expansion with immutable arrays and call-local identity tables.
+Two installed-server build pairs confirm lower allocation with the resource layer active; dynamic proofs
+and admission remain intact. This reduces the existing layer's cost and does not establish a reason to enable it by default.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

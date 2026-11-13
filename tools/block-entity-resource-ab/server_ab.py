@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Steady, paced installed-.58 server A/B. No agent/mod/bytecode instrumentation; private worlds only."""
+"""Steady, paced installed-server A/B with pinned binaries and private worlds; no instrumentation mod."""
 import argparse
 import hashlib
 import json
@@ -20,6 +20,7 @@ from rcon import Rcon, RconError
 
 VERSION = '21.1.250.58-beta'
 SHA256 = '7d736190ccd2c97c949368a3a57af35a31fe71a5f48e7814517494b78d7da34f'
+UNIVERSAL_SHA256 = '0c137cdaa9a88b160c8c146633eb1e39700d42ecc39ac4dd17cd45bd3d441e45'
 JAVA = Path('/home/yc/.local/opt/jdk-21.0.13+9/bin/java')
 VM = ['-Xms2G', '-Xmx2G', '-XX:+UseG1GC', '-Dfile.encoding=UTF-8']
 STOP_REQUESTED = False
@@ -253,7 +254,7 @@ rcon.password={self.password}
             (functions/f'snapshot{count}.mcfunction').write_text('\n'.join(collect)+'\n')
         (functions/'freeze.mcfunction').write_text('tick freeze\n')
         self.log=(self.root/'server.log').open('w')
-        vm_args = self.root/f'libraries/net/neoforged/neoforge/{VERSION}/unix_args.txt'
+        vm_args = self.root/f'libraries/net/neoforged/neoforge/{self.args.version}/unix_args.txt'
         self.proc=subprocess.Popen([str(self.args.java),*VM,
             f'-Xlog:gc*,safepoint=info:file={self.root}/gc.log:uptimemillis,level,tags',
             '@'+str(vm_args),'nogui'],cwd=self.root,stdout=self.log,stderr=subprocess.STDOUT)
@@ -418,12 +419,26 @@ rcon.password={self.password}
         dump(self.root/'commands.json',self.command_log)
 
 
+def verify_artifacts(args, repository=REPO):
+    # A candidate must supply its own exact hashes; changing version never disables binary pinning.
+    if not re.fullmatch(r'[0-9]+(?:\.[0-9]+)*(?:-[A-Za-z0-9.-]+)?',args.version):
+        raise ValueError('Invalid pinned version')
+    installer=repository/f'projects/neoforge/build/libs/neoforge-{args.version}-installer.jar'
+    core=args.installation/f'libraries/net/neoforged/neoforge/{args.version}/neoforge-{args.version}-universal.jar'
+    for path,expected in [(installer,args.installer_sha256),(core,args.universal_sha256)]:
+        if not re.fullmatch(r'[a-f0-9]{64}',expected) or hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+            raise ValueError('Pinned binary hash mismatch: '+path.name)
+
+
 def main():
     signal.signal(signal.SIGTERM,request_stop)
     signal.signal(signal.SIGINT,request_stop)
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--runs',type=Path,required=True)
-    p.add_argument('--installation',type=Path,required=True,help='Previously installed exact frozen .58, immutable libraries')
+    p.add_argument('--installation',type=Path,required=True,help='Previously installed pinned build, immutable libraries')
+    p.add_argument('--version',default=VERSION,help='Pinned installed NeoForge version (defaults to historical .58)')
+    p.add_argument('--installer-sha256',default=SHA256)
+    p.add_argument('--universal-sha256',default=UNIVERSAL_SHA256)
     p.add_argument('--eula',type=Path,required=True)
     p.add_argument('--java',type=Path,default=JAVA)
     p.add_argument('--classes',type=Path,required=True)
@@ -444,19 +459,18 @@ def main():
             or args.window_ticks<200 or args.window_ticks%200 or args.warmup_ticks<200 or args.warmup_ticks%200
             or any(n not in (1,2,4,8) for n in args.workers)):
         raise ValueError('Unique counts0..256; warmup/window positive multiples of200ticks; workers1/2/4/8')
-    installer=REPO/f'projects/neoforge/build/libs/neoforge-{VERSION}-installer.jar'
-    if hashlib.sha256(installer.read_bytes()).hexdigest()!=SHA256: raise ValueError('Frozen installer changed')
+    verify_artifacts(args)
     if args.jfr: args.jfr = args.jfr.resolve()
     args.runs.mkdir(parents=True,exist_ok=True)
-    installed_core=args.installation/f'libraries/net/neoforged/neoforge/{VERSION}/neoforge-{VERSION}-universal.jar'
-    if hashlib.sha256(installed_core.read_bytes()).hexdigest() != '0c137cdaa9a88b160c8c146633eb1e39700d42ecc39ac4dd17cd45bd3d441e45':
-        raise ValueError('Installed .58 production core changed')
     previous_manifest = None
     previous_hash = None
     if (args.runs/'manifest.json').exists():
         if not args.resume_completed:
             raise ValueError('Existing experiment requires explicit --resume-completed; never overwrite a world')
         previous_manifest=json.loads((args.runs/'manifest.json').read_text())
+        if (previous_manifest['version']!=args.version or previous_manifest['installerSha256']!=args.installer_sha256
+                or previous_manifest.get('universalSha256',UNIVERSAL_SHA256)!=args.universal_sha256):
+            raise ValueError('Resuming different pinned binaries is refused')
         for key in ['counts','layouts','workers','rounds','windows','warmup_ticks','window_ticks','conditions','java','installation','jfr']:
             current=getattr(args,key)
             if isinstance(current,Path): current=str(current)
@@ -464,7 +478,7 @@ def main():
                 raise ValueError('Resuming a different protocol is refused: '+key)
         previous_hash=hashlib.sha256((args.runs/'manifest.json').read_bytes()).hexdigest()
         dump(args.runs/f'manifest-before-resume-{time.time_ns()}.json',previous_manifest)
-    manifest=dict(version=VERSION,installerSha256=SHA256,jvm=VM,java=str(args.java),seed=813584,
+    manifest=dict(version=args.version,installerSha256=args.installer_sha256,universalSha256=args.universal_sha256,jvm=VM,java=str(args.java),seed=813584,
         previousManifestSha256=previous_hash,
         parameters={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},
         note='Normal20TPS, unmodified installed binary, external read-only native JMX rings; metrics use only proven-active inner interval (+/-100ms) between unfreeze acknowledgment and last below-target gameTime query. Seed/layout/inputs/VM fixed per pair; no cold startup included. CPU100%=one logical core,8logical/4physical host.')
