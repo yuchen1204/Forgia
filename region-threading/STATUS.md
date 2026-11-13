@@ -4,16 +4,28 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — design phase
+## Canonical Block Entity Coordinator — C1 behavior tests
+
+The [C1 execution and failure record](CANONICAL-BLOCK-ENTITY-C1-TESTS.md) adds31behavior cases using the actual
+Level serial loop, original native/Furnace drivers, complete original furnace bodies, controlled fixed dispatch
+and real persistent workers with latches. Each fixed/persistent × resource-off/on configuration has23new cases
+passing and8target-contract failures: cross-chunk/global fence order, foreign insertion, post-refusal prefixes,
+mixed native ordering and eligibility changed by a fence. The failures remain active in the ordinary JUnit task;
+this is a recorded red baseline for the next migration, not an all-pass coordinator result. The22protected cases
+cover actual prefix join/commit, fresh rejection, v1 callbacks, body/fence/commit failures, interrupt/cancellation
+and unload/shutdown cleanup; the mixed Furnace target also passes. Production/API/patch/build/config/admission
+and existing tests remain unchanged. No new coordinator, Create support, installed-server or performance claim.
+
+## Canonical Block Entity Coordinator — C0 design phase
 
 The [source map, interface design, migration and test plan](CANONICAL-BLOCK-ENTITY-COORDINATOR.md) is based on
 `233905042`. It identifies distinct native group/fallback and Furnace wave/commit drivers, mixed sequence
 provenance, missing post-fence v1 preparation guarantees and native effect-queue ordering limits. The proposal
 uses the real level ticker-list order, a shared coordinator over existing tickets/permits/guards, contiguous
 worker prefixes and complete serial fences with fresh suffix audits. Furnace preparation, resource ownership
-and notification commits remain protected; Create remains independent. This round changes three documentation
-files only. There is no coordinator implementation, new API, patch/config/admission change or new runtime/test
-result. Resource Ownership MSPT tuning remains frozen; the phased plan starts with behavior tests before routing.
+and notification commits remain protected; Create remains independent. That C0 round changed three documentation
+files only, with no new runtime/test result. Resource Ownership MSPT tuning remains frozen; C1 now establishes
+behavior tests before new production routing.
 
 ## Modded Block Entity Multithreading Adaptation
 
