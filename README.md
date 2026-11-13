@@ -167,6 +167,9 @@ now takes phase ordinals from actual Level membership after pending merge/onLoad
 and restores global serial-fallback order. Five C1 failures turn green; the remaining three native fence/prefix
 failures stay enabled. Eight added collection cases pass, as do the original safety regressions. Both legacy
 drivers remain; C3 native effects/fences must pass before C4 Furnace integration, with admission/defaults unchanged.
+The [C3 native effect bridge audit](region-threading/CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md) now records
+an actual level-end task visibility blocker. C3 has stopped before production routing and C4 has not started;
+the final suite retains four canonical target failures, with the original safety cases rerun and passing.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

@@ -15,7 +15,11 @@ remain enabled. Eight new collection cases pass. Original Native/Furnace/Adapter
 regressions are rerun across real fixed/persistent × resources off/on, with the full core result in the report.
 No unified Coordinator yet; both execution drivers and their old indexed/explicit helper bridges remain.
 Admission, switches and budgets stay unchanged. C3 Native migration precedes C4 Furnace integration in the
-current authorized plan; unsafe effect bridges stop further migration. No performance or installed-server claim.
+current authorized plan; unsafe effect bridges stop further migration. The [C3 native effect bridge audit](CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md)
+now reproduces a real level-end task whose effect is invisible to the next Unknown Fence. C3 is blocked,
+C4 has not started, and no production Coordinator is enabled. A new visibility target remains red while the
+retained explicit bridge's level-end timing/exactly-once protection passes; current core has four target
+failures, with the original safety regressions passing. No performance or installed-server claim.
 
 ## Canonical Block Entity Coordinator — C1 behavior tests (historical baseline)
 
