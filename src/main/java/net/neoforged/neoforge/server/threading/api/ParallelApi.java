@@ -14,6 +14,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.server.threading.ParallelAdapterRuntime;
+import net.neoforged.neoforge.server.threading.api.adapter.BlockEntityAdapter;
+import net.neoforged.neoforge.server.threading.api.adapter.BlockEntityAdapters;
 import org.jetbrains.annotations.ApiStatus;
 
 /**
@@ -40,7 +42,8 @@ public final class ParallelApi {
         ORDERED_SPAWN_FINALIZATION,
         BLOCK_ENTITY_OPERATIONS,
         BLOCK_ENTITY_TICK_ADMISSION,
-        SCHEDULED_TICK_DIAGNOSTICS
+        SCHEDULED_TICK_DIAGNOSTICS,
+        GENERAL_BLOCK_ENTITY_ADAPTERS
     }
 
     /** Phase describes execution, not permission to mutate arbitrary objects. */
@@ -73,6 +76,16 @@ public final class ParallelApi {
             return List.of();
         }
 
+        /** Conservative C5 request diagnostics; requests never create execution authority. */
+        default List<BlockEntityAdapters.Status> blockEntityAdapters() {
+            return List.of();
+        }
+
+        /** Last closed C5 request session, containing no live sources or resources. */
+        default Optional<BlockEntityAdapters.PhaseSummary> lastBlockEntityAdapterPhase() {
+            return Optional.empty();
+        }
+
         /** Empty when no region engine is installed; collected/accepted/completed units remain distinct. */
         default List<ScheduledTickStatus> scheduledTicks() {
             return List.of();
@@ -96,6 +109,15 @@ public final class ParallelApi {
         default void registerBlockEntityTicks(int apiMajorVersion, ResourceLocation id, Set<ResourceLocation> types,
                 BlockEntityTickAdapter adapter) {
             throw new UnsupportedOperationException("This registrar does not support native block-entity admission");
+        }
+
+        /**
+         * Optional C5 protocol. Shares server registration transaction/id/type limits with v1. C5 targets
+         * remain complete serial fences; general/dedicated descriptions cannot enable generic Workers.
+         */
+        default BlockEntityAdapters.Registration registerBlockEntityAdapter(int protocolVersion,
+                BlockEntityAdapters.Descriptor descriptor, BlockEntityAdapter adapter) {
+            throw new UnsupportedOperationException("This registrar does not support general block-entity adapters");
         }
 
         /**
