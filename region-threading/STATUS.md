@@ -4,7 +4,32 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C4 single-phase Native/Furnace integration
+## Canonical Block Entity Coordinator — C4.1 lifecycle fixes and installed soak, GameTest gate non-green
+
+[C4.1 lifecycle and soak evidence](CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md) fixes server/Worker
+self-waits before acquiring cleanup's engine monitor and protects Native prepare callbacks with the same
+already-published phase batch. Each production fix is independently committed, with real failing-before probes;
+existing test expectations, grants, cohorts, API, defaults and budgets remain. Fourteen new invocation cases
+exercise mixed failure/recovery, actual pool closure/rejection, chunk binding replacement/pending membership,
+Region retirement/merge, complete-phase cleanup and200 consecutive mixed phases. Full core1328 and each
+other worker/resource setting262 pass,0failure/error/skip; all1244original cases and C1 goals rerun/pass.
+
+The exact-source installed Minecraft1.21.1/G1/4-Worker runs complete a60-minute mixed core soak and10-minute
+raw Create load, plus real chunk holder unload/reload and saved-world new-JVM restarts.85400checked active
+ticks/10322400bodies,33quiescent snapshots and14direct heap field audits retain no invocation authority/batch;
+RegionState counts match actual regionizer sets, Worker count stays4. Four idle Native scope objects/128B are
+bounded reusable caches with inactive/null-reference fields, not live authority. Main core wall3832.426s;
+Create long run wall780.320s. Transformed Create stays completely serial under UNVERIFIED_RUNTIME, no
+Create adapter/protocol certification. No uncaught installed tick exception;18ERROR/FATAL lines match9Vanilla
+perf dummy Level test reports,73WARN lines classified and preserved. Timing is progress data, no speedup claim.
+
+**Full GameTest remains non-green.** Two completed BE-focused framework runs each have4required failures
+(old declared source/single-furnace/region-fallback Worker contracts and save/reload configuration); the extra
+all-slice run crashes during the test sustaining block's Cactus direction callback. Original tests are retained,
+with separate raw XML/summary/crash evidence; no parallel switch is disabled to manufacture green results.
+C4.1 implementation/soak work stops with this explicit incomplete GameTest gate; no C5/C6/MSPT expansion.
+
+## Earlier C4 single-phase Native/Furnace integration checkpoint
 
 [C4 implementation and validation](CANONICAL-BLOCK-ENTITY-C4-UNIFIED-FURNACE.md) routes the actual Level path
 through one phase Coordinator/active batch/kernel/Ticket set/cursor with Furnace Waves OFF or ON. Original

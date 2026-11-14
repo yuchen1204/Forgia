@@ -163,9 +163,13 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
     }
 
     void enable(boolean waves, boolean persistent) {
+        this.enable(waves, persistent, RegionLayout.FIXED_3X3);
+    }
+
+    void enable(boolean waves, boolean persistent, RegionLayout layout) {
         this.engine = new RegionThreadingEngine(2, false, false, false, true, false, false, false,
                 persistent, false,
-                RegionLayout.FIXED_3X3, RegionEntityStorageMode.MAIN_THREAD_ONLY);
+                layout, RegionEntityStorageMode.MAIN_THREAD_ONLY);
         this.engine.setFurnaceWorkWavesEnabledForTesting(waves);
         this.engine.setBlockEntityResourcesEnabledForTesting(Boolean.getBoolean("forgia.furnace.resourceOwnership"));
         set(RegionThreadingEngine.class, this.engine, "lifecycleGate", new ReentrantReadWriteLock() {

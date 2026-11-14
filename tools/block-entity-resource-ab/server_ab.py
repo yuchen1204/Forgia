@@ -201,7 +201,7 @@ class Installed:
         (self.root/'config').mkdir()
         (self.root/'config/forgia.toml').write_text(f'''enableRegionThreadingFurnaceWorkWaves = true
  enableRegionThreadingBlockEntityResources = {str(self.enabled).lower()}
- enableRegionThreadingPersistentWorkers = true
+ enableRegionThreadingPersistentWorkers = {str(getattr(self.args, 'persistent_workers', True)).lower()}
  enableRegionThreadingBridge = true
  enableRegionThreadingWorkers = true
  enableRegionThreadingEntityTicks = false
@@ -253,6 +253,11 @@ rcon.password={self.password}
                             for x,y,z in points[group*64:(group+1)*64]]
             (functions/f'snapshot{count}.mcfunction').write_text('\n'.join(collect)+'\n')
         (functions/'freeze.mcfunction').write_text('tick freeze\n')
+        mod_jars = getattr(self.args, 'mod_jars', ())
+        if mod_jars:
+            (self.root/'mods').mkdir()
+            for mod in mod_jars:
+                shutil.copy2(mod, self.root/'mods'/mod.name)
         self.log=(self.root/'server.log').open('w')
         vm_args = self.root/f'libraries/net/neoforged/neoforge/{self.args.version}/unix_args.txt'
         self.proc=subprocess.Popen([str(self.args.java),*VM,

@@ -1,0 +1,2278 @@
+{
+  "outcome": "C41_LIFECYCLE_FIXES_AND_INSTALLED_SOAK_COMPLETE_GAMETEST_GATE_NON_GREEN",
+  "generatedAt": "2026-11-14T08:46:51.062958+00:00",
+  "baseline": "9869e3f720bfcc9cc967aa04686de2b5806cb903",
+  "productionHead": "5d24c2bf5d7bd505b3b38aa16dc523cca35b8ca4",
+  "productionFixCommits": [
+    "a57376d48bdee6af804fa7978c4d62f1920eee82",
+    "4fa74eff06e5b6d7485287a8bb33bd268c65cb6c",
+    "5d24c2bf5d7bd505b3b38aa16dc523cca35b8ca4"
+  ],
+  "junit": {
+    "final-v4-fixed-on": {
+      "command": [
+        "./gradlew",
+        "--offline",
+        "--no-configuration-cache",
+        "--no-parallel",
+        "--console=plain",
+        "--max-workers=1",
+        "-PforgiaVersion=21.1.250.60-beta",
+        "-PfurnaceResourceOwnership=true",
+        ":tests:junitTest",
+        "--tests",
+        "*CanonicalBlockEntity*Test",
+        "--tests",
+        "*BlockEntityTickAdapterTest",
+        "--tests",
+        "*FurnaceWorkWavesTest",
+        "--tests",
+        "*BlockEntityResourceOwnershipTest",
+        "--tests",
+        "*BlockEntityResourceScratchTest",
+        "--tests",
+        "*BlockEntityExecutionEngineTest",
+        "--tests",
+        "*RegionBlockEntityTickChunkIterationTest",
+        "--tests",
+        "*RegionBlockEntityTickTest",
+        "--tests",
+        "*RegionTaskBatchTest"
+      ],
+      "exitCode": 0,
+      "totals": {
+        "tests": 262,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "resultSha256": "2df9c26a5cd851f2bbab6899b211a9165e382099c6839dd0a172ee1a98315ccb",
+      "logSha256": "336b7039dc282e6631b5f684593322e367ee86d4642d56904e6ba267cd8d630a",
+      "xmlHashes": {
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityRecoveryTest.xml": "7364ced37b3e6ef7c3d3438e38d589a9e3f4cab519581dfb5ebca98621b368ee",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceScratchTest.xml": "3845cc4623eb5594a815d8c24919a17d3fef3b795ee685e7cb6d1ac1c925cae1",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityExecutionEngineTest.xml": "771301bc44bc849b514d8bd55bc8f1bab672a6986aa53851af3bd16e88e7e5fc",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.FurnaceWorkWavesTest.xml": "5666a10556d86b5ab2ec36b07da3a673658a60a838c3277504a261c88e7d64b5",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFenceTest.xml": "b99e5ed2bea962add2a17ac62ccfeb5c3ef5d113aef746cf9ac369917836544d",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFurnaceIntegrationTest.xml": "9b9e99d90a715feb457bc104058e21264df85a886c6867c732b2cf223bf8e2b9",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.RegionTaskBatchTest.xml": "4a947d6508965609ccff11cd2703337a3246d0badbc1ca1f1c59eb1bf56f39a1",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickChunkIterationTest.xml": "4bd9d7ef7768df2f122f0327579a7c864503872a95eec09b7c832ede4d15bf47",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceOwnershipTest.xml": "5e66fc75f1747fc86a1dd794fcdac2f556fbdd5958d0c4b57224b96bf01af132",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeAdmissionTest.xml": "43864294ad8998bae2f7c74669133a167438dd2e26381da27353d5547f11615f",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntitySequenceTest.xml": "f0093f23cca69cf64f8e4b976cc606587927f78793672e5dbab8ea04a83ca3fc",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityTickAdapterTest.xml": "e895ca389c6c8d0e02f1057df90242fb2b618ffdf7b7b01c5083661f4e6127be",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCoordinatorTest.xml": "8b0acfc5b86e7c51e391a27f61b69a617989ec7c05204a82a73963c9b34b1600",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeInventoryTest.xml": "f71e19aff8712bb90a031e023e5f9a494e67b72dbc51a42b86163e6b4bffcddf",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityInvocationEffectsTest.xml": "c9da77dfe9b0c589c7ca7e7876f78aebd4a300baca2f403b7b828fbcd63aa83b",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickTest.xml": "80cb6c569ce1e815ca0d13c2b7a33dcab917c2b41584243d3e268c7fd137774a",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeEffectsTest.xml": "201bf934fe5158bcf47dc7907336e2498de2e3025ee03a79b10988bc568b7825",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCollectionTest.xml": "56185c073e31a4609a1198f13a146f796d577004bec7d3d5b25e18f5b2dc69eb",
+        "tmp/be-canonical-c41/final-v4-fixed-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityLifecycleTest.xml": "7d8d33eb95534953aafd01fb58a3b063b7c73c11741de17c78721ca366c95a2e"
+      }
+    },
+    "final-v4-persistent-off": {
+      "command": [
+        "./gradlew",
+        "--offline",
+        "--no-configuration-cache",
+        "--no-parallel",
+        "--console=plain",
+        "--max-workers=1",
+        "-PforgiaVersion=21.1.250.60-beta",
+        "-PfurnacePersistentWorkers=true",
+        ":tests:junitTest",
+        "--tests",
+        "*CanonicalBlockEntity*Test",
+        "--tests",
+        "*BlockEntityTickAdapterTest",
+        "--tests",
+        "*FurnaceWorkWavesTest",
+        "--tests",
+        "*BlockEntityResourceOwnershipTest",
+        "--tests",
+        "*BlockEntityResourceScratchTest",
+        "--tests",
+        "*BlockEntityExecutionEngineTest",
+        "--tests",
+        "*RegionBlockEntityTickChunkIterationTest",
+        "--tests",
+        "*RegionBlockEntityTickTest",
+        "--tests",
+        "*RegionTaskBatchTest"
+      ],
+      "exitCode": 0,
+      "totals": {
+        "tests": 262,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "resultSha256": "08109df4c125ab8c1171343076891e0e0ebae7d91f8d6d7c987ae79021be5a8a",
+      "logSha256": "336b7039dc282e6631b5f684593322e367ee86d4642d56904e6ba267cd8d630a",
+      "xmlHashes": {
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityRecoveryTest.xml": "d7459d38e5e5fbeb9e7ad4df2ddb04e46abf72af859d3ee98055ac0370aa4e36",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceScratchTest.xml": "4254ba40cb5da1b88b296f9f2c650d535175a4d98045be99c825d9e3beb1b950",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityExecutionEngineTest.xml": "2af83b61677a7daa92157793f2d026db5856c8d8d8290a19835b2f25def877f9",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.FurnaceWorkWavesTest.xml": "ad0cd929e1561e18339567378faffad8555468d51731de1bec031fecaa151a09",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFenceTest.xml": "0381518273b4db9ccd8587e40fc9eb48e805bdf0940e92a7fe8bf62c46dd3a36",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFurnaceIntegrationTest.xml": "c2a4d04b13c62926c872d829c9224b7588f5552ae5a374377e276f2721dd900c",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.RegionTaskBatchTest.xml": "86db58487e750f414a2473f80e4b614a8e3cf51a1e2661948b15de73373c4a05",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickChunkIterationTest.xml": "6d6408aae487cb7b51478bec88164b34979cf0e3554212b259c5f8c18d49b5ae",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceOwnershipTest.xml": "d9772bf81b4222919bda075ff20214af2ec7e511b2a2aca3f2352fdb5a622461",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeAdmissionTest.xml": "5e225750f9984e9187cc9d6c8ec7b8192f94967c64b0cd3862ea2de372ed60d3",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntitySequenceTest.xml": "6b873c4a738bc8a5acf8ac6c28189c05dc93bbccdf8d77b2e964a2a6134bd8c2",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityTickAdapterTest.xml": "b8666584e1949322739c5a73cd9da6700fe4cb0c6db9c9f6c01f6054b3e6b98a",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCoordinatorTest.xml": "feeca227ba5da6987f37c4b2705c81977b08b55a69bf35e4153c293ba53a8b96",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeInventoryTest.xml": "c6c588caa1f6d25f22076b5b9253832012853520d2d93c2766240d898febd52d",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityInvocationEffectsTest.xml": "c984cde7d84b69e0494fd7eb60bd22e7fa8cb8ee3e7ced7c4ded8c4cd05746c2",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickTest.xml": "4271c2a9db394075b64eb53d111b5490d0ebd8341f7d9e15f9a0c98b62d78785",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeEffectsTest.xml": "96ea442c648937618692735feb79022a26fa0b418dc18bb297bcdac479a27bfe",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCollectionTest.xml": "a757c6c05ca3e6330dae3cdfbd05968d633bd4d872f14e7148a571944ecce180",
+        "tmp/be-canonical-c41/final-v4-persistent-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityLifecycleTest.xml": "0e5293d77aa19d85cdd6cdcd0b463725510426cbffed1d8a75c0e10afb4f579f"
+      }
+    },
+    "final-v4-persistent-on": {
+      "command": [
+        "./gradlew",
+        "--offline",
+        "--no-configuration-cache",
+        "--no-parallel",
+        "--console=plain",
+        "--max-workers=1",
+        "-PforgiaVersion=21.1.250.60-beta",
+        "-PfurnacePersistentWorkers=true",
+        "-PfurnaceResourceOwnership=true",
+        ":tests:junitTest",
+        "--tests",
+        "*CanonicalBlockEntity*Test",
+        "--tests",
+        "*BlockEntityTickAdapterTest",
+        "--tests",
+        "*FurnaceWorkWavesTest",
+        "--tests",
+        "*BlockEntityResourceOwnershipTest",
+        "--tests",
+        "*BlockEntityResourceScratchTest",
+        "--tests",
+        "*BlockEntityExecutionEngineTest",
+        "--tests",
+        "*RegionBlockEntityTickChunkIterationTest",
+        "--tests",
+        "*RegionBlockEntityTickTest",
+        "--tests",
+        "*RegionTaskBatchTest"
+      ],
+      "exitCode": 0,
+      "totals": {
+        "tests": 262,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "resultSha256": "360390378372d99d28e793a61c54125527337e311fbe5bc5b71dd4423deac575",
+      "logSha256": "5de3b43b0cf68e7fb21dfac6540574557eff8de19352cb80de9490618ebb1229",
+      "xmlHashes": {
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityRecoveryTest.xml": "6a8d7d6ad0a056b8f76a4401ea75e09ed59428c9f86bac375b2ce6e4cc8adb7a",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceScratchTest.xml": "877f03d4a94120dd75ad1ea9537dcd0c780a45797eb952cc2be9ca448f4ebaf6",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityExecutionEngineTest.xml": "043cc780286514f245ef574c6a670b0f20ac5ac9c77652b8447a4fc8e4918b0b",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.FurnaceWorkWavesTest.xml": "4d5567cc8180c3947ab3bebbabedf60ad95c547dfadd01a2c68b22c0bbb2122b",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFenceTest.xml": "0d5324086199024291755755bf4c67ec4a7bbc1b4640316444b12b40a1f833a8",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFurnaceIntegrationTest.xml": "b490b13f9121b9adae7fea5762dba7b01d11b522137fe26afb3e62d1ef7630f1",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.RegionTaskBatchTest.xml": "7602e6adc6897ed3ca0c7864af42f5b46bda14cffb8a0a690a8ca344f7945fa7",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickChunkIterationTest.xml": "d56ba94bae90aac72894857794cdf8e57b6b840ebf194fe45e3c65495547c0b9",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceOwnershipTest.xml": "229b83c7c2df617e757c3c2d597cb182d13361dfdccbec96123648115be5401b",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeAdmissionTest.xml": "8c6e3fbfd91e395254b2ade0f7e892182ca5709c2f59b853d96323bf6a06c220",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntitySequenceTest.xml": "5a1f94ba57ca355c6cfbee3e25f2ede989480fbd179926e2353b9483971d25f7",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.BlockEntityTickAdapterTest.xml": "459dc13e160da030dcb1605a342397a1f6aae15aa3721366c663ff0d24a64e13",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCoordinatorTest.xml": "0ffd3a213a334b631670b9533e49146d17368ba93bf4439c7934d1c8f7164564",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeInventoryTest.xml": "c56ba75b81e5252099a99228015684838e83c934c8ad3fc985729d62355af325",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityInvocationEffectsTest.xml": "cc4e67c9da47eeb42258b1063600bd4526c037f43fbeb515eba7860ac0c31977",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickTest.xml": "6cfe21575546f1a8369de3de225c957ba0c7dd59765d63e59958234192a3c425",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeEffectsTest.xml": "f4c2baf3f02aeb3601567385e16ac62c74d97ffa9e4512a18c41d75c4d5591d3",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCollectionTest.xml": "66ad2b1bb2450fc4c5a0c397376e22731721e9a1c6bffe00c6097df53a6451cc",
+        "tmp/be-canonical-c41/final-v4-persistent-on-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityLifecycleTest.xml": "8abf4bea6061d28171f5c3baf0f64afd74a3f25ffb8bfc7d05b3b10744448d7b"
+      }
+    },
+    "final-v4-full-core-fixed-off": {
+      "command": [
+        "./gradlew",
+        "--offline",
+        "--no-configuration-cache",
+        "--no-parallel",
+        "--console=plain",
+        "--max-workers=1",
+        "-PforgiaVersion=21.1.250.60-beta",
+        "-I",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/format-selected.gradle",
+        ":licenseCheck",
+        ":tests:licenseCheck",
+        ":checkFormatting",
+        ":tests:checkFormatting",
+        ":tests:junitTest"
+      ],
+      "exitCode": 0,
+      "totals": {
+        "tests": 1328,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "resultSha256": "7e7758bebc76e3c43fe71514af23874bdacc7291bc9bdb243c3410a52fb157d5",
+      "logSha256": "128a5a161ef7e844341915d15bf5739921c1a3d230e683a8700d787871b4cade",
+      "xmlHashes": {
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionSculkSensorEquivalenceTest.xml": "a7d727aeea742a708f83733ccf95f402b9bfb1f21acf396e396ede6d4ae7018e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityOwnershipTest.xml": "bb1c74aff1818af4717574471cc97b3233c29d9ad9d5c5106f92c8dcf5916c59",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickEligibilityTest.xml": "3f552b51caa3c31744cedcac574635d082f8c23ce91c6468ee3746852d1bcf4f",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityRecoveryTest.xml": "77579ee0b670d67b713fdf1ce999840775412e5ef73b50574d7571cffeec73cc",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityTypeValidBlocksEventTests.xml": "150e5e913af1c1951c9611af670a2246a18e5d8a7c25acd84bf500886d722825",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBorderEquivalenceTest.xml": "f58c5b7a515e6c6ab6ffa90ebe85ace06f5c6eb5b356a0f8034f6eba77c29430",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBarrierAttributionTest.xml": "8ecb9d629496aabecc3256a939a0de522dfea2417eaf290390fbad4f0e416afd",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.ParallelApiTest.xml": "9078d3b13902d1b4aa3a2808533274f5189b5f7a8689c68956d4a52785e91c97",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceScratchTest.xml": "de58b2be890d3a79bd659a86449add7741c6df0832c0c0fd44b94720e8b16c24",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.EntityModelSerializationTest.xml": "cb3935e7ffa90275bef560c711973fec1d2dfb84dfcef13070611a87016a4e28",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityExecutionEngineTest.xml": "6b05742142cc0128a990be34463393c5b8b479c2f00c05113906712a33446684",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionTickCompatibilityTest.xml": "8be0e58f2d8ee9e2b384485f9b593ad56372161fd8b5ab26e576f6af418f033f",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionFixedPolicyTest.xml": "f39c7d42c28ee36d8945552464c9b380b73f51b49858e7eb2920517970212133",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionPoiSaveReloadTest.xml": "978553b5d132d2e4730849d0c5de172d43579d068365e3d3ec6416aac6e3a75d",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.FurnaceWorkWavesTest.xml": "8cd7a2a1d620e9fbb3ad8eabb07d7baf3f261a483f97d7416434859bc6e43a16",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionGlobalPhaseMailboxTest.xml": "18ab2f062e89fe5c90dd44c39b27826806a17d8d22ab0b1101d36f76e512598f",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.MapIndexConcurrencyTest.xml": "7e2deeb6e6c0c2a00f5475fdb58f828d13cf5289d9bc18bcca3d96f11066fd76",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionNeighborUpdateTest.xml": "600a1e12ec9ddf12e40af22f3dcef1ad09610048be150359c827684cf87d65a6",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.MutableHashedLinkedMapTest.xml": "2f3e60f61ecea533fe1cd3ad2d260ccf32b576c7cc8c1d0d2a3582d0b48ba588",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionForeignChunkReadVersionTest.xml": "5ca9f0dd505120178370a9e7e3bfbb3cefeb6764f77172ed1857eab833ae030f",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.SableLoadedChunkLookupTest.xml": "5e603de9861a621ad547434cfc7a44cf76f216d02391e2345764f22610a94664",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFenceTest.xml": "bb73ea353dbca82d568025eb292ba7a7ea49f6c68126727dcbe3dd62cc5d44fb",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionRedstoneComponentEquivalenceTest.xml": "a3eddfc4cfee074f32b0e56c2d9d612ce2a6a26d3fa585ea4611c8df60e495a0",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionLeasePackTest.xml": "8c473cc6d66ac6155fff65872253352074aa72e44239fba0963b84cddfdb6338",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionHopperTickLeaseTest.xml": "8d0f7c384fc88b380b1ecd9d8c67f18393f62558184bf3db2619aa51c4055d6a",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionInteractionCompletionProofTest.xml": "f4b7d0f8d5f0d349ce272b190d66ec5340f6b75077a4f2e19a02e2c029ec86fa",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionFailureAggregationTest.xml": "e76fb4e4d99fa5cf0bf6c221da9ee7e6804996cd051594b97fd90dd5e4a00bbb",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityFurnaceIntegrationTest.xml": "06b67790fe8dc6498fbd576d3b34566798d14f66b4a49c80f5083a73fbaac1eb",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.InsertableLinkedOpenCustomHashSetTest.xml": "c73508cfdee0468d1bae7401b63c9ff96733be48a2268a0bd2e67fbcc790c7d7",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionPoiEquivalenceTest.xml": "14f64f772dd5131e6ec7e6a8ba289d7f9bf076775dc45bfab8b264f7834a3b7e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionThreadingEngineTest.xml": "85ecb7da8eebba3a5dd231a093af08dc3bbab3fb5c41703b2812a6e37df5b99e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionScheduledTickTest.xml": "5218a464e5bc10dcb658843f8d4c456529e17cf3049a99df2b9b9194f6bea9b4",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockDropCaptureTest.xml": "3e350dec18632617a6f6b3a9a6fcc1dc6ab3dc7eafe93da0eaafcb5a86248006",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.EntityIdentityLedgerTest.xml": "231a367317c5d04c2aa9cc11ecad00d926f954e0e0138f48cb1e6f423e31abdf",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionWorkerTickFailureTest.xml": "40f19a7574a8e8bc3c2d1b00f89fa1062b8f7727b7eca873f22b3b8347cd876c",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionTaskBatchTest.xml": "6d222dd799554600e853ddf7d0474ae209f145255be263f44037afacc9016aa4",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickAttributionTest.xml": "92dcbc387eea7a5f833be408ec6668f95fd04f01afc95d6306355feb5feb0599",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionThreadingConflictsTest.xml": "79edcc32b52b67dd48e45bd5cc6a1eee8c9ceed16f3c048657bd247f458e67c5",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityQueryHandoffTest.xml": "49f4ffa1c3eb9c7fa7cebd480efa3c10c11df0070e8079ecbf80b20cb43f3d15",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionPoiRegionizationTest.xml": "38add6ad28b6e9428d98b3af1ebf5f6f41e1b8c4530beb2b7317dbd22c67d577",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionTaskQueueTest.xml": "e1b60e0b4691954bd39a7efe4c0b8b9d7bd65f882fdced18274fbe650a2e16ee",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityStorageBoundaryTest.xml": "bca54e83fbf247be0a2340ccec32dd0c21cad0fc989a5b57583ede2635ddc6ee",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionWorkerChunkGuardTest.xml": "7532998ae81998d5f2a42b2917740a62e98cb0140cccf4323fb86cf55703736a",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionMetricsReportTest.xml": "7edc38d66b0500c0e5ab1df5f0ead0f4f25f0ee1a44796365eb5eca7c7b7af90",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickChunkIterationTest.xml": "b35a5026cf6364baf9f2b7338c48b5cfc0560718cb66390d5a81b97bb70f3474",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityResourceOwnershipTest.xml": "4c5514750f6490f04499ecb89dda5921167d329b1430b91b9de79cd3df88e787",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityTickRandomTest.xml": "d23911591589e155097bae82833434a5e36655b295852f66eb20a009a8b8e01e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeAdmissionTest.xml": "a1281d195bbe8cdab867d16c7c381da9dec7fd9815013e28e067ebd4916b4d68",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.FixedEntitySectionPartitionsTest.xml": "413886b07d67b3ba68fc4c4a67f81e831798bc0857839308d870d7dfc907e13b",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.NearbySpawnReservationsTest.xml": "8fc552eecadd529edb40fea8e792fa9e657698bc1fdfe72509db24938a889fb5",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntitySequenceTest.xml": "69fd672de55cf13b49431b41ec420c6ad06e1944f8e3ec1f13d251df35dfb461",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityTickAdapterTest.xml": "bbc1a6fc28338e1fa48b0e60546df0ed358624d959483c937ea0d4851005b09e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionSelfDrivenEntityTickTest.xml": "30beda72fd943ea1e0a1a66e90010f3f69f90516d418b83de0ba24bb588eb492",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.ComponentHashingTest.xml": "3aec2c18cc82e5a877d36877d011cd33903a53bacf96d84869e8eccbc780fe2b",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityWorkGraphTest.xml": "a2b3b2f0027e7188a7c61db5646e68d7da87c2d61bfe9ea4f3b6c9230b5e5b9a",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.IngredientCacheConcurrencyTest.xml": "29bfaa414199737ca2ab73a5e35252d19d35db1a3013b60f7f46858e13fd7c58",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityTransferTest.xml": "ef69e209ad2c757388b0596238af7dd68f7fbdf5ec65189a6bb8232855dc6340",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCoordinatorTest.xml": "8ea97620109ddcbfa6e2c777de882a91704700753fcfdabd1d1c0d0cd29b3b31",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.DeferredEntityAdmissionScopeTest.xml": "0a91e3716d8ae946c692bc32ef01335d6374f73581377fd1637ff8ec949c55a4",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityTickAttributionTest.xml": "ce21e36d2266a8b5e4887e4819aa66c588b989d666759c2c2618b71642099099",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.ForgiaConfigTest.xml": "a6e74b68ca8ce02f18a5670a1ed20ca76aa58281e928d9fd4613b9646c7813a1",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionRegionizerTest.xml": "09d0f047293e74244bcf834208ac32a5a2da6d6be79a5258d3ec594deb906ae9",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionWorkerPoolTest.xml": "3d827a7487f640ebbc98f396e9095a48db3d5bb581fad93683315af22633b502",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeInventoryTest.xml": "0f13b9ef352de9688eb9f1bc48cc8439aefbed1493b6322d035e727eb938a54f",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.StartupConfigTest.xml": "3af215aecc1fbf4c07475d0dfd96cb343c150debfb0d39f65ce4050aca3dbb7d",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionSpawnTest.xml": "6e9d4949e55db61d7e2978f8904ba88feb0eb24b19245789077a55236825d3ca",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionScheduledTickAdmissionTest.xml": "8ae04521f7cba368897e17365b6032c8a597c6bd3dd54beded6d8dc70a021abe",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionPlayerTransitionTest.xml": "26fb5114dbf2641cc50ad0a72c11d21a261963609a0a4cbb0e19c4df635f69d3",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityOwnershipLeaseTest.xml": "398b50ac3229a83cbcd16775f58aef0ce9463ef4c82ba34f5bf2f93df90818dd",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityInvocationEffectsTest.xml": "a8c4ee0f99efa3645de71fd9e1ed9800c1d60f0171e1a6a9939510517c4f2ffa",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionTickMetricsTest.xml": "e4c16f1bc4dc4a12a175d5202204568af6cbb1790e1f870935297750d6519bec",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBorderBlockWriteTest.xml": "853028c4469db9d3ae3cdade8fbe8bede6e5ccf31b33410a7d9be205f314f5a8",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEntityTickTest.xml": "08b5dc3533d27ca8cba5775c3a2af22e0c95001be3df7b1bef83e32b9ba20aa7",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RandomSequencesConcurrencyTest.xml": "59edb026de48f45d33d7e8cde00c7d2126f1ca4fb84f0a16baeea700aa9fbeae",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEventAttributionTest.xml": "e842c4e1719fb7b542c842f2699cc08b71f230ac3436a30a80bd265fb4ea1a94",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.IOUtilitiesWorkerTest.xml": "54ffc769554c8e655493aa115ea17c1be649ca0f59362243cf617b6168d99615",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityPortalTransitionTest.xml": "0f130ba7437548886cd9e78dbe5fec588b135a50166dafd7d7e39e4b77314a8a",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityDeferredUpdateTest.xml": "f8ceac8dc906e87c0740bcb8f979cf25c0210bec1f2b1f1a44ff59fb0c6d9c5e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionWorkStealingDispatcherTest.xml": "2acdcb135070075910de6cca0386310f1bcc3609fd505e2ff95f05852d409c4d",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CommandSuggestionTests.xml": "294ced83680f021aecc23ceb4377d359712d4698b6311f865863236cd5cdb7e4",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionGameEventCaptureTest.xml": "fbb37c73a340f09600a5e28631b9aaa2ddaf63c2b79ac1905c794aa81d672590",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityAdmissionDeferralTest.xml": "8f966f70eef68d632dfb7be1bbf4b2d4ac7eeb4a9bba34f28f0652c34e179ef8",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CustomFeatureFlagsTest.xml": "d8a8a6ca947d8df4e9357f7899d0c2c91981ce1a84d73f1d2fe697503336cc39",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityRemovalDeferralTest.xml": "08f83df6f3104575987b2d786d1d5fc97bafe8f511cfddc29caabb5e04e1c364",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.IngredientTests.xml": "f3e3ea176042c29174f33998876869e86ad385641798d2d3f940373e94691ff0",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionChunkTickSharedStateTest.xml": "c6d14910b162e8e420e9067c9a3d8a83e82ef1ca7f44ef0358f3e81da23948bf",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityNativeEffectsTest.xml": "d131feda1eb1582c3a6d2a8cc83ef42003c31e070b44f13f91be9af08460e9df",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBorderUpdateTest.xml": "458a6cc3f1c1c06d5bd90d471756da9f745dad6f6cee75369abf0dd1da40e6d7",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionRandomizedRedstoneSoakTest.xml": "02f9fa6d5ca72cff2485f20d69c63d5b65384c6dda3692c26adfef3227b32596",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionSpawnAdmissionBarrierTest.xml": "df3c14575407cdc7f1cf5866e76fff08b4f99b2d526244fc2964eff59c11e2fd",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CreativeTabOrderTest.xml": "c77ae9615d4c2e126a8fdc233b065582cf1418d1c955587080534f3e4339fbb4",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityQueryPathsTest.xml": "aa1a6956f2ee5e9e7e08fade9ecba36187b5dd7254c8d241301629a6c60495ae",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.OrderedIOQueueTest.xml": "82dcdc7fb5aad599ffcdf7c23a5f7f4800b8df888db95e895db0f860f9ddf05d",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBoundaryFurnaceTest.xml": "7119d9753857caebe5db9598ac3a18241f1efcc295fc2d9ffa8adddf162a6998",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityTickIndexTest.xml": "9bb75dd5e238c073005b901a12ae931322a6ed907bb5af51814f17938025b768",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityWorkPlannerTest.xml": "21c3f6bfdd65934fb7738b1563679a5d4e787a4ff361d2261826ecc18b71f61e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityCollectionTest.xml": "6babfed96627712b794d64e2b44e1b8b7c3ff5e2e89b534b8daea89c23812cda",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionScopedEntityQueryTest.xml": "2781ac0335402a778b77a413f15b212927e30ecf4719ff07efffa647651a4658",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityBatchPublicationTest.xml": "ce508ae92b1cff217ddbe403d269eba3bc3f155293e5709fd691b4ed3b508ec6",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionDeferredBlockUpdatesTest.xml": "8471cc2c2c873a158a3f06277053f6b45928c02c8cada57c43e6cc079377fe0b",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionTickGroupingTest.xml": "4c69bdc89a480ecee09187957fb81af25f23100ab7e9be88897a3eb19bad9311",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionChunkTickTest.xml": "a9885f4170958c990c0ed828dea6d0c632bcd055f5219b0e69575ecfe394dff5",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityTickPlanTest.xml": "1b58e826b2f3205b183c5645e9e08625046c8086576f7a315276eb9022db7240",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntityTickPolicyTest.xml": "3d01f421147894c247d2fef3ee24b0ffce6a53de92ff47eef2b7e9b7745bc04e",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.BlockEntityOperationsTest.xml": "e25ae1a41e274ea88430e01202ecc6c0992919b0145b211bbf9612b680f57cb6",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.CanonicalBlockEntityLifecycleTest.xml": "6c5567be10b107bff26e7bb2b7d38612df68a613afe4ac947dd8f7157b3c3949",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionEntitySectionDeferralTest.xml": "3bd279d2f8e24c799ddfcde5cfd4e96a0776ee77221220ecf708a9a60d30d645",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionThreadingDeclarationsTest.xml": "71fbf7d77cfbc21796c97d50c2b5c5692deaf5279d95e00ad52b44ff23331070",
+        "tmp/be-canonical-c41/final-v4-full-core-fixed-off-results/TEST-net.neoforged.neoforge.unittest.RegionBlockEventPhaseTest.xml": "d048aa959c6688ada19ba54326959f146453f0a2341d47052e0ff689a6dc494f"
+      }
+    }
+  },
+  "all1244OriginalCasesActuallyReexecutedAndPassed": true,
+  "allOriginalEightC1GoalsPass": true,
+  "canonicalCasesPassedPerConfiguration": 84,
+  "gameTestGatePassed": false,
+  "gameTestEvidence": {
+    "outcome": "NON_GREEN_GAMETEST_RESULTS_RETAINED_NOT_ACCEPTED_AS_PASS",
+    "runs": [
+      {
+        "name": "gametest-current-v4",
+        "command": [
+          "./gradlew",
+          "--offline",
+          "--no-configuration-cache",
+          "--no-parallel",
+          "--console=plain",
+          "--max-workers=1",
+          "-PforgiaVersion=21.1.250.60-beta",
+          "-I",
+          "tmp/be-canonical-c41/gametest-private.gradle",
+          ":tests:runGameTestServer"
+        ],
+        "gradleExit": 1,
+        "logSha256": "dfaa2955e68b01c38c02716570a2587dbe53be7ee7a5af91d2d0ae0359712c72",
+        "reports": [
+          {
+            "path": "tmp/be-canonical-c41/gametest/server/tests/testframework-neotests-tests-20261114061007.junit.xml",
+            "sha256": "3795c6931d8388b0b24a11f1bdc0baa813d22acb0faa7a39b1c24707de916916",
+            "totals": {
+              "failures": "4",
+              "name": "neotests:tests",
+              "skipped": "5",
+              "tests": "228"
+            },
+            "failures": [
+              {
+                "name": "blockEntityOwnerOperations",
+                "message": "GameTest fail: the declared example source did not submit from its native worker; configure its explicit type admission"
+              },
+              {
+                "name": "furnaceTicksOnRegionWorker",
+                "message": "GameTest fail: the furnace did not tick on a region worker: before=0 after=0 fallbackBefore=476637 fallbackAfter=501902"
+              },
+              {
+                "name": "savesAndReloadsRegionThreadingState",
+                "message": "GameTest fail: the save/reload test needs the regionized POI storage enabled"
+              },
+              {
+                "name": "unsafeTickerForcesWholeRegionFallback",
+                "message": "GameTest fail: the safe furnace never ticked on a region worker while it was alone in its region: before=0 after=0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "gametest-current-v5",
+        "command": [
+          "./gradlew",
+          "--offline",
+          "--no-configuration-cache",
+          "--no-parallel",
+          "--console=plain",
+          "--max-workers=1",
+          "-PforgiaVersion=21.1.250.60-beta",
+          "-I",
+          "tmp/be-canonical-c41/gametest-private.gradle",
+          ":tests:runGameTestServer"
+        ],
+        "gradleExit": 1,
+        "logSha256": "69a3c04ce8015a9c987e169cedac6e3bd28427542ae53535aa0b77428057cd66",
+        "reports": [
+          {
+            "path": "tmp/be-canonical-c41/gametest-v5/server/tests/testframework-neotests-tests-20261114062333.junit.xml",
+            "sha256": "07d0ea20420c82dbefbd03e3e130597d6a5a28ded600343ba8cb2a0e7bedc6a5",
+            "totals": {
+              "failures": "4",
+              "name": "neotests:tests",
+              "skipped": "5",
+              "tests": "228"
+            },
+            "failures": [
+              {
+                "name": "blockEntityOwnerOperations",
+                "message": "GameTest fail: the declared example source did not submit from its native worker; configure its explicit type admission"
+              },
+              {
+                "name": "furnaceTicksOnRegionWorker",
+                "message": "GameTest fail: the furnace did not tick on a region worker: before=0 after=0 fallbackBefore=494931 fallbackAfter=553774"
+              },
+              {
+                "name": "savesAndReloadsRegionThreadingState",
+                "message": "GameTest fail: the save/reload test needs the entity tick slice"
+              },
+              {
+                "name": "unsafeTickerForcesWholeRegionFallback",
+                "message": "GameTest fail: the safe furnace never ticked on a region worker while it was alone in its region: before=0 after=0"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "gametest-current-v6",
+        "command": [
+          "./gradlew",
+          "--offline",
+          "--no-configuration-cache",
+          "--no-parallel",
+          "--console=plain",
+          "--max-workers=1",
+          "-PforgiaVersion=21.1.250.60-beta",
+          "-I",
+          "tmp/be-canonical-c41/gametest-private.gradle",
+          ":tests:runGameTestServer"
+        ],
+        "gradleExit": 1,
+        "logSha256": "72c15264563412841464474ba88ee8e389c996623e8a45628e63570a323712f0",
+        "reports": []
+      }
+    ],
+    "allOriginalTestsAndAssertionsUnchanged": true,
+    "noParallelDisabledToManufacturePass": true,
+    "noAdmissionExpansion": true,
+    "beFocusedFullSuite": "4required failures: declared custom source expects legacy Worker; single furnace expects old coarse Worker; same-region fallback assumes old driver; save/reload requires additional entity/chunk slices.",
+    "allSlicesAttempt": "Interrupted by CanSustainPlantTests.CustomSuperSustainingBlock.canSustainPlant throwing Incorrect direction param passed in during vanilla neighbor shape updates. Full crash retained; not a completed GameTest run.",
+    "overallGameTestGatePassed": false,
+    "independentInstalledServerEvidenceToFollow": true
+  },
+  "installed": {
+    "core-pilot-v4": {
+      "command": [
+        "/usr/bin/python3",
+        "-u",
+        "tools/canonical-be-lifecycle/installed_soak.py",
+        "--runs",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-pilot-v4",
+        "--installation",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/installation",
+        "--eula",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/gametest/server/eula.txt",
+        "--classes",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/observer-classes",
+        "--version",
+        "21.1.250.60-beta",
+        "--installer-sha256",
+        "55d2c2ac213412880a6034734504912378e7d42a8768095665a19ef8c9ed38bf",
+        "--universal-sha256",
+        "5b673b107574ee1525965153e0297f2ee0eca2a0f52ea4cc28486ef8f9829923",
+        "--windows",
+        "1",
+        "--window-ticks",
+        "200",
+        "--checkpoint-every",
+        "1",
+        "--unload-reload",
+        "--restart-saved"
+      ],
+      "exitCode": 0,
+      "wallSeconds": 165.0672989040031,
+      "checkedActiveTicks": 400,
+      "mods": [],
+      "actualUnverifiedRuntimeRefusalsSinceBoot": 0,
+      "modRuntimeFullySerialIsNotParallelAcceptance": false,
+      "createRecipeBoundsAndCompletedInventoryAudit": [],
+      "nominalPacedActiveSecondsAt20Tps": 20.0,
+      "windows": 2,
+      "workerBodies": 36181,
+      "serialBodies": 11819,
+      "nativeWorkerBodies": 14400,
+      "furnaceWorkerBodies": 21781,
+      "outputs": 128,
+      "metrics": {
+        "samples": 369,
+        "weightedMeanMspt": 16.435018967479675,
+        "perWindowP95RangeMs": [
+          10.697601,
+          27.837601
+        ],
+        "maxMspt": 30.294,
+        "perWindowObservedTpsRange": [
+          19.9739905208695,
+          20.082764433106597
+        ]
+      },
+      "diagnosticCounterMaxima": {
+        "rejectedWorkerTasks": 0,
+        "failedQueuedTasks": 0,
+        "workerServerTasksDropped": 0,
+        "ownershipViolationCount": 0
+      },
+      "checkpoints": 6,
+      "errors": [
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 65,
+          "text": "[15:12:09] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 66,
+          "text": "[15:12:09] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 0910b975-28eb-488b-a86c-b5df814c57f4"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 67,
+          "text": "[15:12:09] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 68,
+          "text": "[15:12:09] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 71ed451a-b2f9-4427-9c5d-1690bece840d"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 69,
+          "text": "[15:12:10] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 70,
+          "text": "[15:12:10] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID a03b2750-fe16-452a-b0e9-9b34f4888e95"
+        }
+      ],
+      "warnings": [
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 22,
+          "text": "[15:10:37] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-pilot-v4/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 23,
+          "text": "[15:10:37] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-pilot-v4/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 34,
+          "text": "[15:10:39] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 35,
+          "text": "[15:10:39] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 36,
+          "text": "[15:10:39] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 37,
+          "text": "[15:10:39] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 38,
+          "text": "[15:10:39] [Server thread/WARN] [ne.ne.fm.co.ConfigTracker/CONFIG]: Configuration file /home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-pilot-v4/server/config/forgia.toml is not correct. Correcting"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server.log",
+          "line": 71,
+          "text": "[15:12:11] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 2538ms or 50 ticks behind"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server-restart.log",
+          "line": 22,
+          "text": "[15:12:51] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-pilot-v4/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server-restart.log",
+          "line": 23,
+          "text": "[15:12:51] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-pilot-v4/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server-restart.log",
+          "line": 32,
+          "text": "[15:12:53] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server-restart.log",
+          "line": 33,
+          "text": "[15:12:53] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server-restart.log",
+          "line": 34,
+          "text": "[15:12:53] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-pilot-v4/server/server-restart.log",
+          "line": 35,
+          "text": "[15:12:53] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        }
+      ],
+      "restartAuditSha256": "677fc7d449a553efc5d29a06419ebeda87c8bee5dae966df5fd22be99fd2708c",
+      "unloadAuditSha256": "2723b0dd16e2cb8058ddfdeac4a22517c9ed8ae18b1c703b2d2e3f5afc56b256",
+      "resultSha256": "18807d932a27f116b3b226285e42442dbffc962a681e20384fe2c8931dc8bc4e",
+      "driverLogSha256": "43a5dd5c015f73c217e292caefdb2d3a4156a686dd6fc0805d935c56db4dcdf4",
+      "manifestSha256": "e803f74231638b92219957b1d747fd4e3c3528c41c0aaf21cc369cb5008681c5"
+    },
+    "fixed-resource-off": {
+      "command": [
+        "/usr/bin/python3",
+        "-u",
+        "tools/canonical-be-lifecycle/installed_soak.py",
+        "--runs",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/fixed-resource-off",
+        "--installation",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/installation",
+        "--eula",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/gametest/server/eula.txt",
+        "--classes",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/observer-classes",
+        "--version",
+        "21.1.250.60-beta",
+        "--installer-sha256",
+        "55d2c2ac213412880a6034734504912378e7d42a8768095665a19ef8c9ed38bf",
+        "--universal-sha256",
+        "5b673b107574ee1525965153e0297f2ee0eca2a0f52ea4cc28486ef8f9829923",
+        "--windows",
+        "2",
+        "--window-ticks",
+        "200",
+        "--checkpoint-every",
+        "1",
+        "--no-resources",
+        "--no-persistent-workers",
+        "--restart-saved"
+      ],
+      "exitCode": 0,
+      "wallSeconds": 111.86251652899955,
+      "checkedActiveTicks": 400,
+      "mods": [],
+      "actualUnverifiedRuntimeRefusalsSinceBoot": 0,
+      "modRuntimeFullySerialIsNotParallelAcceptance": false,
+      "createRecipeBoundsAndCompletedInventoryAudit": [],
+      "nominalPacedActiveSecondsAt20Tps": 20.0,
+      "windows": 2,
+      "workerBodies": 39984,
+      "serialBodies": 8016,
+      "nativeWorkerBodies": 14400,
+      "furnaceWorkerBodies": 25584,
+      "outputs": 128,
+      "metrics": {
+        "samples": 368,
+        "weightedMeanMspt": 6.920574913043478,
+        "perWindowP95RangeMs": [
+          8.364601,
+          8.866207
+        ],
+        "maxMspt": 10.477109,
+        "perWindowObservedTpsRange": [
+          19.959606888747384,
+          19.97357373314206
+        ]
+      },
+      "diagnosticCounterMaxima": {
+        "rejectedWorkerTasks": 0,
+        "failedQueuedTasks": 0,
+        "workerServerTasksDropped": 0,
+        "ownershipViolationCount": 0
+      },
+      "checkpoints": 6,
+      "errors": [],
+      "warnings": [
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 22,
+          "text": "[15:13:23] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/fixed-resource-off/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 23,
+          "text": "[15:13:23] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/fixed-resource-off/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 34,
+          "text": "[15:13:25] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 35,
+          "text": "[15:13:25] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 36,
+          "text": "[15:13:25] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 37,
+          "text": "[15:13:25] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server.log",
+          "line": 38,
+          "text": "[15:13:25] [Server thread/WARN] [ne.ne.fm.co.ConfigTracker/CONFIG]: Configuration file /home/yc/Minecraft/Forgia/tmp/be-canonical-c41/fixed-resource-off/server/config/forgia.toml is not correct. Correcting"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server-restart.log",
+          "line": 22,
+          "text": "[15:14:43] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/fixed-resource-off/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server-restart.log",
+          "line": 23,
+          "text": "[15:14:43] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/fixed-resource-off/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server-restart.log",
+          "line": 32,
+          "text": "[15:14:46] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server-restart.log",
+          "line": 33,
+          "text": "[15:14:46] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server-restart.log",
+          "line": 34,
+          "text": "[15:14:46] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/fixed-resource-off/server/server-restart.log",
+          "line": 35,
+          "text": "[15:14:46] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        }
+      ],
+      "restartAuditSha256": "e4aa6b963cac0262e4c2717461d1d75078dc41bf88054bf78a466202554127d5",
+      "unloadAuditSha256": null,
+      "resultSha256": "c6c8dd128a776a7e15993bbbdf9ac41e72e9b6133c2ca27c778e98b4cf790421",
+      "driverLogSha256": "43ff19e7393753decfd9d4180f743259bed4da677f3fb80e3f59203b4b6ff650",
+      "manifestSha256": "8d08bcf9f05f07e07b639d4dae99b20e9ab315255c065fb08a475eb9b022ad3c"
+    },
+    "core-soak-60min": {
+      "command": [
+        "/usr/bin/python3",
+        "-u",
+        "tools/canonical-be-lifecycle/installed_soak.py",
+        "--runs",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-soak-60min",
+        "--installation",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/installation",
+        "--eula",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/gametest/server/eula.txt",
+        "--classes",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/observer-classes",
+        "--version",
+        "21.1.250.60-beta",
+        "--installer-sha256",
+        "55d2c2ac213412880a6034734504912378e7d42a8768095665a19ef8c9ed38bf",
+        "--universal-sha256",
+        "5b673b107574ee1525965153e0297f2ee0eca2a0f52ea4cc28486ef8f9829923",
+        "--windows",
+        "60",
+        "--window-ticks",
+        "1200",
+        "--checkpoint-every",
+        "10",
+        "--unload-reload",
+        "--restart-saved"
+      ],
+      "exitCode": 0,
+      "wallSeconds": 3832.425646332995,
+      "checkedActiveTicks": 72200,
+      "mods": [],
+      "actualUnverifiedRuntimeRefusalsSinceBoot": 0,
+      "modRuntimeFullySerialIsNotParallelAcceptance": false,
+      "createRecipeBoundsAndCompletedInventoryAudit": [],
+      "nominalPacedActiveSecondsAt20Tps": 3610.0,
+      "windows": 61,
+      "workerBodies": 7213309,
+      "serialBodies": 1450691,
+      "nativeWorkerBodies": 2599200,
+      "furnaceWorkerBodies": 4614109,
+      "outputs": 23104,
+      "metrics": {
+        "samples": 71338,
+        "weightedMeanMspt": 7.494668340099246,
+        "perWindowP95RangeMs": [
+          8.5751,
+          32.1058
+        ],
+        "maxMspt": 96.179,
+        "perWindowObservedTpsRange": [
+          19.973970588052367,
+          20.014148294385134
+        ]
+      },
+      "diagnosticCounterMaxima": {
+        "rejectedWorkerTasks": 0,
+        "failedQueuedTasks": 0,
+        "workerServerTasksDropped": 0,
+        "ownershipViolationCount": 0
+      },
+      "checkpoints": 11,
+      "errors": [
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 66,
+          "text": "[16:17:47] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 67,
+          "text": "[16:17:47] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 925baf6c-793e-4e72-aa1b-02d1599a063e"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 68,
+          "text": "[16:17:48] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 69,
+          "text": "[16:17:48] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 18771310-7ab2-4491-b76c-04959b46f8c5"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 70,
+          "text": "[16:17:48] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 71,
+          "text": "[16:17:48] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 2a8a1986-cb8b-451c-8c26-7fad0ed5bf31"
+        }
+      ],
+      "warnings": [
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 22,
+          "text": "[15:15:15] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-soak-60min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 23,
+          "text": "[15:15:15] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-soak-60min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 34,
+          "text": "[15:15:18] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 35,
+          "text": "[15:15:18] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 36,
+          "text": "[15:15:18] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 37,
+          "text": "[15:15:18] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 38,
+          "text": "[15:15:18] [Server thread/WARN] [ne.ne.fm.co.ConfigTracker/CONFIG]: Configuration file /home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-soak-60min/server/config/forgia.toml is not correct. Correcting"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server.log",
+          "line": 56,
+          "text": "[15:15:42] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 2222ms or 44 ticks behind"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server-restart.log",
+          "line": 22,
+          "text": "[16:18:33] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-soak-60min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server-restart.log",
+          "line": 23,
+          "text": "[16:18:33] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/core-soak-60min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23117!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server-restart.log",
+          "line": 32,
+          "text": "[16:18:36] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server-restart.log",
+          "line": 33,
+          "text": "[16:18:36] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server-restart.log",
+          "line": 34,
+          "text": "[16:18:36] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/core-soak-60min/server/server-restart.log",
+          "line": 35,
+          "text": "[16:18:36] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        }
+      ],
+      "restartAuditSha256": "a53339ccf5c672b6a365f9e2c4135523d55758debed921d599d6dcf186e576ef",
+      "unloadAuditSha256": "4ae51d1409eb5ff04bf0c410fc72ae7b99214f2dddd0e59f5114b676456a8871",
+      "resultSha256": "0fe8d99e2dc0486d8f4d5c9dd76817bc9f97a2a1117c8e51f6c632a6dfd5445b",
+      "driverLogSha256": "bc9dc0bd5ba315ff7dcfc720edf06cdbef632950ad6ddb9b60620c5643394c92",
+      "manifestSha256": "345a15386e8fcd314313208f84e73fa84497181ad58b376dcec6b5e48520ccd2"
+    },
+    "create-pilot": {
+      "command": [
+        "/usr/bin/python3",
+        "-u",
+        "tools/canonical-be-lifecycle/installed_soak.py",
+        "--runs",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-pilot",
+        "--installation",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/installation",
+        "--eula",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/gametest/server/eula.txt",
+        "--classes",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/observer-classes",
+        "--version",
+        "21.1.250.60-beta",
+        "--installer-sha256",
+        "55d2c2ac213412880a6034734504912378e7d42a8768095665a19ef8c9ed38bf",
+        "--universal-sha256",
+        "5b673b107574ee1525965153e0297f2ee0eca2a0f52ea4cc28486ef8f9829923",
+        "--windows",
+        "1",
+        "--window-ticks",
+        "200",
+        "--checkpoint-every",
+        "1",
+        "--mod",
+        "/home/yc/Minecraft/Forgia/tmp/create-adapter/final-server/mods/[机械动力] create-1.21.1-6.0.10.jar",
+        "ef87fe5709f1ba1f5b8bb20a2925b5afb4669e178fd6d8bf10c167759eefe37a"
+      ],
+      "exitCode": 0,
+      "wallSeconds": 92.50041003798833,
+      "checkedActiveTicks": 200,
+      "mods": [
+        {
+          "file": "[机械动力] create-1.21.1-6.0.10.jar",
+          "sha256": "ef87fe5709f1ba1f5b8bb20a2925b5afb4669e178fd6d8bf10c167759eefe37a"
+        }
+      ],
+      "actualUnverifiedRuntimeRefusalsSinceBoot": 26880,
+      "modRuntimeFullySerialIsNotParallelAcceptance": true,
+      "createRecipeBoundsAndCompletedInventoryAudit": [
+        {
+          "window": "window-0.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 15,
+          "wheatFlour": 1,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-0.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 15,
+          "wheatFlour": 1,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-0.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 14,
+          "wheatFlour": 2,
+          "seeds": 1,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-0.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 14,
+          "wheatFlour": 3,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        }
+      ],
+      "nominalPacedActiveSecondsAt20Tps": 10.0,
+      "windows": 1,
+      "workerBodies": 0,
+      "serialBodies": 25200,
+      "nativeWorkerBodies": 0,
+      "furnaceWorkerBodies": 0,
+      "outputs": 64,
+      "metrics": {
+        "samples": 185,
+        "weightedMeanMspt": 1.6688474,
+        "perWindowP95RangeMs": [
+          2.606997,
+          2.606997
+        ],
+        "maxMspt": 4.133594,
+        "perWindowObservedTpsRange": [
+          20.082578849942482,
+          20.082578849942482
+        ]
+      },
+      "diagnosticCounterMaxima": {
+        "rejectedWorkerTasks": 0,
+        "failedQueuedTasks": 0,
+        "workerServerTasksDropped": 0,
+        "ownershipViolationCount": 0
+      },
+      "checkpoints": 3,
+      "errors": [],
+      "warnings": [
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 26,
+          "text": "\u001b[m\u001b[33m[16:19:01.757] [main/WARN] [mixin/]: Reference map 'ponder.refmap.json' for ponder-common.mixins.json could not be read. If this is a development environment you can ignore this message "
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 27,
+          "text": "\u001b[m\u001b[33m[16:19:02.415] [main/WARN] [mixin/]: Error loading class: org/jetbrains/annotations/ApiStatus$ScheduledForRemoval (java.lang.ClassNotFoundException: org.jetbrains.annotations.ApiStatus$ScheduledForRemoval) "
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 34,
+          "text": "[16:19:15] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-pilot/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23118!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 35,
+          "text": "[16:19:15] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-pilot/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23118!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 50,
+          "text": "[16:19:19] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 51,
+          "text": "[16:19:19] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 52,
+          "text": "[16:19:19] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 53,
+          "text": "[16:19:19] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 54,
+          "text": "[16:19:19] [Server thread/WARN] [ne.ne.fm.co.ConfigTracker/CONFIG]: Configuration file /home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-pilot/server/config/forgia.toml is not correct. Correcting"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 55,
+          "text": "[16:19:19] [Server thread/WARN] [ne.ne.ne.se.ServerLifecycleHooks/SERVERHOOKS]: Region threading conflict: create (ENTITY_STORAGE: patches EntityTickList and moves contraptions through the chunk and entity storage; measured compatible) - action: measured compatible: the slice stays enabled"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 69,
+          "text": "[16:19:23] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 2212ms or 44 ticks behind"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 74,
+          "text": "[16:19:47] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 3130ms or 62 ticks behind"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-pilot/server/server.log",
+          "line": 75,
+          "text": "[16:20:13] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 3007ms or 60 ticks behind"
+        }
+      ],
+      "restartAuditSha256": null,
+      "unloadAuditSha256": null,
+      "resultSha256": "08e26d30bf0a759331df1c083c32db153cc397c76d826c3dece21c4e64d6a73b",
+      "driverLogSha256": "5f72d29bbba7730e94ebb2ac671f3af3871474dd755959b4279564791aaf96f0",
+      "manifestSha256": "e6d669875e38b940312e96ac33848ffba881a121ac69d9aac7e9ae669d4dd900"
+    },
+    "create-soak-10min": {
+      "command": [
+        "/usr/bin/python3",
+        "-u",
+        "tools/canonical-be-lifecycle/installed_soak.py",
+        "--runs",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-soak-10min",
+        "--installation",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/installation",
+        "--eula",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/gametest/server/eula.txt",
+        "--classes",
+        "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/observer-classes",
+        "--version",
+        "21.1.250.60-beta",
+        "--installer-sha256",
+        "55d2c2ac213412880a6034734504912378e7d42a8768095665a19ef8c9ed38bf",
+        "--universal-sha256",
+        "5b673b107574ee1525965153e0297f2ee0eca2a0f52ea4cc28486ef8f9829923",
+        "--windows",
+        "10",
+        "--window-ticks",
+        "1200",
+        "--checkpoint-every",
+        "5",
+        "--unload-reload",
+        "--restart-saved",
+        "--mod",
+        "/home/yc/Minecraft/Forgia/tmp/create-adapter/final-server/mods/[机械动力] create-1.21.1-6.0.10.jar",
+        "ef87fe5709f1ba1f5b8bb20a2925b5afb4669e178fd6d8bf10c167759eefe37a"
+      ],
+      "exitCode": 0,
+      "wallSeconds": 780.3195475289976,
+      "checkedActiveTicks": 12200,
+      "mods": [
+        {
+          "file": "[机械动力] create-1.21.1-6.0.10.jar",
+          "sha256": "ef87fe5709f1ba1f5b8bb20a2925b5afb4669e178fd6d8bf10c167759eefe37a"
+        }
+      ],
+      "actualUnverifiedRuntimeRefusalsSinceBoot": 801232,
+      "modRuntimeFullySerialIsNotParallelAcceptance": true,
+      "createRecipeBoundsAndCompletedInventoryAudit": [
+        {
+          "window": "window-0.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 15,
+          "wheatFlour": 1,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-0.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 15,
+          "wheatFlour": 2,
+          "seeds": 1,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-0.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 7,
+          "wheatFlour": 13,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-0.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 7,
+          "wheatFlour": 13,
+          "seeds": 3,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-1.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 7,
+          "wheatFlour": 13,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-1.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 7,
+          "wheatFlour": 13,
+          "seeds": 3,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-1.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-1.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-2.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-2.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-2.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-2.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-3.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-3.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-3.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-3.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-4.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-4.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-4.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-4.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-5.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-5.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-5.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-5.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-6.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-6.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-6.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-6.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-7.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-7.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-7.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-7.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-8.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-8.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-8.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-8.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-9.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-9.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-9.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-9.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-unload-4.json",
+          "side": "modsBefore",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-unload-4.json",
+          "side": "modsBefore",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-unload-4.json",
+          "side": "modsAfter",
+          "pos": [
+            20,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 21,
+          "seeds": 0,
+          "recipeBoundsPass": true
+        },
+        {
+          "window": "window-unload-4.json",
+          "side": "modsAfter",
+          "pos": [
+            68,
+            101,
+            21
+          ],
+          "inputLeft": 0,
+          "wheatFlour": 22,
+          "seeds": 4,
+          "recipeBoundsPass": true
+        }
+      ],
+      "nominalPacedActiveSecondsAt20Tps": 610.0,
+      "windows": 11,
+      "workerBodies": 0,
+      "serialBodies": 1537200,
+      "nativeWorkerBodies": 0,
+      "furnaceWorkerBodies": 0,
+      "outputs": 3904,
+      "metrics": {
+        "samples": 12037,
+        "weightedMeanMspt": 0.9636943896319682,
+        "perWindowP95RangeMs": [
+          1.1106,
+          2.074901
+        ],
+        "maxMspt": 26.387305,
+        "perWindowObservedTpsRange": [
+          19.97664141091006,
+          20.0126394387122
+        ]
+      },
+      "diagnosticCounterMaxima": {
+        "rejectedWorkerTasks": 0,
+        "failedQueuedTasks": 0,
+        "workerServerTasksDropped": 0,
+        "ownershipViolationCount": 0
+      },
+      "checkpoints": 7,
+      "errors": [
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 82,
+          "text": "[16:32:21] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 83,
+          "text": "[16:32:21] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID daa26bb9-ddab-4fe7-8e01-3a4864dd1d5f"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 84,
+          "text": "[16:32:21] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 85,
+          "text": "[16:32:21] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 1f1f5549-6ecf-4a74-baab-ddaa42ad9a1a"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 86,
+          "text": "[16:32:21] [Server thread/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (19/20)"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 87,
+          "text": "[16:32:21] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID 53b07f77-358b-428b-82ec-e6353e4dc27d"
+        }
+      ],
+      "warnings": [
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 26,
+          "text": "\u001b[m\u001b[33m[16:20:33.310] [main/WARN] [mixin/]: Reference map 'ponder.refmap.json' for ponder-common.mixins.json could not be read. If this is a development environment you can ignore this message "
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 27,
+          "text": "\u001b[m\u001b[33m[16:20:33.839] [main/WARN] [mixin/]: Error loading class: org/jetbrains/annotations/ApiStatus$ScheduledForRemoval (java.lang.ClassNotFoundException: org.jetbrains.annotations.ApiStatus$ScheduledForRemoval) "
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 33,
+          "text": "[16:20:45] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-soak-10min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23118!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 34,
+          "text": "[16:20:45] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-soak-10min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23118!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 50,
+          "text": "[16:20:49] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 51,
+          "text": "[16:20:49] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 52,
+          "text": "[16:20:49] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 53,
+          "text": "[16:20:49] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 54,
+          "text": "[16:20:49] [Server thread/WARN] [ne.ne.fm.co.ConfigTracker/CONFIG]: Configuration file /home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-soak-10min/server/config/forgia.toml is not correct. Correcting"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server.log",
+          "line": 55,
+          "text": "[16:20:49] [Server thread/WARN] [ne.ne.ne.se.ServerLifecycleHooks/SERVERHOOKS]: Region threading conflict: create (ENTITY_STORAGE: patches EntityTickList and moves contraptions through the chunk and entity storage; measured compatible) - action: measured compatible: the slice stays enabled"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 26,
+          "text": "\u001b[m\u001b[33m[16:32:55.123] [main/WARN] [mixin/]: Reference map 'ponder.refmap.json' for ponder-common.mixins.json could not be read. If this is a development environment you can ignore this message "
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 27,
+          "text": "\u001b[m\u001b[33m[16:32:55.640] [main/WARN] [mixin/]: Error loading class: org/jetbrains/annotations/ApiStatus$ScheduledForRemoval (java.lang.ClassNotFoundException: org.jetbrains.annotations.ApiStatus$ScheduledForRemoval) "
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 34,
+          "text": "[16:33:06] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-soak-10min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23118!/assets/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 35,
+          "text": "[16:33:06] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/create-soak-10min/server/libraries/net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar%23118!/data/.mcassetsroot' uses unexpected schema"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 47,
+          "text": "[16:33:09] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!"
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 48,
+          "text": "[16:33:09] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 49,
+          "text": "[16:33:09] [Server thread/WARN] [minecraft/DedicatedServer]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 50,
+          "text": "[16:33:09] [Server thread/WARN] [minecraft/DedicatedServer]: To change this, set \"online-mode\" to \"true\" in the server.properties file."
+        },
+        {
+          "file": "tmp/be-canonical-c41/create-soak-10min/server/server-restart.log",
+          "line": 51,
+          "text": "[16:33:09] [Server thread/WARN] [ne.ne.ne.se.ServerLifecycleHooks/SERVERHOOKS]: Region threading conflict: create (ENTITY_STORAGE: patches EntityTickList and moves contraptions through the chunk and entity storage; measured compatible) - action: measured compatible: the slice stays enabled"
+        }
+      ],
+      "restartAuditSha256": "4ca4399d1acf86ed40fa447098f09e02d28a46bec7457f1de61c4b83b378e97a",
+      "unloadAuditSha256": "d57830eefa35ec8d3c90e72ee832c1078e173b2fa4d8d23914f1cdf57aae228b",
+      "resultSha256": "456083bf3715473c3ec810e27dbdebe526b36da80912adeb1a41106b2db88b0e",
+      "driverLogSha256": "72e519aafc4702643730348d2d470ed399796728d3575581b01e227b1e4f7d10",
+      "manifestSha256": "afce55d7b69e271f7e444ad930a4374584604957217291f211384286f447b593"
+    }
+  },
+  "cleanup": {
+    "checkpoints": 33,
+    "directHeapIdleScopeAudits": 14,
+    "allEphemeralAuthorityInstancesZero": true,
+    "allRunningRegionsZero": true,
+    "allRegionObjectCountsMatchActualRegionizer": true,
+    "allActualWorkerThreadCountsFour": true,
+    "maxIdleNativeScopes": 4,
+    "maxIdleNativeScopeBytes": 128,
+    "mainSteadyRegionCounts": [
+      24
+    ],
+    "mainSteadyLiveObjectBytes": [
+      {
+        "name": "initial",
+        "liveObjectShallowBytesAfterFullGc": 188945656,
+        "namedThreadDumpEntries": 70,
+        "diagnosticRegionCount": 24
+      },
+      {
+        "name": "window-10",
+        "liveObjectShallowBytesAfterFullGc": 189321248,
+        "namedThreadDumpEntries": 53,
+        "diagnosticRegionCount": 24
+      },
+      {
+        "name": "window-20",
+        "liveObjectShallowBytesAfterFullGc": 189353168,
+        "namedThreadDumpEntries": 53,
+        "diagnosticRegionCount": 24
+      },
+      {
+        "name": "window-30",
+        "liveObjectShallowBytesAfterFullGc": 189101144,
+        "namedThreadDumpEntries": 53,
+        "diagnosticRegionCount": 24
+      },
+      {
+        "name": "window-40",
+        "liveObjectShallowBytesAfterFullGc": 187616192,
+        "namedThreadDumpEntries": 53,
+        "diagnosticRegionCount": 24
+      },
+      {
+        "name": "window-50",
+        "liveObjectShallowBytesAfterFullGc": 187621800,
+        "namedThreadDumpEntries": 53,
+        "diagnosticRegionCount": 24
+      },
+      {
+        "name": "window-60",
+        "liveObjectShallowBytesAfterFullGc": 187622744,
+        "namedThreadDumpEntries": 53,
+        "diagnosticRegionCount": 24
+      }
+    ]
+  },
+  "totals": {
+    "formalCheckedActiveTicks": 85400,
+    "formalCheckedBodies": 10322400,
+    "formalWallSeconds": 4982.175419332983,
+    "formalServerJvmStarts": 9,
+    "formalSavedWorldRestarts": 4,
+    "formalErrorOrFatalLogLines": 18,
+    "formalWarningLogLines": 73
+  },
+  "diagnosticLogClassification": {
+    "outcome": "ALL_18_ERROR_FATAL_LINES_MATCH_VANILLA_PERF_DUMMY_LEVEL_TEST_REPORTS",
+    "runs": [
+      {
+        "run": "core-pilot-v4",
+        "diagnosticLogLines": 6,
+        "constructedDummyTestReports": 3,
+        "allFatalUuidsMatchTestReports": true,
+        "reports": [
+          {
+            "entry": "server/levels/minecraft/the_nether/example_crash.txt",
+            "sha256": "66f8dedd24c40caa075c7d7316ea5b47e39aba52d7ec3a19f63a31c931aad76f",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "a03b2750-fe16-452a-b0e9-9b34f4888e95"
+          },
+          {
+            "entry": "server/levels/minecraft/the_end/example_crash.txt",
+            "sha256": "438a02925a1d163555b6667318ea5043aff1b71fff14447d1c7235760e8cc263",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "71ed451a-b2f9-4427-9c5d-1690bece840d"
+          },
+          {
+            "entry": "server/levels/minecraft/overworld/example_crash.txt",
+            "sha256": "a26b696b39a323a8eef1f5c7e981d24847c2f3edae923f79aa1bfefb95c20acf",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "0910b975-28eb-488b-a86c-b5df814c57f4"
+          }
+        ],
+        "profilingZipSha256": "3f9d4e867e974b91a26240bb9b5eb45da2df7c4fc0cf11ea75471612898a980b",
+        "realCrashReports": 0
+      },
+      {
+        "run": "core-soak-60min",
+        "diagnosticLogLines": 6,
+        "constructedDummyTestReports": 3,
+        "allFatalUuidsMatchTestReports": true,
+        "reports": [
+          {
+            "entry": "server/levels/minecraft/the_nether/example_crash.txt",
+            "sha256": "33df2a86baaca012fa874cae823c0889f16301a5b0557606588ae5fc6212b171",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "2a8a1986-cb8b-451c-8c26-7fad0ed5bf31"
+          },
+          {
+            "entry": "server/levels/minecraft/the_end/example_crash.txt",
+            "sha256": "d319fd6edf2508e30fed2ee7ee72ee59620534dad5edbc709d454a2ac4338087",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "18771310-7ab2-4491-b76c-04959b46f8c5"
+          },
+          {
+            "entry": "server/levels/minecraft/overworld/example_crash.txt",
+            "sha256": "9b2d0f994a968a4aa9e8db9ad4a3761ad43fcd2b5e447733818f7b699eebb32d",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "925baf6c-793e-4e72-aa1b-02d1599a063e"
+          }
+        ],
+        "profilingZipSha256": "cf39375665c6f65f4a481383751e6c9d712fcde48b4ea39296242e6bff4fe833",
+        "realCrashReports": 0
+      },
+      {
+        "run": "create-soak-10min",
+        "diagnosticLogLines": 6,
+        "constructedDummyTestReports": 3,
+        "allFatalUuidsMatchTestReports": true,
+        "reports": [
+          {
+            "entry": "server/levels/minecraft/the_end/example_crash.txt",
+            "sha256": "d214f35a4e3141f41ed92a04cc7cba0d5a45407d65c1e2d35d4d2d7559d63a43",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "53b07f77-358b-428b-82ec-e6353e4dc27d"
+          },
+          {
+            "entry": "server/levels/minecraft/the_nether/example_crash.txt",
+            "sha256": "7d159cf564be0d48e0cff87e67ba9e6ec312f89f3580b4686dd38be2741bf5e6",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "1f1f5549-6ecf-4a74-baab-ddaa42ad9a1a"
+          },
+          {
+            "entry": "server/levels/minecraft/overworld/example_crash.txt",
+            "sha256": "45d967fc7fa8eafa9598ae0b0c7e21834fb2d086a98757b9e65c0746fd51f7de",
+            "dummyThrowable": true,
+            "kind": "Minecraft Test Report, Level dump",
+            "uuid": "daa26bb9-ddab-4fe7-8e01-3a4864dd1d5f"
+          }
+        ],
+        "profilingZipSha256": "180e1636f5ef44d91c336c1d6968875274fba1699f1601c3e4df29aa8b47c630",
+        "realCrashReports": 0
+      }
+    ],
+    "source": {
+      "projects/neoforge/src/main/java/net/minecraft/server/level/ServerLevel.java": {
+        "line": 1651,
+        "symbol": "new CrashReport(\"Level dump\", new Exception(\"dummy\"))",
+        "sha256": "34d6b9073c6b6a3b74a281f546905615bfaeacf8be40bd848a5b39711089c626"
+      },
+      "projects/neoforge/src/main/java/net/minecraft/CrashReport.java": {
+        "line": 166,
+        "symbol": "Negative index in crash report handler",
+        "sha256": "59d09ace1f02618441d571104b92fb33609db77be335abccbdb8bee72bb04018"
+      },
+      "src/main/java/net/neoforged/neoforge/common/NeoForgeMod.java": {
+        "line": 538,
+        "symbol": "Preparing crash report with UUID",
+        "sha256": "b82e454c1f62d64f6bbb6cfc44f50175ebfd8f692edc1abf492a997096afa422"
+      }
+    },
+    "diagnosticLogLines": 18,
+    "constructedDummyExceptions": 9,
+    "uncaughtInstalledServerTickExceptions": 0,
+    "realInstalledServerCrashReports": 0,
+    "allProcessesExitZero": true,
+    "noLogSuppressionOrProductionChange": true,
+    "notZeroLogErrorsClaim": true
+  },
+  "installedServerUncaughtTickExceptions": 0,
+  "warningCategories": {
+    "resource-union-schema": 18,
+    "localhost-offline-mode": 36,
+    "config-default-completion": 5,
+    "keep-up": 5,
+    "Create-refmap": 3,
+    "Create-annotation-ClassNotFoundException": 3,
+    "Create-existing-report-only-compatibility-notice": 3
+  },
+  "binary": {
+    "outcome": "CURRENT_SOURCE_INSTALLED_AND_PINNED",
+    "version": "21.1.250.60-beta",
+    "minecraft": "1.21.1",
+    "sourceHead": "5d24c2bf5d7bd505b3b38aa16dc523cca35b8ca4",
+    "installer": {
+      "sha256": "55d2c2ac213412880a6034734504912378e7d42a8768095665a19ef8c9ed38bf",
+      "bytes": 11085897
+    },
+    "universal": {
+      "sha256": "5b673b107574ee1525965153e0297f2ee0eca2a0f52ea4cc28486ef8f9829923",
+      "bytes": 4433432
+    },
+    "installation": "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/installation",
+    "classes": "/home/yc/Minecraft/Forgia/tmp/be-canonical-c41/observer-classes",
+    "builtAt": "2026-11-14T06:44:26.925520+00:00"
+  },
+  "binaryReceiptSha256": "092e5719c2f360d0312e40d834cedb50018305fd75cd1352d39ad36432acb899",
+  "compiledCoreClassCount": 382,
+  "environment": {
+    "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "uname": {
+      "system": "Linux",
+      "node": "win10",
+      "release": "6.18.40.1-microsoft-standard-WSL2",
+      "version": "#1 SMP PREEMPT_DYNAMIC Fri Jul 31 22:12:15 UTC 2026",
+      "machine": "x86_64",
+      "processor": ""
+    },
+    "cpuModel": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+    "logicalCpus": 8,
+    "meminfo": {
+      "MemTotal": "10187124 kB",
+      "SwapTotal": "8388608 kB"
+    },
+    "jdkRelease": "IMPLEMENTOR=\"Eclipse Adoptium\"\nIMPLEMENTOR_VERSION=\"Temurin-21.0.13+9\"\nJAVA_RUNTIME_VERSION=\"21.0.13+9-LTS\"\nJAVA_VERSION=\"21.0.13\"\nJAVA_VERSION_DATE=\"2026-10-20\"\nLIBC=\"gnu\"\nMODULES=\"java.base java.compiler java.datatransfer java.xml java.prefs java.desktop java.instrument java.logging java.management java.security.sasl java.naming java.rmi java.management.rmi java.net.http java.scripting java.security.jgss java.transaction.xa java.sql java.sql.rowset java.xml.crypto java.se java.smartcardio jdk.accessibility jdk.internal.jvmstat jdk.attach jdk.charsets jdk.internal.opt jdk.zipfs jdk.compiler jdk.crypto.ec jdk.crypto.cryptoki jdk.dynalink jdk.internal.ed jdk.editpad jdk.hotspot.agent jdk.httpserver jdk.incubator.vector jdk.internal.le jdk.internal.vm.ci jdk.internal.vm.compiler jdk.internal.vm.compiler.management jdk.jartool jdk.javadoc jdk.jcmd jdk.management jdk.management.agent jdk.jconsole jdk.jdeps jdk.jdwp.agent jdk.jdi jdk.jfr jdk.jlink jdk.jpackage jdk.jshell jdk.jsobject jdk.jstatd jdk.localedata jdk.management.jfr jdk.naming.dns jdk.naming.rmi jdk.net jdk.nio.mapmode jdk.random jdk.sctp jdk.security.auth jdk.security.jgss jdk.unsupported jdk.unsupported.desktop jdk.xml.dom\"\nOS_ARCH=\"x86_64\"\nOS_NAME=\"Linux\"\nSOURCE=\".:git:2ab10ca20c19\"\nBUILD_SOURCE=\"git:1cf43d7a3e77886bfea7d550a902e151a87d724d\"\nBUILD_SOURCE_REPO=\"https://github.com/adoptium/temurin-build.git\"\nSOURCE_REPO=\"https://github.com/adoptium/jdk21u.git\"\nFULL_VERSION=\"21.0.13+9-LTS\"\nSEMANTIC_VERSION=\"21.0.13+9\"\nBUILD_INFO=\"OS: Linux Version: 6.8.0-1070-azure\"\nJVM_VARIANT=\"Hotspot\"\nJVM_VERSION=\"21.0.13+9-LTS\"\nIMAGE_TYPE=\"JDK\"\n",
+    "serverJvm": [
+      "-Xms2G",
+      "-Xmx2G",
+      "-XX:+UseG1GC"
+    ],
+    "minecraft": "1.21.1",
+    "workers": 4,
+    "scope": "DedicatedServer localhost private worlds; no players; controlled real BEs and separate raw Create assemblies."
+  },
+  "failedExplorationsRetained": [
+    {
+      "name": "final-fixed-on",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/final-fixed-on.log"
+    },
+    {
+      "name": "final-v2-full-core-fixed-off",
+      "exitCode": 1,
+      "junit": {
+        "tests": 1326,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log": "tmp/be-canonical-c41/final-v2-full-core-fixed-off.log"
+    },
+    {
+      "name": "gametest-current-v2",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/gametest-current-v2.log"
+    },
+    {
+      "name": "gametest-current-v3",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/gametest-current-v3.log"
+    },
+    {
+      "name": "gametest-current-v4",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/gametest-current-v4.log"
+    },
+    {
+      "name": "gametest-current-v5",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/gametest-current-v5.log"
+    },
+    {
+      "name": "gametest-current-v6",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/gametest-current-v6.log"
+    },
+    {
+      "name": "lifecycle-monitor-red-v2",
+      "exitCode": 1,
+      "junit": {
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log": "tmp/be-canonical-c41/lifecycle-monitor-red-v2.log"
+    },
+    {
+      "name": "lifecycle-monitor-red",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/lifecycle-monitor-red.log"
+    },
+    {
+      "name": "preparation-lifetime-red-v2",
+      "exitCode": 1,
+      "junit": {
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log": "tmp/be-canonical-c41/preparation-lifetime-red-v2.log"
+    },
+    {
+      "name": "preparation-lifetime-red",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/preparation-lifetime-red.log"
+    },
+    {
+      "name": "recovery-probe",
+      "exitCode": 1,
+      "junit": null,
+      "log": "tmp/be-canonical-c41/recovery-probe.log"
+    },
+    {
+      "name": "core-pilot",
+      "evidence": "tmp/be-canonical-c41/core-pilot/server/failure.json",
+      "error": "ValueError('Missing actual diagnostic counter runningRegionCount')"
+    },
+    {
+      "name": "core-pilot-v2",
+      "evidence": "tmp/be-canonical-c41/core-pilot-v2/server/failure.json",
+      "error": "AssertionError(\"Live canonical invocation authority or batch retained after phase: {'BlockEntityExecutionEngine': {'instances': 0, 'bytes': 0}, 'BlockEntityExecutionEngine$InvocationTicket': {'instances': 0, 'bytes': 0}, 'BlockEntityExecutionEngine$Permit': {'instances': 0, 'bytes': 0}, 'BlockEntityExecutionEngine$RegionGuard': {'instances': 0, 'bytes': 0}, 'BlockEntityExecutionEngine$OwnedEffect': {'instances': 0, 'bytes': 0}, 'RegionBlockEntityTickBatch': {'instances': 0, 'bytes': 0}, 'FurnaceWorkBatch': {'instances': 0, 'bytes': 0}, 'CanonicalBlockEntityCoordinator': {'instances': 0, 'bytes': 0}, 'RegionBlockEntityTickPlan': {'instances': 0, 'bytes': 0}, 'FurnaceResourcePreparation': {'instances': 0, 'bytes': 0}, 'FurnaceWorkScope': {'instances': 0, 'bytes': 0}, 'BlockEntityResourceOwnership$Lease': {'instances': 0, 'bytes': 0}, 'BlockEntityResourceOwnership$Scope': {'instances': 0, 'bytes': 0}, 'RegionBlockEntityTickScope': {'instances': 4, 'bytes': 128}}\")"
+    },
+    {
+      "name": "core-pilot-v3",
+      "evidence": "tmp/be-canonical-c41/core-pilot-v3/server/failure.json",
+      "error": "ValueError('No complete command data response: 24, 148, 24 has the following block data: {TransferCooldown: 0, x: 24, y: 148, Items: [], z: 24, id: \"minecraft:hopper\"}\\n')"
+    }
+  ],
+  "scope": "Existing closed Native Hopper and protected Furnace cohort only. No C5/Create adapter/new defaults/budgets/performance optimization.",
+  "limitations": [
+    "Non-green full GameTest gate remains",
+    "No installed-server dynamic region merge stress",
+    "No actual dynamic Level unload/recreate with clients",
+    "No OS kill/power-loss recovery during active phase",
+    "No infinite-duration/all-native-memory-leak proof",
+    "No arbitrary Modpack/async writer or reflection/ASM certification",
+    "No per-ticker installed Hopper instrumentation; aggregate/state checks plus real-kernel JUnit traces"
+  ],
+  "notPushed": true,
+  "noDeployment": true
+}

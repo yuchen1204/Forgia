@@ -173,6 +173,17 @@ Genuine level-end effects retain their timing. All original C1 targets pass; ful
 worker/resource setting248 pass with zero failures/errors/skips. Defaults, budgets and original expectations
 are unchanged; C5/Create and additional MSPT tuning remain outside this migration.
 
+[C4.1 lifecycle and installed-server soak validation](region-threading/CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md)
+fixes lifecycle self-waits before the cleanup monitor and publishes the same phase before Native adapter
+preparation. Full core1328 and three targeted262 runs pass with original expectations retained. Actual installed
+Minecraft1.21.1 runs include a60-minute core mixed soak, chunk unload/reload, saved-world new-JVM restarts,
+and a10-minute raw Create load. Across85400 checked ticks/10322400 bodies,33 cleanup snapshots show zero
+live invocation authority/batches; bounded idle Native scope fields are verified separately. Create transforms
+remain conservatively serial, with no Adapter expansion. **The separate full GameTest gate remains non-green:**
+old Worker-contract expectations fail and the extra all-slice attempt crashes in a test plant callback.
+Those results and diagnostic ERROR/FATAL output are retained and classified; this is not an all-green
+compatibility or performance claim. C4.1 stops here; C5/Create protocol work is not started.
+
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
 is silently dropped.

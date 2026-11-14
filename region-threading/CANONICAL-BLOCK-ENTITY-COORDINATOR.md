@@ -4,7 +4,15 @@ C0 设计基线为 `2339050429dbec819f685b6c903091eab5ea1220`。第1–8节保�
 
 在C0基线，[Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，Native 与 Furnace 仍分别选择顺序、分组、回退及提交。后续实施复用原 Ticket、Permit、RegionGuard 与执行桥，先统一输入顺序和Fence，再合并受保护炉子。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C4 Native／Furnace 同一phase Coordinator 已接入
+## 最新实施状态：C4.1 生命周期修复与安装服soak；GameTest gate非全绿
+
+[C4.1报告](CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md)修复cleanup monitor前的生命周期自等待窗口，并在Native v1 prepare callback前发布同一个phase batch；三个生产修正各自独立提交，body/grant/cohort/default/budget/API不扩展。新增14个invocation覆盖mixed异常恢复、真实pool拒绝、chunk binding替换、Region retirement/dynamic merge及200连续phase。最终完整core1328与三配置各262全通过，原1244与原C1八目标实际重跑通过。
+
+实际安装Minecraft1.21.1专用服务器完成60分钟核心混合soak、10分钟原始Create负载，另做真实chunk unload/reload和保存后新JVM重启。合计85400受检活动tick/10322400正文、33清理快照/14实际heap字段审计，未残留受检invocation权限/batch；原Native空闲Scope缓存有界且active=false、世界/准入/parent引用清空。Create因UNVERIFIED_RUNTIME完整serial，未加载Forgia Create adapter或认证C5/C6；没有MSPT收益结论。
+
+**独立GameTest仍非全绿**：旧声明型Mod/单炉/整Region回退Worker期待及保存重载配置导致4required失败；额外全切片run在测试用Cactus方向callback中断。原断言与失败/崩溃日志保留，不放宽准入或关闭并行制造通过。正式安装服未捕获tick异常0；18条ERROR/FATAL逐UUID对应9个Vanilla perf示例Level dump，73WARN分类保留。C4.1工作停在此边界，不宣称全部验证门槛通过，不进入C5。
+
+## C4 Native／Furnace 同一phase Coordinator 检查点
 
 [C4实现与验证](CANONICAL-BLOCK-ENTITY-C4-UNIFIED-FURNACE.md)让正常Level入口在Furnace Waves OFF/ON下都使用同一phase active batch/kernel/Ticket集合及canonical cursor。Native／Furnace不同prefix不混用coarse/fine权限；只提交连续安全prefix，physical join／必要commit先于完整Serial Fence，之后重新证明后缀。炉子原recipe/inventory/component、whole-phase alias、dependency、全部validator／reservation、完整原ticker与原序通知保留，资源预算不按wave重置。Mailbox在原lease下由server完整执行，再fresh；真正level-end时机／RNG／operation状态机保持。
 
