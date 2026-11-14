@@ -37,7 +37,8 @@ Original Ticket remains the sole authority. An additional Core-only diagnostic a
 
 - C5.1: source audit and refusal-backend design complete; independent commit records this checkpoint.
 - C5.2: original kernel Ticket now carries the Core-only assessment; exact active serial Permit required, duplicate/foreign checks rejected, pending/failed assessment cannot succeed, refused work cannot enter worker authority, kernel close retires it. No resource/validator/source retained in the assessment. Actual kernel plus existing real Level/registry regressions: **62/62**, exit0, no failure/error/skip (`c52-kernel`). This checkpoint does not yet attach the gate to C5 invocation inspection.
-- C5.3–C5.5: pending implementation and actual verification.
+- C5.3: actual canonical bridge now starts assessment through the original engine, captures exact subject, runs the registry's inspection/validators with no Core lock held, recaptures the binding and checks the captured registration after callbacks, and completes a serial-only decision. Extra independently detected refusal causes are counted separately. Callback exceptions fail the original Permit; no request/subject is retained by the Ticket. **152/152** actual kernel/Canonical/General Adapter cases passed with Resource ON, including 6 new real-Level invocations and all original84 canonical cases; exit0/zero failure/error/skip (`c53-real-level`). General and Dedicated are handled identically; arbitrary backing-root/CURRENT requests never create Claims.
+- C5.4–C5.5: pending adversarial hardening and final integration verification.
 
 ## Readiness boundaries
 

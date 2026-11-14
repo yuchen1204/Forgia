@@ -20,15 +20,17 @@ import org.jetbrains.annotations.Nullable;
  */
 final class BlockEntityAdapterPhase {
     private final BlockEntityAdapterRegistry.Session session;
+    private final BlockEntityExecutionEngine execution;
 
-    private BlockEntityAdapterPhase(BlockEntityAdapterRegistry.Session session) {
+    private BlockEntityAdapterPhase(BlockEntityAdapterRegistry.Session session, BlockEntityExecutionEngine execution) {
         this.session = session;
+        this.execution = execution;
     }
 
     @Nullable
-    static BlockEntityAdapterPhase open(ServerLevel level) {
+    static BlockEntityAdapterPhase open(ServerLevel level, BlockEntityExecutionEngine execution) {
         final var session = ParallelAdapterRuntime.beginBlockEntityAdapters(level);
-        return session == null ? null : new BlockEntityAdapterPhase(session);
+        return session == null ? null : new BlockEntityAdapterPhase(session, execution);
     }
 
     boolean handles(RegionBlockEntityTickAdmission admission) {
@@ -39,6 +41,19 @@ final class BlockEntityAdapterPhase {
         if (!this.handles(admission)) return;
         if (!BlockEntityExecutionEngine.isCanonicalSerialInvocation())
             throw new IllegalStateException("Adapter inspection requires the original canonical serial Permit");
+        this.execution.beginAdapterProof(admission);
+        final var before = this.boundSubject(admission);
+        final var declared = this.session.inspect(admission.type(), admission.sequence(), admission.position().getX(),
+                admission.position().getY(), admission.position().getZ(), before);
+        // Re-resolve independently after every external callback. Even correct binding, CURRENT, and
+        // live registration cannot certify the original ticker closure or mint reservable Claims.
+        final var actual = this.execution.refuseAdapterProof(admission,
+                before != null && this.boundSubject(admission) == before, this.session.current(admission.type()), declared);
+        this.session.coreRefusal(admission.type(), declared, actual);
+    }
+
+    @Nullable
+    private BlockEntity boundSubject(RegionBlockEntityTickAdmission admission) {
         final var pos = admission.position();
         final var chunks = admission.level().getChunkSource();
         final LevelChunk chunk = chunks.getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
@@ -50,7 +65,7 @@ final class BlockEntityAdapterPhase {
                 || !LevelChunk.isBlockEntityTickSource(admission.binding().delegate(), subject)
                 || !admission.type().equals(String.valueOf(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(subject.getType())))))
             subject = null;
-        this.session.inspect(admission.type(), admission.sequence(), pos.getX(), pos.getY(), pos.getZ(), subject);
+        return subject;
     }
 
     void close(boolean successful) {

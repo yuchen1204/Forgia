@@ -207,27 +207,40 @@ public final class BlockEntityAdapterRegistry {
             return this.captured.containsKey(type);
         }
 
-        private void refused(Entry entry, Refusal refusal) {
+        private Refusal refused(Entry entry, Refusal refusal) {
             entry.refusals.get(refusal).increment();
+            return refusal;
+        }
+
+        /** Core recheck after external callbacks. No external code runs under this monitor. */
+        public boolean current(String type) {
+            this.requireCurrent();
+            synchronized (BlockEntityAdapterRegistry.this) {
+                final var entry = this.captured.get(type);
+                return open && entry != null && entry.state == State.ACTIVE;
+            }
+        }
+
+        /** Record an independent Core rejection in addition to declaration diagnostics. */
+        public void coreRefusal(String type, Refusal declared, Refusal actual) {
+            this.requireCurrent();
+            if (actual != declared) this.refused(this.captured.get(type), actual);
         }
 
         /** Must be called inside the existing serial Permit at this invocation's actual canonical cursor. */
-        public void inspect(String type, long ordinal, int x, int y, int z, @Nullable Object subject) {
+        public Refusal inspect(String type, long ordinal, int x, int y, int z, @Nullable Object subject) {
             this.requireCurrent();
             final var entry = this.captured.get(type);
-            if (entry == null) return;
+            if (entry == null) throw new IllegalArgumentException("Unregistered invocation in adapter phase");
             entry.serial.increment();
             if (entry.state != State.ACTIVE) {
-                this.refused(entry, Refusal.INVALIDATED);
-                return;
+                return this.refused(entry, Refusal.INVALIDATED);
             }
             if (subject == null) {
-                this.refused(entry, Refusal.INVALID_BINDING);
-                return;
+                return this.refused(entry, Refusal.INVALID_BINDING);
             }
             if (this.ordinals.size() >= RegionBlockEntityWorkGraph.MAX_UNITS) {
-                this.refused(entry, Refusal.BUDGET_EXCEEDED);
-                return;
+                return this.refused(entry, Refusal.BUDGET_EXCEEDED);
             }
             BlockEntityWorkPlanner.Unit declaration = new BlockEntityWorkPlanner.Unit(Set.of(), Set.of(), true);
             final var view = new View(this.phase, ordinal, type, x, y, z, subject);
@@ -237,8 +250,7 @@ public final class BlockEntityAdapterRegistry {
             }
             if (adapter == null) {
                 view.retire();
-                this.refused(entry, Refusal.INVALIDATED);
-                return;
+                return this.refused(entry, Refusal.INVALIDATED);
             }
             this.touched.putIfAbsent(entry, adapter);
             ++this.inspections;
@@ -249,36 +261,30 @@ public final class BlockEntityAdapterRegistry {
                 if (!entry.descriptor.executions().contains(request.execution()))
                     throw new IllegalArgumentException("Undeclared block-entity execution request");
                 if (entry.state != State.ACTIVE) {
-                    this.refused(entry, Refusal.INVALIDATED);
-                    return;
+                    return this.refused(entry, Refusal.INVALIDATED);
                 }
                 if (request.execution() == BlockEntityAdapters.Execution.SERIAL) {
-                    this.refused(entry, Refusal.ADAPTER_SERIAL);
-                    return;
+                    return this.refused(entry, Refusal.ADAPTER_SERIAL);
                 }
                 final long uses = (long) request.resources().size() + request.dependencies().size();
                 if (uses > BlockEntityResourceOwnership.MAX_RESOURCES_PER_UNIT
                         || uses + this.logicalUses > BlockEntityResourceOwnership.MAX_BINDINGS_PER_PHASE) {
-                    this.refused(entry, Refusal.BUDGET_EXCEEDED);
-                    return;
+                    return this.refused(entry, Refusal.BUDGET_EXCEEDED);
                 }
                 this.logicalUses += (int) uses;
                 if (request.resources().isEmpty()) {
-                    this.refused(entry, Refusal.UNKNOWN_RESOURCE);
-                    return;
+                    return this.refused(entry, Refusal.UNKNOWN_RESOURCE);
                 }
                 final Set<BlockEntityWorkPlanner.Resource> reads = new HashSet<>();
                 final Set<BlockEntityWorkPlanner.Resource> writes = new HashSet<>();
                 for (final var resource : request.resources()) {
                     if (resource.ownership() == BlockEntityAdapters.Ownership.UNKNOWN
                             || (resource.ownership() == BlockEntityAdapters.Ownership.SHARED_READ && resource.access() == BlockEntityAdapters.Access.WRITE)) {
-                        this.refused(entry, Refusal.UNKNOWN_RESOURCE);
-                        return;
+                        return this.refused(entry, Refusal.UNKNOWN_RESOURCE);
                     }
                     final var current = Objects.requireNonNull(resource.current().validate(), "Null resource validation");
                     if (current != Validation.CURRENT) {
-                        this.refused(entry, current == Validation.INVALID ? Refusal.INVALID_RESOURCE : Refusal.UNKNOWN_RESOURCE);
-                        return;
+                        return this.refused(entry, current == Validation.INVALID ? Refusal.INVALID_RESOURCE : Refusal.UNKNOWN_RESOURCE);
                     }
                     final var identity = new BlockEntityWorkPlanner.Resource(this.phase, resource.identity());
                     (resource.access() == BlockEntityAdapters.Access.READ ? reads : writes).add(identity);
@@ -286,16 +292,14 @@ public final class BlockEntityAdapterRegistry {
                 for (final var dependency : request.dependencies()) {
                     final var current = Objects.requireNonNull(dependency.current().validate(), "Null dependency validation");
                     if (current != Validation.CURRENT) {
-                        this.refused(entry, current == Validation.INVALID ? Refusal.INVALID_DEPENDENCY : Refusal.UNKNOWN_DEPENDENCY);
-                        return;
+                        return this.refused(entry, current == Validation.INVALID ? Refusal.INVALID_DEPENDENCY : Refusal.UNKNOWN_DEPENDENCY);
                     }
                 }
                 if (entry.state != State.ACTIVE) {
-                    this.refused(entry, Refusal.INVALIDATED);
-                    return;
+                    return this.refused(entry, Refusal.INVALIDATED);
                 }
                 declaration = new BlockEntityWorkPlanner.Unit(reads, writes, false);
-                this.refused(entry, Refusal.CORE_AUDIT_UNAVAILABLE);
+                return this.refused(entry, Refusal.CORE_AUDIT_UNAVAILABLE);
             } catch (RuntimeException | Error failure) {
                 entry.failures.increment();
                 this.refused(entry, Refusal.CALLBACK_FAILED);

@@ -5896,7 +5896,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             } else {
                 published = true;
                 batch.markExecutingOnCurrentThread();
-                adapters = BlockEntityAdapterPhase.open(level);
+                adapters = BlockEntityAdapterPhase.open(level, batch.execution());
                 // Publish this same phase before any arbitrary prepare callback: unload/shutdown must
                 // await preparation too. Preserve server prepare-once and the furnace prepare=0 path.
                 if (!furnaces && !this.shutdown && !this.regionizer.isLevelClosed(level)) ParallelAdapterRuntime.prepareBlockEntityTicks(level);
@@ -5916,8 +5916,8 @@ public final class RegionThreadingEngine implements RegionThreading {
                     public CanonicalBlockEntityCoordinator.Unit prepare(int index) {
                         final var admission = ordered.get(index);
                         if (!phase.eligibleNow(admission)) return null;
-                        // C5 has no generic proof backend. Do not invoke an unknown adapter during
-                        // lookahead: its whole inspection/original ticker belongs to this Serial Fence.
+                        // Unknown C5 closure proofs refuse through this same phase's kernel. Do not
+                        // invoke adapters during lookahead: inspect and body belong to this Serial Fence.
                         if (general != null && general.handles(admission)) return null;
                         if (furnaces && LevelChunk.furnaceWorkSource(admission.ticker()) != null) {
                             final long started = System.nanoTime();
