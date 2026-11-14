@@ -2,7 +2,7 @@
 
 Baseline: `835ca1408e7eb4f49e4441963bb283a65d32812f`.
 
-C6.1 selects and audits a real upstream ticker. **No Mod Worker authorization exists at this checkpoint.** Subsequent stages must establish runtime evidence, Core-only manifest construction, existing Claims conversion and original unstarted-Ticket admission before claiming a positive result.
+C6.1 selects and investigates a real upstream ticker. **No Mod Worker authorization exists.** C6.2 investigation subsequently reproduced an actual runtime-function evidence gap and stopped before a trusted verifier could be implemented. C6.3–C6.5 are not completed. The final results below are refusal/serial observations and unchanged-baseline regressions, not a first Mod Worker milestone.
 
 ## C6.1 selection
 
@@ -73,12 +73,210 @@ The prospective Core verifier must derive a bounded executed path from actual by
 
 If runtime integrity, ownership or the complete original binding cannot be established, C6 must stop without a positive Mod proof. A prototype bytecode interpreter, mock source, constructed manifest or direct verifier test does not prove real Worker execution.
 
-## Stage status
+## C6.2 investigation: runtime-function provenance blocker
 
-- C6.1: original target selection/call-path/resource/writer audit complete; runtime and ownership prerequisites remain explicit. No grant.
-- C6.2: not implemented at the C6.1 checkpoint; investigating trustworthy runtime evidence and the constrained Core verifier.
-- C6.3: not implemented; no Mod Claims/Reservation/Lease minted.
-- C6.4: not implemented; zero proven Mod Worker bodies/overlap. No real Mod Worker tests passed yet.
-- C6.5: not completed; final integration/matrix must report actual outcomes only.
+The optional definition observer was implemented and tested only as a local experiment. It never entered the Core authorization path, created a trusted manifest or reserved resources. Its source/build/jar are archived under private evidence; the temporary project and settings entry were removed, restoring all production and build bytes to the starting HEAD. It is not shipped as a supported bootstrap/agent feature.
 
-Native Hopper/Furnace preparation, existing claims/reservation, admission conditions, canonical execution, defaults/budgets and previous tests are unchanged at this source-audit checkpoint. Original private indexes, failed inventory JSON escaping attempt and raw decompilation/disassembly remain local under `tmp/be-trusted-mod-closure/`. No installed-server validation or MSPT benefit is claimed.
+Five actual JVM probes passed after correcting a default-package test name: observation of a named class, defensive copy, loader identity and duplicate-attempt handling; absent observer; attach enabled; duplicate observer; and watch-list overflow. These are component experiments, not Mod tests or authorization evidence. The first build failure from automatically generated Minecraft package annotations and the first fixture failure are preserved.
+
+A stronger adversarial JVM probe then reproduced the missing prerequisite:
+
+```text
+HIDDEN_DEFINITION_GAP_REPRODUCED hostEvidence=true originalLambdaEvidence=false
+otherHiddenEvidence=false sameNestHost=true differentBodies=true noWorkerGranted=true
+```
+
+The original factory-style lambda and an explicitly defined hidden nestmate have the same host, but different bodies and neither produces ordinary transformer definition evidence. Thus host provenance, `isHidden`, interface/method names, original artifact hashes and Mixin labels cannot stand in for actual function linkage. The observer's refusal to return hidden-class evidence is correct. Promoting the named host's bytes into a hidden ticker certificate would be a false proof.
+
+This does not prove that trustworthy lambda provenance is impossible. It identifies the missing implementation: a Core-audited original factory/linkage capture which binds the **actual function object** used in the original LevelChunk delegate to its verified factory/call-site closure without invoking an unproved factory during lookahead. That bridge must also remain valid after rebind/replacement and runtime updates. It does not exist here; implementing its semantics as a Mod-specific `getTicker` call or accepting the Adapter's returned object would violate the requested trust boundary.
+
+The public `maintenanceTick` remains another callable entry. The original jar has one direct caller and one counter writer, but neither census nor a freshness predicate establishes that all transformed, generated, reflective or asynchronous call paths participate in the Core exclusion protocol. An independently complete writer/provenance boundary must be established for the actual supported runtime. Version checks only detect some changes; they do not exclude a writer while a Worker runs.
+
+### Alternative-target investigation
+
+To avoid treating a lambda-only problem as a reason to skip other targets, a second ASM scan inspected **65,912 original classes with zero parse errors** across the 176 non-NeoForge artifact paths used for that scan. It found four directly named implementations of BlockEntityTicker; indirect/dynamically generated implementations remain outside that discovery census.
+
+| Direct named implementation | Additional audit result | Reason no alternate grant was made |
+|---|---|---|
+| Create `SmartBlockEntityTicker` | Virtual `hasLevel`/`setLevel`, then cast and virtual `SmartBlockEntity.tick`. Smart tick can initialize/post behaviour events, lazy-tick and invoke attached behaviour consumers; Kinetic tick adds effects/config/topology/network paths. | Named function identity does not close source dispatch, behaviour roots, all writers or shared network state. Existing v1 adapter does not supply this Core proof. |
+| GraveStone `SimpleBlockEntityTicker` | Dispatches ITickable/IClientTickable/IServerTickable interfaces. The inspected concrete GraveStoneTileEntity does not implement those server tick interfaces. | No meaningful positive target with a mutating closed original ticker; never invent a ticker or count a no-op interface mismatch as the requested result. |
+| Vinery `ApplePressBlockEntity` | Implements ticker, but the actual ApplePressBlock factory still returns a lambda through createTickerHelper. Its execution consults inventories/recipes and writes progress; ContainerData.set and loadAdditional are additional progress writers. | Does not bypass actual function provenance; inventory/recipe/menu/other-writer closure is broader. No claim of an audited safe shared handler. |
+| Sable `HarvesterTicker` | Virtual hasLevel/setLevel and interface `sable$clientTick`, with shared static behaviour/context and entity-drop helpers elsewhere in the class. | Dynamic interface dispatch and physics/behaviour context require an additional audited closure. It is not the simple server-private-storage target sought here. |
+
+These findings reject the inspected candidates **for this milestone**. They do not certify every method of those Mods or prove that no other target could ever work. The task stops on an unresolved architectural prerequisite rather than implementing a name/hash allowlist, partial ticker, callback probe or another refusal backend under a positive C6 label.
+
+## Actual original-Mod / real-Level observation
+
+A private exploratory GameTest loads the exact original piq_fc_arcade artifact through the normal Mod loader and registers a serial-only C5 adapter through the real startup event. Two actual folding stools are placed a fixed Region width apart in a real ServerLevel under the installed canonical bridge. The original ticker executes through more than two periodic maintenance boundaries per source; the observer only counts bodies and reads the real private counter. It neither calls maintenanceTick directly nor constructs Proof.
+
+```text
+C6_REAL_MOD_AUDIT originalSources=2 differentRegions=true hiddenTicker=true
+completeSerialBodies=87 counterDelta=87 workers=0 periodicMaintenance=true noProof=true
+```
+
+Actual result: **1/1 required**, exit0, no Crash Report. The filtered framework XML has232grouped entries and230skipped entries; those230 are not passes. The ordinary feature-gating check also emits a passed framework row. Original class, actual factory hidden function and complete counter/body exactly-once are observed on the real Level. This is **serial evidence only**. There is no Mod Worker overlap, Resource Claim, Reservation or Lease to report.
+
+The first private init-script attempt failed because Gradle also applied it in buildSrc; adding the same project-existence guard used by earlier validation fixed the harness. Its raw log/result are retained. No production fix or assertion relaxation was needed. All exploratory source, init scripts, command/input hashes, XML, configs, stderr and logs remain local. The original All Rights Reserved Mod jar and decompiled source are not published.
+
+## Authorization and requested failure-case status
+
+There is no Core Mod closure verifier or trusted manifest, so conversion is deliberately absent:
+
+```text
+Original registered Mod ticker
+  -> original canonical Serial Fence / C5 Core refusal gate
+  -> complete original ticker once
+  -> original phase retirement
+
+No trusted Mod manifest -> no Mod Claims -> no Mod Reservation/Lease -> no Mod Worker Permit.
+```
+
+The original Native/Furnace proof, claims, reservation, outer exclusion, physical join and ordered commit paths remain byte-identical. Their existing tests do not substitute for first-Mod authorization evidence.
+
+| Requested C6.4 case | Actual coverage in this task |
+|---|---|
+| 1 Single Mod BE Worker; 2 two-Region Mod Worker | **Not executed/not implemented**. Actual original two-Region sources run serial, workers0. |
+| 3 shared resource; 4 READ/READ; 5 READ/WRITE; 6 WRITE/WRITE | No Mod manifest converter or Mod grants; no positive Mod resource-sharing claim. Existing Core/Furnace cases are regression only. |
+| 7 inconsistent Region Home; 8 Level/Dimension; 9 identity mismatch; 10 ownership change | Existing refusal/resource tests rerun; no new Mod Worker authorization coverage. |
+| 11 registration invalidation/unregister; 12 Validator failure | Existing C5/Canonical cases rerun. Exploratory original Mod registers SERIAL; this is not a C6 positive proof/lifecycle test. |
+| 13 Worker Admission refusal; 14 executor rejection/delay | Existing Core/Furnace tests rerun; no Mod candidate exists to exercise these as Mod Worker cases. |
+| 15 callback exception; 16 Worker body exception; 17 commit exception | Existing exact-once/failure tests rerun; no new authorized Mod Worker or Mod commit coverage. |
+| 18 phase close/shutdown; 19 Lease duplicate release | Existing original kernel/resource/lifecycle tests rerun; zero Mod Lease instances. |
+| 20 mid-failure exactly-once/effect consistency | Actual original-Mod serial body/counter equality87/87 across periodic boundaries. No fault injected into an authorized Mod Worker; do not infer rollback or Mod Worker exactly-once from this. |
+
+## Final validation
+
+Results below verify the unchanged C5.5 baseline and refusal boundary. They do **not** complete C6.4/C6.5. Machine commands, source/result/log/XML hashes and actual framework limits are in [the evidence summary](FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.json).
+
+| Run | Actually executed result | failure/error/skip | Gradle exit |
+|---|---:|---|---:|
+| `final-v1-fixed-on` | 419/419 | 0/0/0 | 0 |
+| `final-v1-persistent-off` | 419/419 | 0/0/0 | 0 |
+| `final-v1-persistent-on` | 419/419 | 0/0/0 | 0 |
+| `final-v1-full-core-fixed-off` | 1400/1400 | 0/0/0 | 0 |
+| `final-v1-unknown-furnace` | 1/1 | 0/0/0 | 0 |
+| `final-v1-create` | 16/16 | 0/0/0 | 0 |
+| `final-v1-unknown-create` | 1/1 | 0/0/0 | 0 |
+| `final-v1-msc` | 25/25 | 0/0/0 | 0 |
+| `final-v1-unknown-msc` | 1/1 | 0/0/0 | 0 |
+| `full-game-persistent-on-v1` | 177/177required | 0failures/4NotProcessed | 0 |
+| `full-game-fixed-off-v1` | 177/177required | 0failures/4NotProcessed | 0 |
+
+All1400baseline cases and each prior419related case multiset were actually compared to C5.5 raw XML, normalizing only Ingredient object display identity. There are **zero added production tests and zero passed positive Mod Worker tests**. Every relevant configuration reruns the original84canonical cases and confirms Native/Furnace overlap2/2 plus original C5 mixed-phase overlap2/2; this is preserved existing authority.
+
+Two complete unfiltered fresh-world GameTest profiles retain231grouped entries/179uniqueIDs/227passed entries/4NotProcessed each. The four names remain testFeatureFlagPacks, extendPoiTypeTest, customBoatType and testAttachmentSyncManual. They are not executed passes. Original C5 Mod bodies remain serial; save/reload reconstructs25chunks/13BEs/9entities as distinct instances. No private furniture test or original furniture artifact is included in these baseline profiles; the separate filtered1/1original-Mod audit is explicitly serial only.
+
+`full-game-persistent-on-v1`: exit0/noCrash; 63 ERROR/FATAL and 63 WARN lines retained in raw evidence.
+
+`full-game-fixed-off-v1`: exit0/noCrash; 63 ERROR/FATAL and 63 WARN lines retained in raw evidence.
+
+Legacy entity attributes, fresh properties file, optional tag and deliberate permission diagnostics are not suppressed or called zero-error logs. No client/manual/soak/hard-kill coverage is inferred. No installed server or performance A/B was run.
+
+The independent raw JVM witness logs **every** relevant named definition callback and observes the real host, while neither hidden function produces a callback. This evidence is independent of the prototype observer lookup explicitly rejecting hidden classes, its watch list, or any assumed callback name. The earlier lookup probe alone would only establish fail-closed lookup behavior; the independent raw callback witness establishes the missing definition observation.
+
+Actual complete regression commands:
+
+`final-v1-fixed-on`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -PfurnaceResourceOwnership=true :tests:junitTest --tests '*CoreMod*Test' --tests '*CanonicalBlockEntity*Test' --tests '*GeneralBlockEntityAdapter*Test' --tests '*BlockEntityTickAdapterTest' --tests '*FurnaceWorkWavesTest' --tests '*BlockEntityResource*Test' --tests '*BlockEntityExecutionEngineTest' --tests '*RegionBlockEntityTick*Test' --tests '*RegionTaskBatchTest' --tests '*RegionPoi*Test' --tests '*RegionEntityTickPolicyTest' --tests '*CustomFeatureFlagsTest' --tests '*ParallelApiTest'
+```
+
+`final-v1-persistent-off`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -PfurnacePersistentWorkers=true :tests:junitTest --tests '*CoreMod*Test' --tests '*CanonicalBlockEntity*Test' --tests '*GeneralBlockEntityAdapter*Test' --tests '*BlockEntityTickAdapterTest' --tests '*FurnaceWorkWavesTest' --tests '*BlockEntityResource*Test' --tests '*BlockEntityExecutionEngineTest' --tests '*RegionBlockEntityTick*Test' --tests '*RegionTaskBatchTest' --tests '*RegionPoi*Test' --tests '*RegionEntityTickPolicyTest' --tests '*CustomFeatureFlagsTest' --tests '*ParallelApiTest'
+```
+
+`final-v1-persistent-on`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -PfurnacePersistentWorkers=true -PfurnaceResourceOwnership=true :tests:junitTest --tests '*CoreMod*Test' --tests '*CanonicalBlockEntity*Test' --tests '*GeneralBlockEntityAdapter*Test' --tests '*BlockEntityTickAdapterTest' --tests '*FurnaceWorkWavesTest' --tests '*BlockEntityResource*Test' --tests '*BlockEntityExecutionEngineTest' --tests '*RegionBlockEntityTick*Test' --tests '*RegionTaskBatchTest' --tests '*RegionPoi*Test' --tests '*RegionEntityTickPolicyTest' --tests '*CustomFeatureFlagsTest' --tests '*ParallelApiTest'
+```
+
+`final-v1-full-core-fixed-off`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -I /home/yc/Minecraft/Forgia/tmp/be-trusted-mod-closure/format-selected.gradle :licenseCheck :tests:licenseCheck :checkFormatting :tests:checkFormatting :tests:junitTest
+```
+
+`final-v1-unknown-furnace`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -PfurnaceUnverifiedHookControl=true :tests:junitTest
+```
+
+`final-v1-create`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta '-PcreateJar=/home/yc/Minecraft/Forgia/tmp/create-adapter/final-server/mods/[机械动力] create-1.21.1-6.0.10.jar' :create-adapter:junitTest
+```
+
+`final-v1-unknown-create`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta '-PcreateJar=/home/yc/Minecraft/Forgia/tmp/create-adapter/final-server/mods/[机械动力] create-1.21.1-6.0.10.jar' -PcreateAdapterUnverifiedHookControl=true :create-adapter:junitTest
+```
+
+`final-v1-msc`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -PmobSpawnControllerJar=/home/yc/Minecraft/Forgia/tmp/msc-v3/pack/mods/mobspawncontroller-neoforge-1.21.1-1.2.3.jar :mobspawncontroller-adapter:junitTest
+```
+
+`final-v1-unknown-msc`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -PmobSpawnControllerJar=/home/yc/Minecraft/Forgia/tmp/msc-v3/pack/mods/mobspawncontroller-neoforge-1.21.1-1.2.3.jar -PmscUnverifiedHookControl=true :mobspawncontroller-adapter:junitTest
+```
+
+`full-game-persistent-on-v1`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -I /home/yc/Minecraft/Forgia/tmp/be-trusted-mod-closure/game-private.gradle -Pc5Run=full-game-persistent-on-v1 -Pc5Profile=canonicalGameTestServer :tests:runCanonicalGameTestServer
+```
+
+`full-game-fixed-off-v1`:
+
+```sh
+export JAVA_HOME=/home/yc/.local/opt/jdk-21.0.13+9
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew --offline --no-configuration-cache --no-parallel --console=plain --max-workers=1 -PforgiaVersion=21.1.250.60-beta -I /home/yc/Minecraft/Forgia/tmp/be-trusted-mod-closure/game-private.gradle -Pc5Run=full-game-fixed-off-v1 -Pc5Profile=canonicalGameTestServer -PcanonicalResources=false -PcanonicalPersistent=false :tests:runCanonicalGameTestServer
+```
+
+
+## Stage status and readiness
+
+| Stage | Actual completion |
+|---|---|
+| C6.1 | Candidate selection, original call/dispatch/resource/writer investigation and explicit rejection risks delivered. This is not a complete runtime execution Proof. |
+| C6.2 | Investigation/prototype/real-JVM counterexample delivered; **blocked before Core verifier and trusted manifest implementation**. Prototype remains private and unshipped. |
+| C6.3 | **Not implemented.** No Mod Claims/Reservation/Lease; do not bypass the unresolved proof gate. |
+| C6.4 | **Not implemented.** No Mod Worker bodies/overlap; only original-Mod serial observation and existing baseline regressions. |
+| C6.5 | **Not completed.** Final audit report and baseline regression review do not constitute the requested first-Mod architecture validation. |
+
+**No ticker has newly obtained Mod Worker authority.** The furniture counter-only branch is a source-audited candidate still under complete Serial Fence; its function/writer provenance is unproved. Periodic furniture maintenance, Create/Quark/Vinery and all other unproved paths remain serial. Existing General/Dedicated declarations and Dedicated audit strings remain requests only. Existing legacy Create metadata/tests do not become C6 Core Proof.
+
+A first Worker-enabled Dedicated Mod Adapter is still not ready, so readiness for a second Worker-enabled Adapter is **not established**. The next prerequisite is the actual original function provenance boundary plus independently stable writer ownership; only after it succeeds can a constrained Core verifier construct a trusted manifest and use the existing Claims/planner/reservation/Lease on the original unstarted Ticket. No Mod-specific certifier callback or proof constructor should be exposed.
+
+All production Java, public API, patches, build/settings, native/furnace preparation/resource/kernel execution, defaults/budgets and existing tests remain byte-identical to starting HEAD. Only documentation and factual evidence summaries are delivered. No second authority, actual Mod support, installed-server verification, Modpack certification or MSPT benefit is claimed. No second Adapter or C7 is started.

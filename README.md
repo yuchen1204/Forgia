@@ -199,6 +199,11 @@ entries, separately documented; the report keeps all failed attempts and legacy 
 Production source/patches/admission/defaults/budgets/API are unchanged. That C4.2 checkpoint stopped before
 C5/Create protocol work, performance tuning or repeated long installed soak.
 
+[C6 first-Mod closure investigation](region-threading/FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) is blocked
+before trusted Mod authorization: runtime function/writer provenance is not established. An original
+furniture Mod ticker runs completely serial in an actual two-Region GameTest (87bodies/counter increments,
+workers0). C6.3–C6.5 remain unimplemented, and the exploratory bytecode observer is not shipped.
+
 [C5.1–C5.5 Core execution proof readiness](region-threading/CORE-MOD-EXECUTION-PROOF-READINESS.md) adds
 an independent binding/lifecycle refusal gate on the original kernel Ticket. It rechecks the exact source
 and registration after adapter callbacks; refused work remains a complete Serial Fence with no replay.

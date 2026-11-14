@@ -4,15 +4,24 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## First trusted Mod closure — C6 in progress
+## First trusted Mod closure — C6 blocked before authorization
 
-[C6 target and closure audit](FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) selects the original
-piq_fc_arcade0.31.0-alpha.61 furniture ticker after comparing locally available Mods. The first candidate
-is a complete counter-only invocation; its periodic maintenance branch remains a full Serial Fence.
-C6.1 is an original-artifact call/dispatch/resource/writer audit, **not a runtime Proof or Worker grant**.
-Runtime integrity, owned-storage manifest conversion and original unstarted-Ticket integration must all
-succeed before C6 can claim authorization. No positive Mod execution is established at this checkpoint.
-C6 work has not changed Native/Furnace admission, resource budgets/defaults or their execution paths.
+[C6 target, runtime investigation and results](FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) records
+original piq_fc_arcade0.31.0-alpha.61 furniture ticker candidate selection, a real-JVM hidden-function
+provenance counterexample and alternate-target investigation. Actual original Mod GameTest executes
+two sources across Regions through periodic maintenance, **87complete serial bodies/counter increments,
+workers0**,1/1required/exit0/noCrash. This is serial observation, not Mod Worker authorization.
+C6.1 source investigation is delivered. C6.2 is **blocked before trusted verifier/manifest**; C6.3 Claims
+conversion, C6.4 Mod Workers and C6.5 first-Mod architecture validation are **not completed**. All positive
+Mod Worker permissions remain absent. The exploratory definition-observer prototype is archived locally,
+not shipped; actual source/build/patch/admission/default/budget/test bytes remain the C5.5 baseline.
+The report explicitly separates existing baseline regressions from unexecuted C6 positive/fault scenarios.
+Current unchanged-baseline regression: Core1400/1400, three related419/419 configurations, existing
+Create16+unknown1/MSC25+unknown1/unknownFurnace1, and two full unfiltered GameTest profiles177/177required
+each pass, exit0/noCrash. Each full XML retains231grouped entries/179uniqueIDs/4NotProcessed. All1400
+and three419case multisets match prior actual XML;84canonicalperconfiguration and Native/Furnace2/2
+remain. These results do not complete C6.4/C6.5 or grant a Mod Worker permission.
+No installed-server verification, second Adapter/C7 or MSPT result is claimed.
 
 ## Core-controlled Mod execution proof — C5.1–C5.5
 
