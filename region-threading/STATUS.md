@@ -4,6 +4,16 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
+## First trusted Mod closure — C6 in progress
+
+[C6 target and closure audit](FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) selects the original
+piq_fc_arcade0.31.0-alpha.61 furniture ticker after comparing locally available Mods. The first candidate
+is a complete counter-only invocation; its periodic maintenance branch remains a full Serial Fence.
+C6.1 is an original-artifact call/dispatch/resource/writer audit, **not a runtime Proof or Worker grant**.
+Runtime integrity, owned-storage manifest conversion and original unstarted-Ticket integration must all
+succeed before C6 can claim authorization. No positive Mod execution is established at this checkpoint.
+C6 work has not changed Native/Furnace admission, resource budgets/defaults or their execution paths.
+
 ## Core-controlled Mod execution proof — C5.1–C5.5
 
 [Core proof readiness](CORE-MOD-EXECUTION-PROOF-READINESS.md) audits the existing authority chain and adds

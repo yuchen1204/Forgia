@@ -1,0 +1,276 @@
+{
+  "stage": "C6.1",
+  "outcome": "TARGET_ORIGINAL_CLOSURE_AUDIT_COMPLETE_NO_WORKER_AUTHORIZATION",
+  "baseline": "835ca1408e7eb4f49e4441963bb283a65d32812f",
+  "createdAt": "2026-11-14T15:12:39.366896+00:00",
+  "inventory": {
+    "uniqueJarNames": 198,
+    "beNamedCandidateJars": 90,
+    "heuristicNotCompleteCensus": true
+  },
+  "candidateArtifacts": {
+    "furniture": {
+      "path": "tmp/msc-v3/runs/ordered-e/mods/game_console-0.31.0-alpha.61.jar",
+      "sha256": "d4cb3a41cd3d98c99a0118b1e97475b5781106711ac1d4e321d87c4c2506c510",
+      "bytes": 31543307,
+      "command": [
+        "/home/yc/.local/opt/jdk-21.0.13+9/bin/java",
+        "-Xmx256m",
+        "-cp",
+        "tmp/be-trusted-mod-closure/inventory-classes:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7/73d7b3086e14beb604ced229c302feff6449723/asm-9.7.jar:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7/e446a17b175bfb733b87c5c2560ccb4e57d69f1a/asm-tree-9.7.jar",
+        "OriginalClosureInventory",
+        "tmp/msc-v3/runs/ordered-e/mods/game_console-0.31.0-alpha.61.jar",
+        "tmp/be-trusted-mod-closure/furniture-original-index.ndjson"
+      ],
+      "index": "tmp/be-trusted-mod-closure/furniture-original-index.ndjson",
+      "indexSha256": "710151ee89078a8588245ea8ef5be1c43bdd8b4d4491f3a9e7968286108e1f27",
+      "classes": 1770
+    },
+    "quark": {
+      "path": "tmp/msc-v3/runs/ordered-e/mods/[夸克] Quark-4.1-482.jar",
+      "sha256": "0f69ce0d31caa4f31e1fa4959541120121e27c652cd2d954839af6b5162f0c70",
+      "bytes": 15576704,
+      "command": [
+        "/home/yc/.local/opt/jdk-21.0.13+9/bin/java",
+        "-Xmx256m",
+        "-cp",
+        "tmp/be-trusted-mod-closure/inventory-classes:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7/73d7b3086e14beb604ced229c302feff6449723/asm-9.7.jar:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7/e446a17b175bfb733b87c5c2560ccb4e57d69f1a/asm-tree-9.7.jar",
+        "OriginalClosureInventory",
+        "tmp/msc-v3/runs/ordered-e/mods/[夸克] Quark-4.1-482.jar",
+        "tmp/be-trusted-mod-closure/quark-original-index.ndjson"
+      ],
+      "index": "tmp/be-trusted-mod-closure/quark-original-index.ndjson",
+      "indexSha256": "9a34b31eb9110b2b0b097dd8d314384a1d7837961d746f34d5bd8708bc590b43",
+      "classes": 971
+    },
+    "create": {
+      "path": "tmp/be-canonical-c41/create-soak-10min/server/mods/[机械动力] create-1.21.1-6.0.10.jar",
+      "sha256": "ef87fe5709f1ba1f5b8bb20a2925b5afb4669e178fd6d8bf10c167759eefe37a",
+      "bytes": 19123767,
+      "command": [
+        "/home/yc/.local/opt/jdk-21.0.13+9/bin/java",
+        "-Xmx256m",
+        "-cp",
+        "tmp/be-trusted-mod-closure/inventory-classes:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7/73d7b3086e14beb604ced229c302feff6449723/asm-9.7.jar:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7/e446a17b175bfb733b87c5c2560ccb4e57d69f1a/asm-tree-9.7.jar",
+        "OriginalClosureInventory",
+        "tmp/be-canonical-c41/create-soak-10min/server/mods/[机械动力] create-1.21.1-6.0.10.jar",
+        "tmp/be-trusted-mod-closure/create-original-index.ndjson"
+      ],
+      "index": "tmp/be-trusted-mod-closure/create-original-index.ndjson",
+      "indexSha256": "5e0aa2fbad089575e92e4b2fd888ce92b392a79a67e540bdf1cfd1bd454ef451",
+      "classes": 2692
+    },
+    "gravestone": {
+      "path": "tmp/msc-v3/runs/ordered-e/mods/[墓碑] gravestone-neoforge-1.21.1-1.0.40.jar",
+      "sha256": "204be9ccb8632a56a87aee9aab4c7874d0f6749f566c07f5dd420d24e24dc8b0",
+      "bytes": 322082,
+      "command": [
+        "/home/yc/.local/opt/jdk-21.0.13+9/bin/java",
+        "-Xmx256m",
+        "-cp",
+        "tmp/be-trusted-mod-closure/inventory-classes:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm/9.7/73d7b3086e14beb604ced229c302feff6449723/asm-9.7.jar:/home/yc/.gradle/caches/modules-2/files-2.1/org.ow2.asm/asm-tree/9.7/e446a17b175bfb733b87c5c2560ccb4e57d69f1a/asm-tree-9.7.jar",
+        "OriginalClosureInventory",
+        "tmp/msc-v3/runs/ordered-e/mods/[墓碑] gravestone-neoforge-1.21.1-1.0.40.jar",
+        "tmp/be-trusted-mod-closure/gravestone-original-index.ndjson"
+      ],
+      "index": "tmp/be-trusted-mod-closure/gravestone-original-index.ndjson",
+      "indexSha256": "b76c80e77693ba5a084e002cd1df0afc47e3d940ecce362f7e40820fb1afe65d",
+      "classes": 106
+    }
+  },
+  "selected": {
+    "mod": "piq_fc_arcade",
+    "version": "0.31.0-alpha.61",
+    "ticker": "FurnitureBlock.lambda$getTicker$0 -> final FurnitureBlockEntity.maintenanceTick",
+    "initialBlock": "folding stool",
+    "candidateCondition": "Java-int prospective (ticks+1)%20 !=0, exact original ticker/source/factory/binding and stable independent ownership; not currently a grant",
+    "periodicServiceRemainsSerial": true,
+    "classAudit": {
+      "cn/piq/fcarcade/furniture/FoldingStoolBlock": {
+        "sha256": "ee418f31b710fe973167433341d6002af4f0d68d9494c4a22fc0acd400f49ac6",
+        "access": 49,
+        "super": "cn/piq/fcarcade/furniture/FurnitureBlock",
+        "fields": [
+          {
+            "name": "FOLDED",
+            "descriptor": "Lnet/minecraft/world/level/block/state/properties/BooleanProperty;",
+            "access": 25
+          }
+        ],
+        "methodSignatures": [
+          "<init>(Lcn/piq/fcarcade/furniture/WoodSpecies;Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;)V",
+          "codec()Lcom/mojang/serialization/MapCodec;",
+          "createBlockStateDefinition(Lnet/minecraft/world/level/block/state/StateDefinition$Builder;)V",
+          "isBench()Z",
+          "getStateForPlacement(Lnet/minecraft/world/item/context/BlockPlaceContext;)Lnet/minecraft/world/level/block/state/BlockState;",
+          "getShape(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/phys/shapes/CollisionContext;)Lnet/minecraft/world/phys/shapes/VoxelShape;",
+          "lambda$codec$0(Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;)Lcn/piq/fcarcade/furniture/FoldingStoolBlock;",
+          "<clinit>()V"
+        ]
+      },
+      "cn/piq/fcarcade/furniture/FurnitureBlock": {
+        "sha256": "aafc72620a2fb523646fcc6f243506866d1297f18e82dafc24ae048ae3967b63",
+        "access": 1057,
+        "super": "net/minecraft/world/level/block/HorizontalDirectionalBlock",
+        "fields": [
+          {
+            "name": "wood",
+            "descriptor": "Lcn/piq/fcarcade/furniture/WoodSpecies;",
+            "access": 18
+          }
+        ],
+        "methodSignatures": [
+          "<init>(Lcn/piq/fcarcade/furniture/WoodSpecies;Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;)V",
+          "wood()Lcn/piq/fcarcade/furniture/WoodSpecies;",
+          "isBench()Z",
+          "isAnchor(Lnet/minecraft/world/level/block/state/BlockState;)Z",
+          "turns(Lnet/minecraft/world/level/block/state/BlockState;)I",
+          "getRenderShape(Lnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/level/block/RenderShape;",
+          "newBlockEntity(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/level/block/entity/BlockEntity;",
+          "getTicker(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/entity/BlockEntityType;)Lnet/minecraft/world/level/block/entity/BlockEntityTicker;",
+          "getStateForPlacement(Lnet/minecraft/world/item/context/BlockPlaceContext;)Lnet/minecraft/world/level/block/state/BlockState;",
+          "rotate(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/Rotation;)Lnet/minecraft/world/level/block/state/BlockState;",
+          "mirror(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/Mirror;)Lnet/minecraft/world/level/block/state/BlockState;",
+          "useWithoutItem(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+          "onRemove(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Z)V",
+          "lambda$getTicker$0(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/entity/BlockEntity;)V"
+        ]
+      },
+      "cn/piq/fcarcade/furniture/FurnitureBlockEntity": {
+        "sha256": "644d17e59b737b9f3bf54b0561bca61d7205f8fd54613e716a29f62d31db9636",
+        "access": 49,
+        "super": "net/minecraft/world/level/block/entity/BlockEntity",
+        "fields": [
+          {
+            "name": "identity",
+            "descriptor": "Ljava/util/UUID;",
+            "access": 2
+          },
+          {
+            "name": "ticks",
+            "descriptor": "I",
+            "access": 2
+          }
+        ],
+        "methodSignatures": [
+          "<init>(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)V",
+          "identity()Ljava/util/UUID;",
+          "identity(Ljava/util/UUID;)V",
+          "maintenanceTick()V",
+          "saveAdditional(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V",
+          "loadAdditional(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V",
+          "onlyOpCanSetNbt()Z",
+          "onChunkUnloaded()V"
+        ]
+      },
+      "cn/piq/fcarcade/furniture/FurnitureService": {
+        "sha256": "c770e2f399a4869ce92b1c3ded44fbba16fcfa955eaca716755408b4b5a0cf43",
+        "access": 49,
+        "super": "java/lang/Object",
+        "fields": [
+          {
+            "name": "CHANGING",
+            "descriptor": "Ljava/lang/ThreadLocal;",
+            "access": 26
+          },
+          {
+            "name": "PROTECTION",
+            "descriptor": "Ljava/lang/ThreadLocal;",
+            "access": 26
+          }
+        ],
+        "methodSignatures": [
+          "<init>()V",
+          "other(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/core/BlockPos;",
+          "anchor(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/core/BlockPos;",
+          "cell(Lcn/piq/fcarcade/furniture/FurnitureLedger$Entry;I)Lnet/minecraft/core/BlockPos;",
+          "owns(Lnet/minecraft/server/level/ServerLevel;Lcn/piq/fcarcade/furniture/FurnitureLedger$Entry;I)Z",
+          "canPlace(Lnet/minecraft/world/item/context/BlockPlaceContext;Lnet/minecraft/world/level/block/state/BlockState;)Z",
+          "placeBench(Lnet/minecraft/world/item/context/BlockPlaceContext;Lnet/minecraft/world/level/block/state/BlockState;)Z",
+          "seats(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;)Ljava/util/List;",
+          "eject(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;)V",
+          "validSeat(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;I)Z",
+          "mayRemain(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/core/BlockPos;)Z",
+          "interact(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+          "pickupStool(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lcn/piq/fcarcade/furniture/FurnitureBlockEntity;)Lnet/minecraft/world/InteractionResult;",
+          "message(Lnet/minecraft/server/level/ServerPlayer;Ljava/lang/String;)Lnet/minecraft/world/InteractionResult;",
+          "breakBench(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/entity/player/Player;ZLnet/minecraft/world/level/material/FluidState;)Z",
+          "removed(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)V",
+          "destroyBench(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lcn/piq/fcarcade/furniture/FurnitureBlockEntity;ZLnet/minecraft/core/BlockPos;)V",
+          "reconcile(Lnet/minecraft/server/level/ServerLevel;Lcn/piq/fcarcade/furniture/FurnitureBlockEntity;)V",
+          "lambda$interact$2(ILcn/piq/fcarcade/furniture/FurnitureSeat;)Z",
+          "lambda$seats$1(Lnet/minecraft/core/BlockPos;Ljava/util/UUID;Lcn/piq/fcarcade/furniture/FurnitureSeat;)Z",
+          "lambda$static$0()Ljava/lang/Boolean;",
+          "<clinit>()V"
+        ]
+      }
+    },
+    "originalOnlyWriterCensus": {
+      "originalOnly": true,
+      "writers": [
+        {
+          "class": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+          "method": "maintenanceTick",
+          "descriptor": "()V",
+          "instruction": {
+            "index": 8,
+            "opcode": 181,
+            "owner": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+            "name": "ticks",
+            "descriptor": "I"
+          }
+        }
+      ],
+      "references": [
+        {
+          "class": "cn/piq/fcarcade/furniture/FurnitureBlock",
+          "method": "lambda$getTicker$0",
+          "descriptor": "(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/entity/BlockEntity;)V",
+          "instruction": {
+            "index": 4,
+            "opcode": 182,
+            "owner": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+            "name": "maintenanceTick",
+            "descriptor": "()V",
+            "interface": false
+          }
+        },
+        {
+          "class": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+          "method": "maintenanceTick",
+          "descriptor": "()V",
+          "instruction": {
+            "index": 4,
+            "opcode": 180,
+            "owner": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+            "name": "ticks",
+            "descriptor": "I"
+          }
+        },
+        {
+          "class": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+          "method": "maintenanceTick",
+          "descriptor": "()V",
+          "instruction": {
+            "index": 8,
+            "opcode": 181,
+            "owner": "cn/piq/fcarcade/furniture/FurnitureBlockEntity",
+            "name": "ticks",
+            "descriptor": "I"
+          }
+        }
+      ]
+    }
+  },
+  "runtimeEvidenceAvailableInC5": false,
+  "trustedModManifestImplemented": false,
+  "modClaimsConversionImplemented": false,
+  "modWorkerBodiesProven": 0,
+  "upstreamLicense": "All Rights Reserved; no upstream jar/decompiled implementation/classbytes redistributed",
+  "privateEvidence": {
+    "directory": "tmp/be-trusted-mod-closure",
+    "inventoryFailureReceipt": "tmp/be-trusted-mod-closure/inventory-attempt1-failure.json",
+    "inventorySourceSha256": "42a29bf0fdf584c64eba9e45b00eb9a5651e63c6513209ce62f5136029dde9f0"
+  },
+  "limits": "Original field/method census does not prove final runtime transformation, original function identity or stable writers. C6.2-C6.5 not completed at this checkpoint. No installed validation or MSPT claim."
+}
