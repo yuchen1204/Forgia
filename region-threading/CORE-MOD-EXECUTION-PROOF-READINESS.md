@@ -1,0 +1,43 @@
+# C5.1–C5.5 — Core-controlled Mod execution proof readiness
+
+Baseline: `9af01772d394e35cb67f7cd0882b234edd855ade`. This document records actual capabilities separately from the future positive Mod authorization backend. C5.1 is the source audit/design checkpoint; later sections will record subsequent implementation and actual validation. Unknown ticker closures remain complete Serial Fences.
+
+## C5.1 audit and design
+
+| Existing component | Actual authority and constraints | Reuse / missing condition |
+|---|---|---|
+| `ParallelAdapterRuntime` / `BlockEntityAdapterRegistry` | One server registration transaction, shared128 limit/id/type namespace, freeze and bounded tombstones. Dedicated audit outside registry monitor; revalidate after callback. SERVERS→registry close lock order. Coordinator-only mutation; asynchronous service close may mark entries CLOSED. | Keep the registration identity and volatile lifecycle state. External callbacks never run under registry/SERVERS/kernel/resource locks. Check callback reentry against freeze, shutdown and session retirement. |
+| `BlockEntityAdapterPhase` | Attached after original canonical batch publication; only original serial Permit may inspect actual cursor. Exact subject comes from existing loaded chunk map and bound delegate; no BE load or Capability lookup. | Capture exact source/binding before callback and recheck afterwards. A declaration or CURRENT cannot establish actual identity/closure. |
+| `CanonicalBlockEntityCoordinator` / `RegionThreadingEngine` | One monotonic cursor, one original batch/Ticket set, only continuous safe prefixes. Serial fence after physical join/required effects, then fresh suffix. Lifecycle waits use original admission boundary and reject self-waits. | Keep C5 callbacks at the actual cursor, complete original ticker once. Do not run unknown callbacks during lookahead to manufacture proof. |
+| `BlockEntityExecutionEngine` | Exact admission/wrapper/level identity, inspection generation; CAPTURED→INSPECTED→RUNNING→SUCCEEDED/FAILED, unstarted→CANCELLED. Thread-bound one-shot Permit. RegionGuard distinguishes coarse owner/fine resource authority. | Store the Mod proof assessment on this original Ticket, not in a second authority/lifecycle registry. Denied assessment cannot be refreshed into worker permission. |
+| Native / Furnace preparation | Core-specific exact ticker function/runtime/source/clock/attachments/binding/branch audit. Furnace also exact inventory/component/recipe/notification closure, whole-phase alias and fresh preparation. | These are existing complete trusted closure implementations. They do not certify any Mod body or arbitrary C5 registration. Leave original admission and real overlaps intact. |
+| `BlockEntityResourceOwnership` | Real level/domain+root identity, home exclusion, READ/WRITE,512uses/unit,131072/phase,2048units; all validators, whole-wave all-or-none nonblocking reservation; one-shot Lease and thread Scope. Reject close while scopes active. | Only independently audited Core roots/validators may build Claims. Adapter resource/validator objects must never become Binding.current or held-region predicates. |
+| `BlockEntityWorkPlanner` | Directed dependency order by reference identity, conflicting WRITE and full fences. | C5 declaration waves remain diagnostic. Core claims must cover all closure accesses and the entire ordered phase; a diagnostic plan omitting other invocations cannot drive execution. |
+| Ticket-owned Effect Bridge | Physical join before extraction; ordinal/effect order, retire record before invoking payload, keep other necessary commits after failure; true level-end effects retain original boundary. | No new queue or generic effects API. Started body/commit failure never replays. Lease/outer exclusion must survive necessary commits. |
+
+### Independent closure verification
+
+Core cannot prove arbitrary JVM code from resource declarations, a class name, a Mod ID, Dedicated audit metadata, CURRENT validators, observed accesses, or a successful execution. A future positive backend must be an explicit Core-reviewed closed implementation: exact original ticker/delegate/source/runtime transformations, every reached callback/virtual dispatch/provider, RNG, recipe/config/topology, resource roots, all writers, notifications and commit semantics must be covered. Unknown Capability providers execute arbitrary callbacks even during a supposed read-only probe; never call them to discover a proof.
+
+The implemented milestone will be a **Core refusal backend** bound to the original kernel Ticket, with independent binding and lifecycle checks before/after untrusted inspection. It will deliberately have no registration API for closure certifiers, no public proof constructor, no allow boolean, and no route from declarations to reservable Claims. General and Dedicated requests use the same gate. This is useful preparation and hardening, not a positive Mod Worker backend.
+
+### Claims conversion and reservation contract
+
+Conversion may occur only after a complete independently recognized closure yields a Core resource manifest. For each Adapter declaration Core must resolve the actual backing root without invoking unproved callbacks, compare root by `==` and actual level/domain, verify actual home/owner epoch, match permitted access (READ never upgrades to WRITE), establish immutable shared publication or exclusive local storage, and include every implicit access. Missing/extra/misowned roots, unknown or asynchronous writers, mutable wrappers, cross-dimension/multiple-home closures reject. Only Core predicates enter Claims; Adapter CURRENT is an additional refusal condition, never evidence.
+
+Existing fresh Core preparation must recapture the entire proposed prefix after every serial callback/mailbox/commit; phase budget never resets. Existing planner plus all-before-body reservation checks every occurrence and whole-phase alias/home. Existing outer region exclusion prevents participating writers between validation and body, an immutable publication prevents shared read mutation, and real physical join plus required commit precede Lease/outer release. Version checks alone do not prevent a concurrent writer; unsupported dynamic/async resources remain serial. A midbody failure has no general rollback and never authorizes fallback/replay.
+
+No conversion for arbitrary Mod requests is possible yet: there is no independently reviewed Mod closure implementation. **The C5.2/C5.3 refusal gate must mint zero Mod Claims, Reservations and Leases.** Existing Furnace still exercises the real reservation/lease path; its passing tests are labelled as existing authority tests, never Mod authorization.
+
+### Planned proof lifecycle (no second authority)
+
+Original Ticket remains the sole authority. An additional Core-only diagnostic assessment follows `UNCHECKED → CHECKING → SERIAL_ONLY` or `FAILED`, then `RETIRED` on original kernel close. Every check is within the actual original serial Permit, tied to exact admission and inspection generation; wrong phase/thread, duplicate checks and attempts after body/close throw. Pure refusal returns to the same complete original serial ticker; callback exceptions propagate and stop unstarted suffixes. The assessment retains no source/resource/validator/registry references. Future `VERIFIED/RESERVED` states are intentionally not implemented until a positive reviewed closure exists; existing Ticket/Permit/Lease states already define execution authority.
+
+## Stage ledger
+
+- C5.1: source audit and refusal-backend design complete; independent commit records this checkpoint.
+- C5.2–C5.5: pending implementation and actual verification; no success implied by this plan.
+
+## Readiness boundaries
+
+A first Dedicated Adapter may be developed as a serial request/audit integration now. A first **Worker-enabled** Dedicated Adapter additionally needs the narrow closure audit, trusted manifest conversion, prebody fresh proof, original kernel reservation bridge and adversarial real ticker tests described above. This task does not implement Create/Mekanism/AE2 type branches, a second scheduler/pool/Ticket/Permit/Lease/effect queue, general callback sandboxing, MSPT optimization or Bootstrap/Mixin refactoring.
