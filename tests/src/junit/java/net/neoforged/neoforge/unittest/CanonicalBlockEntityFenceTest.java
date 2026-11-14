@@ -650,7 +650,8 @@ class CanonicalBlockEntityFenceTest {
             }
         } else {
             final Object batch = f.observedBatches.iterator().next();
-            barrier = get(batch.getClass().getSuperclass().getSuperclass(), batch, "groupBarrier");
+            barrier = get(batch.getClass(), batch, "activeCanonicalBarrier");
+            if (barrier == null) barrier = get(batch.getClass().getSuperclass().getSuperclass(), batch, "groupBarrier");
         }
         assertNotNull(barrier, "physical join observation must use the actual barrier, never a simulated one");
         final var original = (CountDownLatch) get(barrier.getClass(), barrier, "completed");

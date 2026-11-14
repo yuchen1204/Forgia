@@ -64,7 +64,7 @@ class CanonicalBlockEntityNativeEffectsTest {
             nativeTask(f);
             f.enable(false);
             try {
-                f.explicitPhase("A");
+                f.retainedExplicitPhase("A");
                 f.clean();
                 assertEquals(1, f.cells.get("A").get());
                 assertEquals(0, f.cells.get("effect").get(), "the retained old driver parks this task until level end");

@@ -58,6 +58,25 @@ final class RegionBlockEntityTickBatch extends BlockEntityExecutionBatch {
     private final Collection<RegionBlockEntityTickChunk> fallbackChunks = new ConcurrentLinkedQueue<>();
     private final Collection<RegionBlockEntityTickAdmission> fallbackTickers = new ConcurrentLinkedQueue<>();
 
+    @Nullable
+    private RegionTaskBatch.Barrier activeCanonicalBarrier;
+
+    void activeCanonicalBarrier(@Nullable RegionTaskBatch.Barrier barrier) {
+        this.activeCanonicalBarrier = barrier;
+    }
+
+    private final java.util.Map<RegionCoordinate, RandomSource> canonicalRandoms = new java.util.HashMap<>();
+
+    void holdCoordinatorRegion(RegionState region) {
+        if (!region.isRunning() || !this.leasedRegions.add(region)) throw new IllegalStateException("Missing or duplicate original Region lease");
+    }
+
+    RandomSource canonicalRandom(RegionState region) {
+        // Empty RegionState objects may retire between prefixes. The phase's logical Region stream
+        // survives that replacement; neither a Fence nor re-leasing restarts an unchanged coordinate.
+        return this.canonicalRandoms.computeIfAbsent(region.coordinate(), key -> RandomSource.create(this.groupRandomSeed(key)));
+    }
+
     /** Only the coordinator releases canonical outer leases, after physical join and required commits. */
     List<RegionState> heldRegions() {
         return List.copyOf(this.leasedRegions);

@@ -79,8 +79,15 @@ final class ThreadedRegionizer {
     private volatile boolean closed;
     private Thread writeLockOwner;
 
+    private final RegionWorkAdmission workAdmission;
+
     ThreadedRegionizer(RegionLayout layout) {
+        this(layout, new RegionWorkAdmission());
+    }
+
+    ThreadedRegionizer(RegionLayout layout, RegionWorkAdmission workAdmission) {
         this.layout = layout;
+        this.workAdmission = workAdmission;
     }
 
     /**
@@ -165,7 +172,7 @@ final class ThreadedRegionizer {
         if (!region.isDead()) {
             return region;
         }
-        final RegionState replacement = new RegionState(coordinate);
+        final RegionState replacement = new RegionState(coordinate, this.workAdmission);
         this.regions.put(coordinate, replacement);
         return replacement;
     }
@@ -236,7 +243,7 @@ final class ThreadedRegionizer {
             sectionRegion.addCell(sectionCoordinate(coordinate));
             return sectionRegion;
         }
-        final RegionState created = this.regions.computeIfAbsent(coordinate, RegionState::new);
+        final RegionState created = this.regions.computeIfAbsent(coordinate, key -> new RegionState(key, this.workAdmission));
         created.addCell(sectionCoordinate(coordinate));
         return created;
     }
@@ -982,7 +989,7 @@ final class ThreadedRegionizer {
         region.clearSections();
         region.clearCells();
         for (final List<RegionSectionState> component : components) {
-            final RegionState splitRegion = new RegionState(component.get(0).coordinate().regionCoordinate());
+            final RegionState splitRegion = new RegionState(component.get(0).coordinate().regionCoordinate(), this.workAdmission);
             for (final RegionSectionState section : component) {
                 splitRegion.addSection(section);
                 splitRegion.addCell(section.coordinate());

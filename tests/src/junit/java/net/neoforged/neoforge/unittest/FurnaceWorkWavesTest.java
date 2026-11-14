@@ -641,7 +641,12 @@ class FurnaceWorkWavesTest {
                 if (source == furnaces.getFirst()) {
                     slowEntered.countDown();
                     if (!release.await(15, TimeUnit.SECONDS)) throw new AssertionError("slow original body was not released");
-                } else otherBodies.countDown();
+                } else {
+                    // Establish actual overlap before allowing the other five bodies to finish: a fast
+                    // runner may otherwise drain them before the slow body's runner has even started.
+                    assertTrue(slowEntered.await(10, TimeUnit.SECONDS), "the first original body did not start");
+                    otherBodies.countDown();
+                }
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
                 throw new AssertionError(exception);

@@ -4,7 +4,11 @@
 
 上一片 [Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，但 Native 与 Furnace 仍各自选择顺序、分组、回退及提交。本方案在现有 Ticket、Permit、RegionGuard 上增加一个服务器线程 Coordinator，先统一输入顺序和 Fence，再逐片接入原执行桥。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C3-B 最小 invocation effect bridge 已接入
+## 最新实施状态：C3-C Native phase Coordinator 已接入
+
+[C3-C实现与验证](CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md)用同一个phase batch/kernel/Ticket集合及canonical cursor，只提交连续安全prefix，全部fresh／reservation／owner check先于任一body，physical join／必要commit先于完整Serial Fence，再证明后缀。新增参与式server准入边界不授世界权限，原Region lease保留到join/commit，跨Fence同Region RNG流持续。原C1八项目标全部通过；完整core1309及三配置各243项全通过，原1244项本轮实际重跑。下一阶段C4把Furnace接入这一个batch/cursor；C5/Create/MSPT不扩展。
+
+## C3-B 最小 invocation effect bridge 检查点
 
 [C3-B实现与验证](CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md)在同一Ticket/Permit内记录generation／ordinal／effect index，physical join后持原Region lease有序commit。真实level-end producer改用显式保持原时机的入口，没有提前drain全level队列。未知正文不因v1 boolean放行。完整core1302项1299pass／3项C3-C顺序目标failure，原1244项本轮重跑全通过；其他三配置各236项。新增5项及旧Native效果可见性转绿，原断言不改。下一阶段C3-C建立单phase cursor／连续prefix／完整Fence与fresh后缀；C4尚未进入。
 

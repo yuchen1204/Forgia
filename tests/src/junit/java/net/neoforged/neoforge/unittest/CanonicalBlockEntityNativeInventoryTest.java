@@ -124,7 +124,7 @@ class CanonicalBlockEntityNativeInventoryTest {
                 f.enable(false);
                 assertFalse(RegionLayout.FIXED_3X3.regionAt(f.level, FIRST).equals(RegionLayout.FIXED_3X3.regionAt(f.level, OTHER_REGION)));
                 try {
-                    f.explicitPhase("A", "B");
+                    f.retainedExplicitPhase("A", "B");
                     assertEquals(2, max.get());
                     assertEquals(2, queriedPositions.size());
                     assertTrue(queriedPositions.contains(FIRST.below()));
@@ -162,7 +162,7 @@ class CanonicalBlockEntityNativeInventoryTest {
                 hopper(f, "A", FIRST);
                 f.enable(false);
                 try {
-                    f.explicitPhase("A");
+                    f.retainedExplicitPhase("A");
                     assertEquals(0, applied.get(), "a complete phase return must retain the old level-end timing");
                     f.event("phase", "end-level-tick");
                     assertSame(injected, assertThrows(IllegalStateException.class, () -> f.engine.endLevelTick(f.level)));
@@ -199,7 +199,7 @@ class CanonicalBlockEntityNativeInventoryTest {
             })) {
                 hopper(f, "A", FIRST);
                 f.enable(false);
-                f.explicitPhase("A");
+                f.retainedExplicitPhase("A");
                 assertEquals(1, queries.get());
                 assertFalse(f.world.blockTicks.hasScheduledTick(at, Blocks.STONE));
                 assertTrue(f.world.blockTicks.hasScheduledTick(at, Blocks.GLASS));
@@ -232,7 +232,7 @@ class CanonicalBlockEntityNativeInventoryTest {
                 final Method seed = batch.getDeclaredMethod("regionRandomSeed", ServerLevel.class, RegionCoordinate.class);
                 seed.setAccessible(true);
                 final var expected = RandomSource.create((Long) invoke(seed, null, f.level, RegionLayout.FIXED_3X3.regionAt(f.level, FIRST)));
-                f.explicitPhase("A", "B");
+                f.retainedExplicitPhase("A", "B");
                 assertEquals(List.of(expected.nextLong(), expected.nextLong()), draws);
                 assertEquals(2, streams.size());
                 assertNotNull(streams.getFirst());

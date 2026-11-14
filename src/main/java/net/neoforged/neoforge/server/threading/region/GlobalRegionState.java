@@ -17,6 +17,15 @@ final class GlobalRegionState {
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean workerSubmitted = new AtomicBoolean();
     private volatile Thread ownerThread;
+    private final RegionWorkAdmission workAdmission;
+
+    GlobalRegionState() {
+        this(new RegionWorkAdmission());
+    }
+
+    GlobalRegionState(RegionWorkAdmission workAdmission) {
+        this.workAdmission = workAdmission;
+    }
 
     RegionTaskQueue taskQueue() {
         return this.taskQueue;
@@ -51,7 +60,7 @@ final class GlobalRegionState {
     }
 
     boolean tryMarkRunning() {
-        return this.running.compareAndSet(false, true);
+        return this.workAdmission.tryStart(() -> this.running.compareAndSet(false, true));
     }
 
     void clearRunning() {
@@ -63,7 +72,7 @@ final class GlobalRegionState {
     }
 
     boolean tryMarkWorkerSubmitted() {
-        return this.workerSubmitted.compareAndSet(false, true);
+        return this.workAdmission.trySubmit(() -> this.workerSubmitted.compareAndSet(false, true));
     }
 
     void clearWorkerSubmitted() {

@@ -130,6 +130,8 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
         doCallRealMethod().when(this.level).markBlockEntityTickerRemoved();
         invoke(phaseMethod(), doCallRealMethod().when(this.level));
         doReturn(this.server).when(this.level).getServer();
+        set(Level.class, this.level, "levelData", mock(net.minecraft.world.level.storage.PrimaryLevelData.class));
+        doCallRealMethod().when(this.level).getLevelData();
         doAnswer(call -> Thread.currentThread() == this.serverThread).when(this.server).isSameThread();
         doReturn(this.tickRate).when(this.level).tickRateManager();
         doReturn(true).when(this.level).areEntitiesLoaded(anyLong());
@@ -443,11 +445,21 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
 
     /** Isolates driver order from the chunk/foreign collection problem without constructing a test scheduler. */
     void explicitPhase(String... ids) {
+        this.explicitPhase(true, ids);
+    }
+
+    /** The retained legacy reference is separate from the migrated canonical execution entry. */
+    void retainedExplicitPhase(String... ids) {
+        this.explicitPhase(false, ids);
+    }
+
+    private void explicitPhase(boolean canonical, String... ids) {
         this.prepareTrace();
         final RegionBlockEntityTickPlan plan = this.engine.beginBlockEntityTickPlan(this.level, this.barrier);
         assertNotNull(plan);
         for (String id : ids) assertTrue(plan.accept(this.tickers.get(id)), id);
-        plan.executeAndAwait();
+        if (canonical) plan.executeCanonicalAndAwait();
+        else plan.executeAndAwait();
     }
 
     private void start(String id) {

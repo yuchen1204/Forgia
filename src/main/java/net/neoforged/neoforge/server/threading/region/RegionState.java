@@ -124,8 +124,15 @@ final class RegionState {
      */
     private final it.unimi.dsi.fastutil.longs.LongOpenHashSet deferredWritePositions = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
 
+    private final RegionWorkAdmission workAdmission;
+
     RegionState(RegionCoordinate coordinate) {
+        this(coordinate, new RegionWorkAdmission());
+    }
+
+    RegionState(RegionCoordinate coordinate, RegionWorkAdmission workAdmission) {
         this.coordinate = coordinate;
+        this.workAdmission = workAdmission;
     }
 
     RegionCoordinate coordinate() {
@@ -575,7 +582,7 @@ final class RegionState {
     }
 
     boolean tryMarkRunning() {
-        return this.lifecycleState.compareAndSet(RegionLifecycleState.READY, RegionLifecycleState.TICKING);
+        return this.workAdmission.tryStart(() -> this.lifecycleState.compareAndSet(RegionLifecycleState.READY, RegionLifecycleState.TICKING));
     }
 
     synchronized void clearRunning() {
@@ -590,7 +597,7 @@ final class RegionState {
     }
 
     boolean tryMarkWorkerSubmitted() {
-        return this.workerSubmitted.compareAndSet(false, true);
+        return this.workAdmission.trySubmit(() -> this.workerSubmitted.compareAndSet(false, true));
     }
 
     synchronized void clearWorkerSubmitted() {

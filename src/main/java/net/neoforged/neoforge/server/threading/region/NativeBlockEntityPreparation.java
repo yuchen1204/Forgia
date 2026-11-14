@@ -38,7 +38,7 @@ public final class NativeBlockEntityPreparation {
             for (final Class<?> outer : List.of(HopperBlockEntity.class, HopperBlock.class, BlockEntity.class,
                     net.minecraft.world.level.block.entity.BaseContainerBlockEntity.class,
                     net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity.class,
-                    LevelChunk.class, Level.class, ServerLevel.class,
+                    LevelChunk.class, Level.class, ServerLevel.class, net.minecraft.world.level.storage.PrimaryLevelData.class,
                     net.minecraft.world.level.block.entity.BlockEntityType.class,
                     net.minecraft.world.level.border.WorldBorder.class, TimeTracker.class,
                     net.minecraft.world.level.block.state.StateHolder.class,
@@ -79,13 +79,15 @@ public final class NativeBlockEntityPreparation {
                 || source.getLevel() != admission.level() || source.isRemoved())
             return null;
         final var border = admission.level().getWorldBorder();
-        if (admission.level().getClass() != ServerLevel.class
+        if (admission.level().getServer() == null || admission.level().getClass() != ServerLevel.class
                 || border == null || border.getClass() != net.minecraft.world.level.border.WorldBorder.class)
             return null;
+        final var clock = admission.level().getLevelData();
+        if (clock == null || clock.getClass() != net.minecraft.world.level.storage.PrimaryLevelData.class) return null;
         final var position = admission.position();
         final LevelChunk chunk = admission.level().getChunkSource().getChunkNow(position.getX() >> 4, position.getZ() >> 4);
         if (chunk == null || chunk.getClass() != LevelChunk.class || !chunk.isLoaded() || !LevelChunk.furnaceWorkMatchesChunk(admission.ticker(), chunk)
-                || chunk.getBlockEntity(position) != source)
+                || chunk.getBlockEntities().get(position) != source)
             return null;
         final var state = chunk.getBlockState(position);
         if (state != source.getBlockState() || state.getBlock() != Blocks.HOPPER || !source.getType().isValid(state)

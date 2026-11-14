@@ -159,10 +159,11 @@ public final class RegionBlockEntityTickPlan {
                                     this.engine.isInteriorRegionChunk(new ChunkPos(key)), this.engine.borderUpdatesEnabled()),
                             ordinal);
                 }
-                final RegionBlockEntityTickAdmission narrowed = this.engine.narrowCanonicalBlockEntity(admission);
+                // Worker proof is deliberately made at the current execution cursor. A prior Fence
+                // may activate this entry or invalidate a previously safe branch/source.
                 // Ineligible entries stay in the phase. They cannot go to a worker using the initial
                 // decision; the complete server call rechecks eligibility at its actual list position.
-                unit.add(narrowed, (!LevelChunk.isChunkOwnedTicker(ticker) || template != null)
+                unit.add(admission, (!LevelChunk.isChunkOwnedTicker(ticker) || template != null)
                         && (unit.cache == null || unit.cache.allAdmitted())
                         && (unit.chunk == null || unit.chunk.isLoaded() && unit.chunk.getFullStatus().isOrAfter(FullChunkStatus.BLOCK_TICKING))
                         && this.level.shouldTickBlocksAt(position) && this.level.areEntitiesLoaded(key));
@@ -255,6 +256,14 @@ public final class RegionBlockEntityTickPlan {
      * Ticks every collected chunk on its owning region worker and waits for the batch.
      */
     public void executeAndAwait() {
+        this.executeAndAwait(this.barrier);
+    }
+
+    /** Explicit phase members may opt into the same cursor without constructing a second batch. */
+    @org.jetbrains.annotations.VisibleForTesting
+    public void executeCanonicalAndAwait() {
+        if (!this.chunks.isEmpty()) throw new IllegalStateException("Canonical explicit execution requires explicit members only");
+        this.canonicalSequence = true;
         this.executeAndAwait(this.barrier);
     }
 

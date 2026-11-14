@@ -173,8 +173,11 @@ The [C3 native effect bridge audit](region-threading/CANONICAL-BLOCK-ENTITY-C3-N
 runs original Hopper cooldown/disabled branches on real Region Workers, with overlap=2 across Regions;
 active unknown capability paths stay fully serial. The [C3-B invocation effect bridge](region-threading/CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md)
 now commits owned continuations in ordinal/effect order after physical join, holding the original Region leases;
-genuine level-end producers retain their timing. Full core1302:1299pass/3remaining C3-C targets, all1244original
-cases pass. The unified cursor and C4 are still pending. Defaults, budgets and original target assertions are unchanged.
+genuine level-end producers retain their timing. The [C3-C Native Coordinator](region-threading/CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md)
+now uses one phase batch/kernel/cursor, contiguous prefixes and complete fresh Serial Fences; all original C1
+targets pass with real different-Region overlap retained. Full core1309 and each targeted configuration243
+pass. Furnace integration into this same cursor is the next C4 stage. Defaults, budgets and original target
+assertions are unchanged.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

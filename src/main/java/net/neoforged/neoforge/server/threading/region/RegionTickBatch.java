@@ -97,6 +97,16 @@ abstract class RegionTickBatch {
     private boolean mainThreadWorkClosed;
     private boolean submitted;
     private volatile boolean externalWaves;
+    private boolean serverAdmissionFence;
+
+    final void holdsServerAdmissionFence(boolean held) {
+        this.serverAdmissionFence = held;
+    }
+
+    final boolean holdsServerAdmissionFence() {
+        return this.serverAdmissionFence;
+    }
+
     private volatile boolean externalWaveActive;
     @Nullable
     private RegionSpawnAdmissionBarrier spawnAdmissions;
@@ -363,6 +373,11 @@ abstract class RegionTickBatch {
      * A worker that is not on the server thread and whose batch is no longer accepting work fails instead of
      * waiting for a handoff that can never run.
      */
+    /** Service already-published synchronous handoffs while waiting to acquire a global serial boundary. */
+    final void servicePendingServerWork() {
+        this.runPendingMainThreadWork();
+    }
+
     final <T> T runOnServerThread(ServerLevel taskLevel, Supplier<T> computation) {
         final MinecraftServer server = taskLevel.getServer();
         if (server == null || server.isSameThread()) {

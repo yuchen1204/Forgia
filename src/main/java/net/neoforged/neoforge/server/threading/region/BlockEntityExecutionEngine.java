@@ -146,6 +146,21 @@ final class BlockEntityExecutionEngine implements AutoCloseable {
         }
     }
 
+    /** Replace only an unstarted proof, never a Ticket or a terminal state. Old Refresh objects die here. */
+    InvocationTicket reinspectUnstarted(RegionBlockEntityTickAdmission admission, Inspection inspection) {
+        this.requireCoordinator();
+        final var ticket = this.ticket(admission);
+        synchronized (ticket) {
+            if ((ticket.state != State.CAPTURED && ticket.state != State.INSPECTED) || !ticket.effects.isEmpty())
+                throw new IllegalStateException("Cannot refresh started, terminal or effect-bearing invocation");
+            ticket.inspection = inspection;
+            ++ticket.generation;
+            ticket.ownsEffects = false;
+            ticket.state = State.INSPECTED;
+            return ticket;
+        }
+    }
+
     RegionGuard regionOwner(RegionState region) {
         return new RegionGuard(this, region, Mode.REGION_OWNER, region);
     }

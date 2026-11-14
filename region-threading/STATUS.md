@@ -4,7 +4,18 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C3-B invocation effects implemented
+## Canonical Block Entity Coordinator — C3-C Native cursor implemented
+
+[C3-C Native Coordinator](CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md) owns one phase batch/kernel/Ticket
+set and a canonical cursor. It dispatches only contiguous proven prefixes after all fresh/reservation/v1 owner
+checks, physically joins/commits before complete Serial Fences, and re-proves the unstarted suffix. A participating
+server work-admission boundary prevents unrelated Region/GlobalRegion work from starting during the phase;
+this grants no world authority. Original Region leases remain held through join/commit; phase RNG survives Fences.
+All original C1 target expectations pass. Full core1309 and all three targeted243 runs pass,0failure/error/skip;
+all1244original cases reexecuted. Seven new coordinator cases plus real Native overlap2 pass. Furnace Waves ON
+still uses its protected bridge until C4; defaults/budgets/API/Create unchanged.
+
+## Earlier C3-B invocation effects checkpoint
 
 [C3-B minimum effect bridge](CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md) records continuations on
 the original Ticket with generation/ordinal/effect index, physically joins and commits in canonical order while
