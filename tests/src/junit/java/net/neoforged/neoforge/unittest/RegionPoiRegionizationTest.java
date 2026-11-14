@@ -362,10 +362,20 @@ class RegionPoiRegionizationTest {
             storage.take(type -> true, (type, pos) -> pos.equals(positions.get(0)), positions.get(0), 0);
             reference.tick(() -> true);
             storage.tick(() -> true);
-            regionizedStorage.synchronize(true);
-            // Closing the reference manager closes its IO worker, which completes its pending column writes, so
-            // both directories are complete before the tags are compared.
+            regionizedStorage.synchronize(true).join();
+            // A Vanilla SectionStorage tick schedules writes; IOWorker.close first marks itself closed,
+            // so it is not a substitute for the flush future. Compare the two formats only after BOTH
+            // writers reach their actual durability point, as RegionPoiSaveReloadTest already does.
+            try {
+                final var field = net.minecraft.world.level.chunk.storage.SectionStorage.class.getDeclaredField("simpleRegionStorage");
+                field.setAccessible(true);
+                ((SimpleRegionStorage) field.get(reference)).synchronize(true).join();
+            } catch (ReflectiveOperationException failure) {
+                throw new AssertionError("the vanilla reference must expose its actual storage to the format fixture", failure);
+            }
             reference.close();
+            storage.close();
+            regionizedStorage.close();
 
             // The two managers wrote the same columns with the same tag: this is the format check, not only a
             // reload check.

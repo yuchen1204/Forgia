@@ -173,7 +173,7 @@ Genuine level-end effects retain their timing. All original C1 targets pass; ful
 worker/resource setting248 pass with zero failures/errors/skips. Defaults, budgets and original expectations
 are unchanged; C5/Create and additional MSPT tuning remain outside this migration.
 
-[C4.1 lifecycle and installed-server soak validation](region-threading/CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md)
+[Earlier C4.1 lifecycle and installed-server soak validation](region-threading/CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md)
 fixes lifecycle self-waits before the cleanup monitor and publishes the same phase before Native adapter
 preparation. Full core1328 and three targeted262 runs pass with original expectations retained. Actual installed
 Minecraft1.21.1 runs include a60-minute core mixed soak, chunk unload/reload, saved-world new-JVM restarts,
@@ -182,7 +182,21 @@ live invocation authority/batches; bounded idle Native scope fields are verified
 remain conservatively serial, with no Adapter expansion. **The separate full GameTest gate remains non-green:**
 old Worker-contract expectations fail and the extra all-slice attempt crashes in a test plant callback.
 Those results and diagnostic ERROR/FATAL output are retained and classified; this is not an all-green
-compatibility or performance claim. C4.1 stops here; C5/Create protocol work is not started.
+compatibility or performance claim. That historical checkpoint stopped with the GameTest gate non-green.
+
+[C4.2 GameTest compatibility and regression](region-threading/CANONICAL-BLOCK-ENTITY-C42-GAMETEST-COMPATIBILITY.md)
+updates the old driver fixtures to verify real Native/Furnace prefixes, complete Serial Fences, original-body
+counts and notifications. Two full unfiltered parallel profiles, Persistent/resources ON and Fixed/OFF,
+each pass all176registered required GameTests with exit0 and no crash. The existing-plant growth regression
+also passes with the bridge off; the direction crash came from an invalid occlusion check in test soil.
+The opt-in `:tests:runCanonicalGameTestServer` profile enables the POI/entity/chunk prerequisites and proves
+25chunks/13BEs/9entities are reconstructed, with original saved state/tickets/UUIDs intact. Current Villager
+POI and feature-flag tests observe actual Worker/pack behavior. An asynchronous reference-writer race in a
+POI JUnit fixture is fixed by joining both IO futures before comparing the files. Full core1328 and three
+related329 runs pass, with original canonical assertions retained. Framework XML still lists4Not Processed
+entries, separately documented; the report keeps all failed attempts and legacy test-Mod diagnostic errors.
+Production source/patches/admission/defaults/budgets/API are unchanged. C4.2 stops here; no C5/Create protocol
+work, performance tuning or repeated long installed soak.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

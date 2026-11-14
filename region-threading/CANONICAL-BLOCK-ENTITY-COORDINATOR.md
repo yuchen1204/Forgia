@@ -4,7 +4,15 @@ C0 设计基线为 `2339050429dbec819f685b6c903091eab5ea1220`。第1–8节保�
 
 在C0基线，[Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，Native 与 Furnace 仍分别选择顺序、分组、回退及提交。后续实施复用原 Ticket、Permit、RegionGuard 与执行桥，先统一输入顺序和Fence，再合并受保护炉子。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C4.1 生命周期修复与安装服soak；GameTest gate非全绿
+## 最新实施状态：C4.2 required GameTest gate转绿，旧诊断边界保留
+
+[C4.2报告](CANONICAL-BLOCK-ENTITY-C42-GAMETEST-COMPATIBILITY.md)从`2a22661b5f57d39d0ecde03f11dd62ad1d4c7cf9`逐项调查C4.1失败。两个完整unfiltered并行配置Persistent/Resource ON与Fixed/OFF均176/176 required、真实Gradle exit0、无Crash Report；Framework XML各230条group记录/0failure/4Not Processed，不能把它们当230个独立全执行测试。原C4.1 XML/log/crash和本轮所有失败均保留原始证据。
+
+旧声明型Source改为验证完整Serial Fence、跨Region transfer恰好一次和真实Native前后缀；新增单炉完整serial对照，双炉要求实际fine Worker正文/每tick恰好一次/烧炼守恒/必要通知提交；同Region Beacon不毒化其余prefix，真实逐tick轨迹要求Fence返回先于后缀body。仅用已有post-admission observer透明观察，没有新permission或替换ticker。植物fixture原以canOcclude误断方向，bridge OFF同样复现，改显式方向并保留错误soil/facing拒绝；原Cactus survival/growth/neighbor路径在并行下通过。POI实体旧pinning期待更新为精确村民Post事件中真实Worker和HOME/JOB_SITE记忆；feature gating保留真实selected-pack enabled/disabled四项，并额外验证GameTest Level的all-flags合同。
+
+显式opt-in GameTest profile提供所需POI、Entity、Chunk配置，保存重载新增25chunks/13BEs/9entities全新对象断言，原完整状态/UUID/票据/Region比较均保留。相关JUnit暴露旧Vanilla参考IO未join的格式夹具竞态，等待真实future后再完整逐tag比较，所有原断言不变；最终完整core1328与三相关配置各329全通过，每配置84canonical。所有生产源码/patch/API/admission/default/budget/Adapter与基线bytes一致，未发现需生产修复的缺陷；不重复C4.1长soak。4个Not Processed及旧手工Mod日志诊断不冒称全绿。C4.2在此停止，不进入C5/Create Adapter/MSPT。
+
+## 历史C4.1 生命周期修复与安装服soak检查点；当时GameTest gate非全绿
 
 [C4.1报告](CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md)修复cleanup monitor前的生命周期自等待窗口，并在Native v1 prepare callback前发布同一个phase batch；三个生产修正各自独立提交，body/grant/cohort/default/budget/API不扩展。新增14个invocation覆盖mixed异常恢复、真实pool拒绝、chunk binding替换、Region retirement/dynamic merge及200连续phase。最终完整core1328与三配置各262全通过，原1244与原C1八目标实际重跑通过。
 

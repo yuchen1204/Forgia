@@ -198,6 +198,12 @@ runs {
             // benchmark batches run instead of the whole GameTest suite. Unset keeps every test.
             systemProperty("neoforge.gameTestServer.filter", providers.gradleProperty("gameTestFilter").getOrElse(""))
     }
+    // Explicit current-contract profile. The default GameTest run and shipped server defaults stay off.
+    canonicalGameTestServer {
+            type = "gameTestServer"
+            systemProperty("neoforge.gameTestServer.filter", providers.gradleProperty("gameTestFilter").getOrElse(""))
+            systemProperty("neoforge.saveReloadRegionThreading", "true")
+    }
     // The production soak: the same generated world and the same window twice, once with the whole region
     // threading combination enabled and once with region threading off. The two runs are the milestone's
     // production measurement; the reference run also compares its redstone state series with the series the
@@ -389,6 +395,34 @@ regionThreadingOwnershipViolationMode = "WARN"
             // point and the kill is the same in all of them.
             systemProperty("neoforge.crashRecoveryKillTicks", providers.gradleProperty("crashKillTicks").getOrElse("40"))
         }
+    }
+}
+
+// A full GameTest profile for the Canonical Coordinator and the save/reload contract. Preparation follows
+// the run task's actual directory so local evidence runs can isolate every world without altering this file.
+// Furnace/resource proof, callbacks and all old assertions are still evaluated by the real production code.
+tasks.named("runCanonicalGameTestServer").configure {
+    doFirst {
+        def directory = project.file(gameDirectory.get())
+        new File(directory, "world").deleteDir()
+        def configFile = new File(directory, "config/forgia.toml")
+        configFile.parentFile.mkdirs()
+        configFile.text = """# Explicit Canonical Coordinator regression profile, not production defaults.
+enableRegionThreadingBridge = true
+enableRegionThreadingWorkers = true
+enableRegionThreadingBlockEntityTicks = true
+enableRegionThreadingFurnaceWorkWaves = true
+enableRegionThreadingBlockEntityResources = ${providers.gradleProperty("canonicalResources").getOrElse("true")}
+enableRegionThreadingPersistentWorkers = ${providers.gradleProperty("canonicalPersistent").getOrElse("true")}
+enableRegionThreadingEntityTicks = true
+enableRegionThreadingRandomTicks = true
+enableRegionThreadingPoi = true
+enableRegionThreadingScheduledTicks = true
+regionThreadingMode = "FIXED_3X3"
+regionThreadingFixedRegionChunks = 3
+regionThreadingWorkerThreads = 4
+regionThreadingOwnershipViolationMode = "WARN"
+"""
     }
 }
 

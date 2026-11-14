@@ -9,6 +9,7 @@ import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -399,7 +400,7 @@ public class CanSustainPlantTests {
     })
     static void survivabilityHangingMangrovePropaguleTest(final DynamicTest test, final RegistrationHelper reg) {
         final var sustainingBlock = reg.blocks()
-                .registerBlock("super_sustaining_sustaining_block", CustomSuperSustainingBlock::new, BlockBehaviour.Properties.of())
+                .registerBlock("super_sustaining_sustaining_block", properties -> new CustomSuperSustainingBlock(properties, Direction.DOWN), BlockBehaviour.Properties.of())
                 .withLang("Super Sustaining block")
                 .withDefaultWhiteModel()
                 .withBlockItem();
@@ -676,7 +677,7 @@ public class CanSustainPlantTests {
     })
     static void survivabilityCocoaTest(final DynamicTest test, final RegistrationHelper reg) {
         final var sustainingBlock = reg.blocks()
-                .registerBlock("super_sustaining_sustaining_block", CustomSuperSustainingBlock::new, BlockBehaviour.Properties.of())
+                .registerBlock("super_sustaining_sustaining_block", properties -> new CustomSuperSustainingBlock(properties, Direction.SOUTH), BlockBehaviour.Properties.of())
                 .withLang("Super Sustaining block")
                 .withDefaultWhiteModel()
                 .withBlockItem();
@@ -700,9 +701,59 @@ public class CanSustainPlantTests {
                 .thenSucceed());
     }
 
+    @GameTest(batch = "plantSustainRecheck")
+    @EmptyTemplate(value = "5x6x5", floor = true)
+    @TestHolder(description = "An existing occluding cactus survives and grows on custom soil through real neighbor updates")
+    static void existingCactusSurvivesAndGrows(final DynamicTest test, final RegistrationHelper reg) {
+        final var soil = reg.blocks().registerBlock("rechecked_soil", CustomSuperSustainingBlock::new, BlockBehaviour.Properties.of());
+        test.onGameTest(helper -> {
+            final BlockPos soilPos = helper.absolutePos(new BlockPos(2, 1, 2));
+            final BlockPos cactusPos = soilPos.above();
+            final var level = helper.getLevel();
+            helper.addEndListener(passed -> {
+                level.setBlock(cactusPos.above(), Blocks.AIR.defaultBlockState(), 2);
+                level.setBlock(cactusPos, Blocks.AIR.defaultBlockState(), 2);
+                level.setBlock(soilPos, Blocks.AIR.defaultBlockState(), 2);
+            });
+            level.setBlock(soilPos, soil.get().defaultBlockState(), 2);
+            final BlockState cactus = Blocks.CACTUS.defaultBlockState().setValue(net.minecraft.world.level.block.CactusBlock.AGE, 15);
+            level.setBlock(cactusPos, cactus, 2);
+            helper.assertTrue(cactus.canOcclude(), "the regression must cover an already present occluding plant");
+            helper.assertTrue(cactus.canSurvive(level, cactusPos), "an existing cactus must retain its valid soil support");
+            assertInvalidPlantArguments(helper, () -> soil.get().defaultBlockState().canSustainPlant(level, soilPos, Direction.DOWN, cactus),
+                    "Incorrect direction param passed in");
+            assertInvalidPlantArguments(helper, () -> soil.get().defaultBlockState().canSustainPlant(level, soilPos.below(), Direction.UP, cactus),
+                    "Incorrect soil position param passed in");
+            // The same full vanilla growth/neighbor path that interrupted the C4.1 all-slice run.
+            cactus.randomTick(level, cactusPos, RandomSource.create(42));
+            helper.assertTrue(level.getBlockState(cactusPos).is(Blocks.CACTUS)
+                    && level.getBlockState(cactusPos.above()).is(Blocks.CACTUS), "growth must retain the base and add exactly one cactus");
+            System.out.println("C42_CACTUS_RECHECK bridge=" + net.neoforged.neoforge.server.threading.RegionThreadingHooks.diagnostics().isPresent()
+                    + " thread=" + Thread.currentThread().getName() + " occluding=true growth=2");
+            helper.succeed();
+        });
+    }
+
+    private static void assertInvalidPlantArguments(net.minecraft.gametest.framework.GameTestHelper helper, Runnable call, String expected) {
+        String failure = null;
+        try {
+            call.run();
+        } catch (RuntimeException invalid) {
+            failure = invalid.getMessage();
+        }
+        helper.assertTrue(expected.equals(failure), "the fixture must still reject invalid arguments: " + expected + ", got " + failure);
+    }
+
     private static class CustomSuperSustainingBlock extends Block {
         public CustomSuperSustainingBlock(Properties properties) {
+            this(properties, Direction.UP);
+        }
+
+        private final Direction expectedFacing;
+
+        CustomSuperSustainingBlock(Properties properties, Direction expectedFacing) {
             super(properties);
+            this.expectedFacing = expectedFacing;
         }
 
         @Override
@@ -711,7 +762,10 @@ public class CanSustainPlantTests {
                 throw new RuntimeException("Incorrect soil position param passed in");
             }
 
-            if (level.getBlockState(soilPosition.relative(facing)).canOcclude()) {
+            // canSurvive also runs after placement and during growth/neighbor updates. The plant may
+            // already occupy this face and may itself occlude (notably CactusBlock); occlusion is not
+            // evidence of an invalid direction. Each fixture instead declares the face it supports.
+            if (facing != this.expectedFacing) {
                 throw new RuntimeException("Incorrect direction param passed in");
             }
 

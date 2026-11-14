@@ -4,7 +4,33 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C4.1 lifecycle fixes and installed soak, GameTest gate non-green
+## Canonical Block Entity Coordinator — C4.2 required GameTest gate green
+
+[C4.2 compatibility and regression](CANONICAL-BLOCK-ENTITY-C42-GAMETEST-COMPATIBILITY.md) resolves the four
+C4.1 required failures and the all-slice plant crash through actual contract/fixture validation. Both full
+unfiltered parallel profiles (Persistent/resources ON and Fixed/OFF) pass176/176required GameTests, real
+Gradle exit0, no crash report. The framework XML separately has230case entries (178unique test IDs, grouped
+entries repeat),226passed and4Not Processed; the old dumper's empty optional label is preserved, not called
+an executed pass. Manual/client and legacy logging-only test-Mod diagnostics remain explicit limitations.
+
+The custom BE remains a full server Serial Fence with exactly-once cross-Region transfer and real Native
+prefix/suffix work. Single furnaces remain serial; two independent original burning furnaces run actual fine
+Worker bodies, smelt once and commit notifications. A same-Region Beacon does not poison unrelated prefixes.
+Observers record per-body threads, canonical Fence ordering and burn/cook/inventory conservation after real
+production admission. No test grants authority. The plant fixture supports explicit directions, retains wrong
+soil/direction checks and survives/grows through original Cactus callbacks even with the bridge off. Regionized
+POI Villagers are observed by exact-entity Post events with their real HOME/JOB_SITE memories on the Worker;
+feature flags check both the actual all-flags GameTest Level and live selected pack requests.
+
+The explicit `:tests:runCanonicalGameTestServer` profile supplies POI/entity/chunk/BE/Furnace prerequisites.
+Real disk reload reconstructs25chunks/13BEs/9entities and preserves all old block/NBT/UUID/position/POI/ticket/
+Region assertions. A related JUnit format fixture's unjoined reference IO is corrected without changing its
+full comparison assertions; all1328C4.1 cases and three expanded329runs pass,84canonical per configuration.
+Every failed attempt, command, exit, XML and original C4.1 crash remains. All production Java/patches/API/
+admission/defaults/budgets/Adapters stay byte-for-byte unchanged, so no production fix or long-soak repeat.
+C4.2 stops here; no C5/Create Adapter/MSPT work or general Modpack certification.
+
+## Earlier C4.1 lifecycle fixes and installed soak checkpoint — GameTest gate was non-green
 
 [C4.1 lifecycle and soak evidence](CANONICAL-BLOCK-ENTITY-C41-LIFECYCLE-AND-SOAK.md) fixes server/Worker
 self-waits before acquiring cleanup's engine monitor and protects Native prepare callbacks with the same

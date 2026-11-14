@@ -76,6 +76,19 @@ public class CustomFeatureFlagsTests {
 
         test.eventListeners().forge().addListener((ServerStartedEvent event) -> {
             FeatureFlagSet flagSet = event.getServer().getLevel(Level.OVERWORLD).enabledFeatures();
+            if (event.getServer() instanceof net.minecraft.gametest.framework.GameTestServer) {
+                // Vanilla GameTestServer deliberately gives its level ALL flags, even flags no selected
+                // pack requested. Check that real harness contract as well as the live selected packs'
+                // enabled/disabled gates below; an absent flag cannot be tested against an all-flags set.
+                if (!flagSet.equals(FeatureFlags.REGISTRY.allFlags())
+                        || !baseRangeEnabledTestItem.get().isEnabled(flagSet) || !baseRangeDisabledTestItem.get().isEnabled(flagSet)
+                        || !extRangeEnabledTestItem.get().isEnabled(flagSet) || !extRangeDisabledTestItem.get().isEnabled(flagSet)) {
+                    test.fail("The GameTest all-flags level did not enable all four registered test items");
+                    return;
+                }
+                flagSet = event.getServer().getPackRepository().getRequestedFeatureFlags();
+                System.out.println("C42_FEATURE_GATES GameTestAllFlags=4Enabled selectedPacks=base9,extended99");
+            }
             if (!baseRangeEnabledTestItem.get().isEnabled(flagSet)) {
                 test.fail("Item with enabled custom flag in base mask range was unexpectedly disabled");
             } else if (baseRangeDisabledTestItem.get().isEnabled(flagSet)) {

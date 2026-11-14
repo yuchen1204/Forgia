@@ -147,6 +147,8 @@ public class SaveReloadGameTests {
             final Fixture world = new Fixture(level, grid);
             final AtomicReference<FixtureState> beforeSave = new AtomicReference<>();
             final AtomicReference<FixtureState> afterReload = new AtomicReference<>();
+            final Map<ChunkPos, LevelChunk> originalChunks = new java.util.HashMap<>();
+            final Map<BlockPos, BlockEntity> originalBlockEntities = new java.util.HashMap<>();
             final AtomicReference<Long> saveNanos = new AtomicReference<>();
             final AtomicReference<Long> reloadNanos = new AtomicReference<>();
             final GameRules.BooleanValue mobSpawning = level.getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING);
@@ -192,6 +194,11 @@ public class SaveReloadGameTests {
                     .thenIdle(RELOAD_SETTLE_TICKS)
                     .thenExecute(() -> {
                         beforeSave.set(world.capture());
+                        for (final ChunkPos chunk : grid) {
+                            final LevelChunk loaded = level.getChunk(chunk.x, chunk.z);
+                            originalChunks.put(chunk, loaded);
+                            originalBlockEntities.putAll(loaded.getBlockEntities());
+                        }
                         final long start = System.nanoTime();
                         // The save point: a flushing save is the guarantee a shutdown gives, and it waits for
                         // the chunk, entity and (through the engine) POI writes.
@@ -212,6 +219,18 @@ public class SaveReloadGameTests {
                             "the save/reload chunk grid never finished its entity load after the reload"))
                     .thenExecute(() -> {
                         afterReload.set(world.capture());
+                        // Prove that this is a disk reconstruction, not a detach/rebind of the same live
+                        // objects. The existing NBT/UUID/position/POI/ticket comparisons still apply in full.
+                        originalChunks.forEach((pos, old) -> helper.assertTrue(level.getChunk(pos.x, pos.z) != old,
+                                "a reloaded chunk must be a fresh instance: " + pos));
+                        originalBlockEntities.forEach((pos, old) -> helper.assertTrue(level.getBlockEntity(pos) != null && level.getBlockEntity(pos) != old,
+                                "a reloaded block entity must be reconstructed: " + pos));
+                        for (final Mob old : world.mobs) {
+                            final Entity restored = level.getEntity(old.getUUID());
+                            helper.assertTrue(restored != null && restored != old, "the saved entity UUID must belong to a newly loaded instance: " + old.getUUID());
+                        }
+                        System.out.println("C42_DISK_RECONSTRUCTION chunks=" + originalChunks.size() + " blockEntities=" + originalBlockEntities.size()
+                                + " entities=" + world.mobs.size() + " allNewInstances=true");
                         compareStates(helper, beforeSave.get(), afterReload.get());
                         assertSavePointCounters(helper);
                         report(helper, profile, beforeSave.get(), afterReload.get(), saveNanos.get(), reloadNanos.get());
