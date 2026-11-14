@@ -27,6 +27,7 @@ abstract class BlockEntityExecutionBatch extends RegionTickBatch {
 
     final void canonicalSequence(boolean canonicalSequence) {
         this.canonicalSequence = canonicalSequence;
+        this.execution.orderedEffects(canonicalSequence);
     }
 
     final boolean canonicalSequence() {

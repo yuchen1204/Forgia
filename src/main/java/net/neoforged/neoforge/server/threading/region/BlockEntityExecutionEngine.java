@@ -5,6 +5,8 @@
 
 package net.neoforged.neoforge.server.threading.region;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +41,72 @@ final class BlockEntityExecutionEngine implements AutoCloseable {
     private final Set<RegionGuard> guards = ConcurrentHashMap.newKeySet();
     private final AtomicInteger active = new AtomicInteger();
     private volatile boolean open = true;
+    private boolean orderedEffects;
+
+    /** Transport policy only; the original Ticket/Permit remains the sole execution authority. */
+    void orderedEffects(boolean enabled) {
+        this.requireCoordinator();
+        if (!this.guards.isEmpty() || this.active.get() != 0) throw new IllegalStateException("Effect policy changed during execution");
+        this.orderedEffects = enabled;
+    }
+
+    void enableInvocationEffects(InvocationTicket ticket) {
+        synchronized (ticket) {
+            if (ticket.phase != this || ticket.state != State.INSPECTED)
+                throw new IllegalStateException("Effect ownership requires this unstarted inspection");
+            ticket.ownsEffects = this.orderedEffects;
+        }
+    }
+
+    static boolean isCanonicalSerialInvocation() {
+        final var permit = CURRENT.get();
+        return permit != null && permit.guard == null && permit.ticket.phase.orderedEffects;
+    }
+
+    /** Only an already admitted, current, thread-bound body may produce an invocation continuation. */
+    static boolean captureInvocationTask(Runnable action) {
+        final var permit = CURRENT.get();
+        if (permit == null || permit.guard == null || !permit.ticket.ownsEffects) return false;
+        permit.requireCurrent();
+        final var ticket = permit.ticket;
+        if (ticket.effects.size() >= RegionTickSlice.BLOCK_ENTITY_TICK.reservationPerUnit())
+            throw new IllegalStateException("Audited invocation exceeded its continuation bound; never replay the body");
+        ticket.effects.add(new OwnedEffect(ticket, ticket.generation, ticket.nextEffect++, EffectKind.INVOCATION_SERVER_TASK,
+                java.util.Objects.requireNonNull(action)));
+        return true;
+    }
+
+    /** Physical join is the caller's obligation; no live Permit/Guard may remain at extraction. */
+    List<OwnedEffect> takeInvocationEffects(long beforeOrdinal) {
+        this.requireCoordinator();
+        if (this.active.get() != 0 || !this.guards.isEmpty()) throw new IllegalStateException("Effects extracted before workers returned");
+        final var ordered = new ArrayList<>(this.tickets.values());
+        ordered.sort(Comparator.comparingLong(t -> t.admission.sequence()));
+        final List<OwnedEffect> ready = new ArrayList<>();
+        for (final var ticket : ordered) {
+            if (ticket.admission.sequence() >= beforeOrdinal || ticket.effects.isEmpty()) continue;
+            if (ticket.state != State.SUCCEEDED && ticket.state != State.FAILED)
+                throw new IllegalStateException("Unfinished invocation has effects");
+            for (final var effect : ticket.effects) {
+                if (effect.invocation != ticket || effect.generation != ticket.generation)
+                    throw new IllegalStateException("Effect inherited a foreign or stale proof");
+                ready.add(effect);
+            }
+            // Retire before calling any payload. A failed commit cannot replay an already applied effect.
+            ticket.effects.clear();
+        }
+        return ready;
+    }
+
+    enum EffectKind {
+        INVOCATION_SERVER_TASK
+    }
+
+    record OwnedEffect(InvocationTicket invocation, long generation, int index, EffectKind kind, Runnable action) {
+        RegionBlockEntityTickAdmission admission() {
+            return this.invocation.admission;
+        }
+    }
 
     BlockEntityExecutionEngine(ServerLevel level, List<RegionBlockEntityTickAdmission> admissions, BooleanSupplier live,
             Function<BlockPos, RegionState> home) {
@@ -72,6 +140,7 @@ final class BlockEntityExecutionEngine implements AutoCloseable {
         synchronized (ticket) {
             if (ticket.state != State.CAPTURED) throw new IllegalStateException("Invocation already inspected or started");
             ticket.inspection = inspection;
+            ++ticket.generation;
             ticket.state = State.INSPECTED;
             return ticket;
         }
@@ -173,6 +242,7 @@ final class BlockEntityExecutionEngine implements AutoCloseable {
         for (final var ticket : this.tickets.values()) {
             synchronized (ticket) {
                 if (ticket.state == State.CAPTURED || ticket.state == State.INSPECTED) ticket.state = State.CANCELLED;
+                ticket.effects.clear();
             }
         }
         this.tickets.clear();
@@ -186,6 +256,10 @@ final class BlockEntityExecutionEngine implements AutoCloseable {
         private final BlockEntityExecutionEngine phase;
         private final RegionBlockEntityTickAdmission admission;
         private volatile State state = State.CAPTURED;
+        private long generation;
+        private boolean ownsEffects;
+        private int nextEffect;
+        private final List<OwnedEffect> effects = new ArrayList<>();
         @Nullable
         private Inspection inspection;
 

@@ -57,6 +57,16 @@ final class RegionBlockEntityTickBatch extends BlockEntityExecutionBatch {
     private final Set<RegionState> leasedRegions = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Collection<RegionBlockEntityTickChunk> fallbackChunks = new ConcurrentLinkedQueue<>();
     private final Collection<RegionBlockEntityTickAdmission> fallbackTickers = new ConcurrentLinkedQueue<>();
+
+    /** Only the coordinator releases canonical outer leases, after physical join and required commits. */
+    List<RegionState> heldRegions() {
+        return List.copyOf(this.leasedRegions);
+    }
+
+    void forgetLease(RegionState region) {
+        this.leasedRegions.remove(region);
+    }
+
     /**
      * Scheduled block and fluid ticks a worker could not schedule inline, because {@code LevelTicks} is
      * server-owned storage. A block-entity tick reaches them through the neighbor update of its own
@@ -167,10 +177,10 @@ final class RegionBlockEntityTickBatch extends BlockEntityExecutionBatch {
      * of its own body exactly like an unpacked group; only the submission is shared.
      */
     Group registerGroup(RegionState region, List<RegionBlockEntityTickChunk> chunks) {
-        this.leasedRegions.add(region);
-        // The random source is created here, inside the lease release path of the caller, so a failure
-        // while building it cannot leave the region TICKING without a worker that releases it.
+        // The random source is created before registering the held reference: a failed constructor
+        // is released by its caller and must not leave a stale lease marker for later completion.
         final Group group = new Group(this, region, chunks, this.groupRandomSeed(region.coordinate()));
+        this.leasedRegions.add(region);
         this.groups.add(group);
         return group;
     }

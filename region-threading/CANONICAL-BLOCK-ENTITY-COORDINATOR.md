@@ -4,7 +4,11 @@
 
 上一片 [Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，但 Native 与 Furnace 仍各自选择顺序、分组、回退及提交。本方案在现有 Ticket、Permit、RegionGuard 上增加一个服务器线程 Coordinator，先统一输入顺序和 Fence，再逐片接入原执行桥。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C3-A2 最小 Native 子集已接入
+## 最新实施状态：C3-B 最小 invocation effect bridge 已接入
+
+[C3-B实现与验证](CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md)在同一Ticket/Permit内记录generation／ordinal／effect index，physical join后持原Region lease有序commit。真实level-end producer改用显式保持原时机的入口，没有提前drain全level队列。未知正文不因v1 boolean放行。完整core1302项1299pass／3项C3-C顺序目标failure，原1244项本轮重跑全通过；其他三配置各236项。新增5项及旧Native效果可见性转绿，原断言不改。下一阶段C3-C建立单phase cursor／连续prefix／完整Fence与fresh后缀；C4尚未进入。
+
+## C3-A2 最小 Native 子集检查点
 
 [C3-A2 生产实现与验证](CANONICAL-BLOCK-ENTITY-C3A2-MINIMUM-NATIVE-ADMISSION.md)通过核心原函数、exact source／runtime、实际chunk/binding和fresh分支检查，让冷却>1或disabled的真实Hopper在不同Region Worker并行（overlap=2），活跃未知Capability路径完整串行。四配置实际回归：完整core1297项1293pass／4项后续目标failure，原1244项全通过。原C1预期不改，脚本Native输入换成真实原函数及准入后的观察钩子。下一阶段为C3-B效果归属／提交，再进入C3-C统一cursor；C4尚未进入。下文历史阻塞不表示本轮继续以文档替代生产实现。
 

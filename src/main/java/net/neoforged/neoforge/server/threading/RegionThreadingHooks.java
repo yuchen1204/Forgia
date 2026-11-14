@@ -405,7 +405,7 @@ public final class RegionThreadingHooks {
             // admission is still handed off, so the caller sees the vanilla answer instead of a crashed tick.
             return false;
         }
-        return engine.queueServerTaskInCurrentBatch(() -> {
+        return engine.queueLevelEndServerTaskInCurrentBatch(() -> {
             // Admission and application are separated by the worker barrier. Another accepted operation
             // may have moved the entity to a different level meanwhile; never publish it into the old level.
             if (!entity.isRemoved() && entity.level() == level) {

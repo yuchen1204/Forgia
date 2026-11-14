@@ -72,7 +72,6 @@ public final class NativeBlockEntityPreparation {
     @Nullable
     static Candidate prepare(RegionBlockEntityTickAdmission admission) {
         if (!VERIFIED || TimeTracker.BLOCK_ENTITY_UPDATE.isEnabled() || !admission.isAdmitted()
-                || admission.decision() == RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
                 || !admission.isCurrent() || RegionTickCompatibility.serverThreadOnlyTypes().containsKey(admission.type()))
             return null;
         final HopperBlockEntity source = LevelChunk.nativeHopperSource(admission.ticker());

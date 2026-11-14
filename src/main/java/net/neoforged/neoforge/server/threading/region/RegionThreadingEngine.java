@@ -1760,7 +1760,7 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     @ApiStatus.Internal
     public boolean handOffNeighborUpdateCascade(Runnable cascade) {
-        if (!RegionWorkerScope.isNativeWorkerThread() || !this.queueServerTaskInCurrentBatch(cascade)) {
+        if (!RegionWorkerScope.isNativeWorkerThread() || !this.queueLevelEndServerTaskInCurrentBatch(cascade)) {
             return false;
         }
         this.handedOffNeighborCascades.incrementAndGet();
@@ -3015,6 +3015,14 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     @ApiStatus.Internal
     public boolean queueServerTaskInCurrentBatch(Runnable task) {
+        if (BlockEntityExecutionEngine.isCanonicalSerialInvocation()) return false;
+        if (RegionWorkerScope.isNativeWorkerThread() && BlockEntityExecutionEngine.captureInvocationTask(task)) return true;
+        return this.queueLevelEndServerTaskInCurrentBatch(task);
+    }
+
+    /** Explicit original timing for entity additions and unfinished neighbor cascades, never a Fence commit. */
+    @ApiStatus.Internal
+    public boolean queueLevelEndServerTaskInCurrentBatch(Runnable task) {
         final RegionEntityTickBatch.Group group = this.currentEntityTickGroup();
         if (group != null) {
             group.batch().queueServerTask(task);
@@ -5687,10 +5695,20 @@ public final class RegionThreadingEngine implements RegionThreading {
                 // The barrier is the level's main-thread chunk-source block, so the batch waits by polling the
                 // main-thread queue. Counting the polls and the CPU time of the wait shows how much of the wait
                 // the server thread runs instead of parking, which is what competes with the workers.
-                this.runRegionBatch(level, () -> batch.submitAndAwait(this.workerPool, attribution ? condition -> barrier.await(() -> {
+                final Runnable work = () -> batch.submitAndAwait(this.workerPool, attribution ? condition -> barrier.await(() -> {
                     RegionBlockEntityTickAttribution.recordAwaitPoll();
                     return condition.getAsBoolean();
-                }) : barrier));
+                }) : barrier);
+                if (canonicalSequence) {
+                    this.beginRegionPhase(level);
+                    try {
+                        work.run();
+                    } finally {
+                        // All groups physically returned; retain their original region leases until the
+                        // invocation effects commit. Global mailbox/POI publication follows lease release.
+                        this.levelTickPhaseState(level).endRegionPhase();
+                    }
+                } else this.runRegionBatch(level, work);
             } catch (Throwable throwable) {
                 if (failure == null) {
                     failure = throwable;
@@ -5729,9 +5747,16 @@ public final class RegionThreadingEngine implements RegionThreading {
                 final long operationStart = attribution ? System.nanoTime() : 0L;
                 final long operationRequests = attribution ? batch.pendingOperationCount() : 0L;
                 failure = runBatchCompletion(failure, () -> this.applyBlockEntityOperations(batch));
+                if (canonicalSequence) {
+                    failure = runBatchCompletion(failure, () -> this.commitInvocationEffects(batch, Long.MAX_VALUE));
+                    failure = runBatchCompletion(failure, () -> this.releaseCanonicalNativeRegions(batch));
+                    failure = runBatchCompletion(failure, () -> this.drainGlobalMessages(level));
+                    failure = runBatchCompletion(failure, () -> RegionPoiStorages.publishLevel(level));
+                    failure = runBatchCompletion(failure, batch::reportTickFailures);
+                }
                 final long fallbackStart = attribution ? System.nanoTime() : 0L;
                 final long removals = attribution ? this.deferredRemovalCount() - removalsBefore : 0L;
-                failure = runBatchCompletion(failure, () -> this.tickFallbackBlockEntities(batch));
+                if (!canonicalSequence || failure == null) failure = runBatchCompletion(failure, () -> this.tickFallbackBlockEntities(batch));
                 final long mutationStart = attribution ? System.nanoTime() : 0L;
                 final long fallbackTickers = attribution ? countBlockEntityTickers(batch.fallbackChunks()) + batch.fallbackTickers().size() : 0L;
                 final long mutations = attribution ? batch.regionTickMutations().size() : 0L;
@@ -5766,6 +5791,35 @@ public final class RegionThreadingEngine implements RegionThreading {
             throwUnchecked(failure);
         }
         batch.throwIfFailed();
+    }
+
+    private void commitInvocationEffects(BlockEntityExecutionBatch batch, long beforeOrdinal) {
+        Throwable failure = null;
+        for (final var effect : batch.execution().takeInvocationEffects(beforeOrdinal)) {
+            failure = runBatchCompletion(failure, () -> {
+                final var admission = effect.admission();
+                final var region = this.regionizer.get(this.layout.regionAt(batch.level(), admission.position()));
+                if (region == null || !region.isRunning()) throw new IllegalStateException("Invocation commit lost its original outer region lease");
+                region.beginOwnership();
+                try {
+                    this.runWithContext(new BasicRegionThreadingContext(RegionThreadingContext.Kind.REGION,
+                            batch.level(), region.coordinate(), region, null), effect.action());
+                } finally {
+                    region.endOwnership();
+                }
+            });
+        }
+        if (failure != null) throwUnchecked(failure);
+    }
+
+    private void releaseCanonicalNativeRegions(RegionBlockEntityTickBatch batch) {
+        Throwable failure = null;
+        for (final var region : batch.heldRegions()) {
+            // Drop only this batch's held reference, never release it again after a later re-acquisition.
+            batch.forgetLease(region);
+            failure = runBatchCompletion(failure, () -> this.releaseRegionLease(region));
+        }
+        if (failure != null) throwUnchecked(failure);
     }
 
     private static final AdapterDescriptor FURNACE_EXECUTION = new AdapterDescriptor(ResourceLocation.parse("forgia:furnace_waves"),
@@ -6312,8 +6366,15 @@ public final class RegionThreadingEngine implements RegionThreading {
             retry.addAll(regionChunks);
             return false;
         }
-        this.addLeasedGroup(region, () -> batch.addGroup(region, regionChunks,
-                group -> this.withRegionMailboxDelivery(batch.level(), region, this.blockEntityTickGroup(group))));
+        this.addLeasedGroup(region, () -> {
+            try {
+                batch.addGroup(region, regionChunks,
+                        group -> this.withRegionMailboxDelivery(batch.level(), region, this.blockEntityTickGroup(group)));
+            } catch (Throwable failure) {
+                batch.forgetLease(region);
+                throw failure;
+            }
+        });
         return true;
     }
 
@@ -6338,6 +6399,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             }
         } catch (Throwable throwable) {
             for (final RegionState region : pack) {
+                batch.forgetLease(region);
                 this.releaseRegionLease(region);
             }
             throw throwable;
@@ -6374,7 +6436,7 @@ public final class RegionThreadingEngine implements RegionThreading {
 
     /** Narrow the real Level path; legacy explicit declarations do not issue this proof. */
     RegionBlockEntityTickAdmission narrowCanonicalBlockEntity(RegionBlockEntityTickAdmission admission) {
-        if (!admission.isAdmitted() || admission.decision() == RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
+        if (!admission.isAdmitted()
                 || this.furnaceWorkWavesEnabled && LevelChunk.furnaceWorkSource(admission.ticker()) != null
                 || NativeBlockEntityPreparation.prepare(admission) != null)
             return admission;
@@ -6447,9 +6509,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                                 // Validate before the body: stale admissions are deferred exactly once, never
                                 // recovered by throwing after a ticker could already have produced side effects.
                                 if (admission.level() != level || !admission.isCurrent() || !region.isOwnedByCurrentThread()
-                                        || group.batch().canonicalSequence()
-                                                && admission.decision() != RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
-                                                && NativeBlockEntityPreparation.prepare(admission) == null) {
+                                        || group.batch().canonicalSequence() && NativeBlockEntityPreparation.prepare(admission) == null) {
                                     if (tickerTiming) {
                                         RegionBlockEntityTickAttribution.recordTickerAdmission(System.nanoTime() - tickerLoopStart);
                                     }
@@ -6499,6 +6559,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                                                 RegionBlockEntityTickAttribution.recordFallback(RegionBlockEntityTickAttribution.FallbackReason.UNSAFE_REGION, 1);
                                                 continue;
                                             }
+                                            if (group.batch().canonicalSequence()) group.batch().execution().enableInvocationEffects(ticket);
                                             try (final var permit = group.batch().execution().permit(ticket, regionExecution,
                                                     new Refresh(ticket.inspection(), Outcome.CANDIDATE), null)) {
                                                 if (permit == null) {
@@ -6565,7 +6626,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                     if (execution != null) execution.close();
                 } finally {
                     if (ownerStarted) region.endOwnership();
-                    region.clearRunning();
+                    if (!group.batch().canonicalSequence()) region.clearRunning();
                 }
                 if (tickerTiming) {
                     RegionBlockEntityTickAttribution.recordGroupEnd(System.nanoTime() - groupEndStart);

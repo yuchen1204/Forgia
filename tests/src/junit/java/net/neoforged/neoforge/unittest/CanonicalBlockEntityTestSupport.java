@@ -62,7 +62,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.server.threading.ParallelAdapterRuntime;
@@ -217,7 +216,7 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
 
     void register(BlockEntityTickAdapter adapter) {
         ParallelAdapterRuntime.initialize(this.server, registrar -> registrar.registerBlockEntityTicks(1,
-                ResourceLocation.parse("test:canonical_generic"), Set.of(ResourceLocation.parse("minecraft:chest")), adapter));
+                ResourceLocation.parse("test:canonical_generic"), Set.of(ResourceLocation.parse("minecraft:hopper")), adapter));
     }
 
     LevelChunk chunk(BlockPos pos) {
@@ -319,23 +318,9 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
     }
 
     TickingBlockEntity generic(String id, BlockPos pos, Runnable action) {
-        this.names.put(pos, id);
-        this.cells.put(id, new AtomicInteger());
-        final var source = new ChestBlockEntity(pos, Blocks.CHEST.defaultBlockState());
-        source.setLevel(this.level);
-        this.world.blockEntities.put(pos, source);
-        this.world.states.put(pos, source.getBlockState());
-        final BlockEntityTicker<ChestBlockEntity> body = (level, at, state, be) -> {
-            this.start(id);
-            try {
-                this.cells.get(id).incrementAndGet();
-                action.run();
-            } finally {
-                this.event(id, "body-end");
-                this.currentBody.remove();
-            }
-        };
-        return this.bound(id, source, body);
+        // The v1 predicate is an extra refusal gate, never a replacement for the production body proof.
+        // Keep the original check/prepare assertions while exercising it over a real audited cohort.
+        return this.script(id, pos, "minecraft:hopper", action);
     }
 
     TickingBlockEntity furnace(String id, BlockPos pos, int progress) {

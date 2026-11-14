@@ -4,7 +4,17 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C3-A2 minimum Native subset implemented
+## Canonical Block Entity Coordinator — C3-B invocation effects implemented
+
+[C3-B minimum effect bridge](CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md) records continuations on
+the original Ticket with generation/ordinal/effect index, physically joins and commits in canonical order while
+holding original Region leases. Actual level-end entity/cascade producers retain Post-before-drain timing.
+Unknown bodies remain serial even with a v1 ADMITTED boolean; v1 checks only narrow the core-proven cohort.
+Five new real-path cases and prior Native visibility pass. Full core1302=1299pass/3enabled C3-C targets,
+0error/skip; all1244original cases actually rerun/pass. Other three configurations each236=233pass/3targets.
+C3-C cursor and C4 remain pending; defaults/budgets/API/operation queues/RNG/notification order unchanged.
+
+## Earlier C3-A2 minimum Native subset checkpoint
 
 [C3-A2 minimum Native admission](CANONICAL-BLOCK-ENTITY-C3A2-MINIMUM-NATIVE-ADMISSION.md) adds production
 original-function/binding/runtime/fresh-branch checks for exact Hopper cooldown>1 or disabled branches.
