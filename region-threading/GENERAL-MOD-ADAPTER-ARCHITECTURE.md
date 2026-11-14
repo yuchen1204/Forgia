@@ -1,5 +1,7 @@
 # C5 — General Mod Adapter Architecture
 
+当前C5.1–C5.5的[Core证明拒绝后端与就绪报告](CORE-MOD-EXECUTION-PROOF-READINESS.md)在原kernel Ticket上核验真实绑定/生命周期，保留所有目标完整串行；没有正向Mod闭包或Claims转换后端。本文件下列结果是C5基线checkpoint，最新真实矩阵和能力分层以新报告为准。
+
 基线 `e5c0a62f9868d0aa80216a11004e95a5f46839bd`。C5建立统一申请协议、真实Canonical Serial Fence接入与清理机制，供后续Dedicated Adapter使用。**C5没有通用Worker证明后端，所有C5注册类型保持完整串行。** 声明、Dedicated标记、audit reference、类型名称、Mod ID及返回CURRENT都不是执行权限。本阶段不交付任何具体模组Adapter。
 
 ## 现有机制审计与接入位置

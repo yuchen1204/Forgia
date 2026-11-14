@@ -2,6 +2,12 @@
 
 状态：Experimental，API major = 1。本页说明当前已实现的接口；全部公开类型、方法签名、调度器和配置入口见 [API 接口总览](API-REFERENCE.md)，完整规划见 [RFC](MOD-PARALLEL-API-RFC.md)。不保证未冻结 API 的二进制兼容性。
 
+## C5.1–C5.5：Core授权边界
+
+[Core证明后端与就绪报告](CORE-MOD-EXECUTION-PROOF-READINESS.md)落实了绑定原kernel Ticket的拒绝式检查。Core在原Serial Permit里检查回调前后真实source/delegate/Level及注册状态，不接收Adapter签发的proof、权限或claims。正常拒绝在同一次原ticker调用中完整串行；callback异常停止未开始后缀，已开始body或commit失败不重放。Dedicated和General共享同一申请入口、注册身份和Core门禁。
+
+当前仍无正向Mod闭包验证/资源manifest转换/Mod Worker准入；每个C5目标串行。实际Core Claims/Reservation/Lease存在于既有Furnace路径，不能用其测试通过声称Mod已获授权。未来正向路径必须在原Ticket未开始时独立验证完整body/callback/effect闭包并完成fresh全wave预留，不能把CURRENT或此serial-only检查直接升级。现有major1/protocol1及公开签名保持，内部kernel状态不作为模组API。
+
 ## C5：通用 Block Entity Adapter 申请协议
 
 [General Mod Adapter 架构与验证](GENERAL-MOD-ADAPTER-ARCHITECTURE.md)提供新的可选

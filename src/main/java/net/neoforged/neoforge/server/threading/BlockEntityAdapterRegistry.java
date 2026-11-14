@@ -32,7 +32,8 @@ import org.jetbrains.annotations.Nullable;
  * Server-owned request registry. No Minecraft types, binding discovery, scheduler or minting authority.
  * The shared ParallelApi transaction owns registration/freeze and the existing canonical batch owns each
  * Session. Declared resource identities go only to the existing diagnostic planner, never to Claims,
- * reservation, native proof or Permit. There is deliberately no generic worker proof backend in C5.
+ * reservation, native proof or Permit. The original kernel independently assesses binding/lifecycle;
+ * there is deliberately no positive Mod closure backend that could turn declarations into authority.
  */
 @ApiStatus.Internal
 public final class BlockEntityAdapterRegistry {
@@ -228,8 +229,13 @@ public final class BlockEntityAdapterRegistry {
             if (actual != declared) this.refused(this.captured.get(type), actual);
         }
 
+        /** Retained internal C5 entry point; diagnostic inspection cannot grant execution authority. */
+        public void inspect(String type, long ordinal, int x, int y, int z, @Nullable Object subject) {
+            this.inspectRequest(type, ordinal, x, y, z, subject);
+        }
+
         /** Must be called inside the existing serial Permit at this invocation's actual canonical cursor. */
-        public Refusal inspect(String type, long ordinal, int x, int y, int z, @Nullable Object subject) {
+        public Refusal inspectRequest(String type, long ordinal, int x, int y, int z, @Nullable Object subject) {
             this.requireCurrent();
             final var entry = this.captured.get(type);
             if (entry == null) throw new IllegalArgumentException("Unregistered invocation in adapter phase");

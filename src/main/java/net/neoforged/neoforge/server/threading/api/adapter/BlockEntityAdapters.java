@@ -14,9 +14,10 @@ import org.jetbrains.annotations.ApiStatus;
 
 /**
  * Platform-neutral requests for the canonical block-entity phase. None of these values is execution
- * authority. C5 has no generic proof backend: registered targets remain complete serial fences, including
- * requests from dedicated adapters. A future core-audited bridge must independently validate the entire
- * original ticker closure before any request can reach the existing kernel or resource reservation.
+ * authority. Core independently assesses binding and lifecycle on the original kernel Ticket. Without a
+ * positive Mod closure backend, registered targets remain complete serial fences, including requests
+ * from dedicated adapters. A future core-audited bridge must independently validate the entire original
+ * ticker closure before any request can reach worker authorization or resource reservation.
  */
 @ApiStatus.Experimental
 public final class BlockEntityAdapters {

@@ -4,7 +4,30 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## General Mod Adapter — C5 conservative request foundation
+## Core-controlled Mod execution proof — C5.1–C5.5
+
+[Core proof readiness](CORE-MOD-EXECUTION-PROOF-READINESS.md) audits the existing authority chain and adds
+a Core refusal gate on each original invocation Ticket. Inspection and every validator remain inside the
+actual canonical Serial Fence; Core independently recaptures the exact source/delegate/Level binding and
+registration lifecycle after callbacks. Pending/failed checks cannot succeed or be promoted into Worker
+authority; retirement follows the original kernel. A post-audit freeze race was reproduced before its small
+publication-lock correction. Every actual registered test-Mod body asserts the original kernel refusal.
+
+There is **no positive Mod closure backend**: declarations, CURRENT, Dedicated metadata and copied resource
+identities never become Claims, Reservations or Leases. Existing Native/Furnace proofs and actual ownership
+remain the sole Worker paths. Arbitrary JVM closures, dynamic/shared handlers, asynchronous writers and
+in-flight Mod version protection are not certified. A first serial Dedicated Adapter can be developed;
+a Worker-enabled Dedicated Adapter still requires a narrow independent closure and manifest/conversion
+implementation. See the report for the final matrix and the precise implemented/design-only boundary.
+No C6, concrete Mod Adapter, Bootstrap rewrite, installed-server soak or MSPT optimization is included.
+Final Core1400/1400 and three related419/419 configurations pass; two complete unfiltered parallel
+GameTest suites each177/177required pass, exit0/noCrash. All1375C5baseline and original1328/1244cases
+actually rerun/pass;84original canonical per configuration and Native/Furnace overlap2/2 remain. Each
+full GameTest XML keeps231grouped entries/179uniqueIDs/4NotProcessed, never called all executed. Existing
+Create16+unknown1, MobSpawnController25+unknown1 and unknown Furnace1 pass; API60class facade/20class
+pure package and all baseline public binary descriptors verified. Red freeze/fixture/parser evidence stays.
+
+## Earlier General Mod Adapter — C5 conservative request foundation
 
 [C5 architecture and validation](GENERAL-MOD-ADAPTER-ARCHITECTURE.md) adds a platform-neutral request API,
 server-owned registration/lifecycle management and one short-lived request session attached to the original

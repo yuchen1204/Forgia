@@ -43,7 +43,7 @@ final class BlockEntityAdapterPhase {
             throw new IllegalStateException("Adapter inspection requires the original canonical serial Permit");
         this.execution.beginAdapterProof(admission);
         final var before = this.boundSubject(admission);
-        final var declared = this.session.inspect(admission.type(), admission.sequence(), admission.position().getX(),
+        final var declared = this.session.inspectRequest(admission.type(), admission.sequence(), admission.position().getX(),
                 admission.position().getY(), admission.position().getZ(), before);
         // Re-resolve independently after every external callback. Even correct binding, CURRENT, and
         // live registration cannot certify the original ticker closure or mint reservable Claims.

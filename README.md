@@ -199,7 +199,16 @@ entries, separately documented; the report keeps all failed attempts and legacy 
 Production source/patches/admission/defaults/budgets/API are unchanged. That C4.2 checkpoint stopped before
 C5/Create protocol work, performance tuning or repeated long installed soak.
 
-[C5 General Mod Adapter architecture](region-threading/GENERAL-MOD-ADAPTER-ARCHITECTURE.md) now adds a
+[C5.1–C5.5 Core execution proof readiness](region-threading/CORE-MOD-EXECUTION-PROOF-READINESS.md) adds
+an independent binding/lifecycle refusal gate on the original kernel Ticket. It rechecks the exact source
+and registration after adapter callbacks; refused work remains a complete Serial Fence with no replay.
+There is no positive Mod closure backend or adapter-declaration-to-Claims converter yet. Existing
+Native/Furnace authority is retained. The report separates actual final tests, existing resource reservation
+coverage and design-only prerequisites for a first Worker-enabled Dedicated Adapter. Final Core1400/1400,
+three related419/419 configurations and two complete parallel GameTest suites177/177required each pass,
+retaining four framework NotProcessed entries per full suite. No MSPT claim follows.
+
+The earlier [C5 General Mod Adapter architecture](region-threading/GENERAL-MOD-ADAPTER-ARCHITECTURE.md) adds a
 Java-only request API, server-scoped registration/retirement and one short-lived session attached to the
 original canonical phase. Execution/resource/dependency/lifecycle descriptions and Dedicated audit metadata
 use the existing registration transaction and total128bound; v1 API major and signatures stay compatible.
@@ -209,7 +218,7 @@ original ticker runs once; declarations never mint Claims/Lease/Permit or choose
 callback failures retain exactly-once semantics and clear borrowed subjects and temporary resources. Existing
 Native Hopper/Furnace proofs and grants are preserved. No concrete Create/Mekanism/AE2 adapter, broader
 Modded BE Worker admission, default/budget change, Bootstrap rewrite or MSPT optimization is included.
-The report records current-source tests: full core1375/1375, three related394/394 configurations and two
+The earlier report records its C5 checkpoint tests: full core1375/1375, three related394/394 configurations and two
 unfiltered full parallel GameTest profiles with177/177required passed, exit0/noCrash. Real registered Mod
 requests keep unknown shared callbacks serial while Native overlap2 persists; mixed Native/Furnace overlap
 is2/2 in one batch. All1328C4.2 and original1244JUnit cases rerun/pass. The four framework Not Processed

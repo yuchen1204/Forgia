@@ -4,7 +4,15 @@ C0 设计基线为 `2339050429dbec819f685b6c903091eab5ea1220`。第1–8节保�
 
 在C0基线，[Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，Native 与 Furnace 仍分别选择顺序、分组、回退及提交。后续实施复用原 Ticket、Permit、RegionGuard 与执行桥，先统一输入顺序和Fence，再合并受保护炉子。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C5 General Mod Adapter保守基础架构
+## 最新实施状态：C5.1–C5.5 Core证明拒绝后端
+
+[Core Mod Execution Proof Readiness](CORE-MOD-EXECUTION-PROOF-READINESS.md)核对实际C5源码/提交/测试后，将Core检查附在原Ticket上：同一原Serial Permit内进入CHECKING，回调后独立复核exact source/delegate/Level和注册生命周期，再得到SERIAL_ONLY；异常FAILED，原kernel关闭时RETIRED。不会生成第二套权限、pool或effects。pending检查不能成功完成，拒绝后不能变成Worker授权或重放ticker。外部audit后再次检查freeze，红测/最小修复证据保留。
+
+当前仅交付保守拒绝后端，没有独立审计过的Mod执行闭包实现，也没有Adapter声明→可预留Core Claims的转换后端。所有C5注册目标保持完整Serial Fence。Native/Furnace原准入、whole-phase alias/fresh/resource reservation、join/commit与生命周期继续由原路径负责。后续正向Mod后端必须在原Ticket尚未开始时完成独立闭包/真实资源manifest/全phase依赖和fresh reservation；不能把此serial-only检查直接翻成许可。
+
+最终真实验证与16类对抗场景的分层覆盖见新报告；既有C5数字保留为下面的历史checkpoint，不充当本轮结果。在C5.5停止，不进入Create/Mekanism/AE2或C6。
+
+## 历史C5 General Mod Adapter保守基础架构
 
 [C5架构与验证](GENERAL-MOD-ADAPTER-ARCHITECTURE.md)复用当前Canonical Coordinator、原batch/kernel/Ticket/Permit和Effect Bridge，追加Java-only的申请/资源/依赖/生命周期接口与服务器事务注册。通过原ParallelApi事件和可选capability接入，API major1不变，Dedicated audit metadata不认证任何body。注册与旧v1/spawn共享id/type检查和128总上限；支持invalidate/unregister/server-close、有界tombstone和全出口引用清理。
 

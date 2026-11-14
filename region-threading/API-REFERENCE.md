@@ -4,6 +4,8 @@
 
 当前并行门面 **API major = 1，状态 Experimental**。公开类型不等于稳定 ABI；模组应按能力协商，不按 Forgia 构建号猜测行为。标记 `@ApiStatus.Internal` 的运行时、Hooks、Engine、lease、batch 和测试开关不属于模组支持合同，见[内部边界](#12-内部边界与未提供的能力)。
 
+当前C5.1–C5.5的内部Core拒绝门禁见[Execution Proof就绪报告](CORE-MOD-EXECUTION-PROOF-READINESS.md)：原Ticket核对实际绑定和生命周期，公开协议未增加proof/Claims/Lease创建接口；C5请求仍完整串行。正向Mod闭包验证与声明到Core资源manifest/Claims的转换尚未实现。`CURRENT`和Dedicated audit metadata不能认证执行权限。
+
 ## 目录
 
 1. [按需求选择入口](#1-按需求选择入口)
