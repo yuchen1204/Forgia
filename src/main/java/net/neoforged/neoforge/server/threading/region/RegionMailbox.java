@@ -99,7 +99,8 @@ public final class RegionMailbox {
      * Posts {@code message} to the mailbox of {@code target}.
      *
      * @param target  the region the message is addressed to
-     * @param message the effect, applied on the worker that leases {@code target} at its next tick
+     * @param message the effect, applied under the target's ownership at its next delivery boundary;
+     *                canonical BE phases deliver once on the server before fresh Worker proofs
      * @return the outcome; a refusal never queues the message
      */
     public PostResult post(RegionCoordinate target, Runnable message) {

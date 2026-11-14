@@ -65,6 +65,12 @@ final class RegionBlockEntityTickBatch extends BlockEntityExecutionBatch {
         this.activeCanonicalBarrier = barrier;
     }
 
+    private final Set<RegionCoordinate> canonicalMailboxRegions = new java.util.HashSet<>();
+
+    boolean firstCanonicalMailboxDelivery(RegionState region) {
+        return this.canonicalMailboxRegions.add(region.coordinate());
+    }
+
     private final java.util.Map<RegionCoordinate, RandomSource> canonicalRandoms = new java.util.HashMap<>();
 
     void holdCoordinatorRegion(RegionState region) {

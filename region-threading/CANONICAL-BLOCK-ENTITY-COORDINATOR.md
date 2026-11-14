@@ -1,10 +1,16 @@
 # Canonical Block Entity Coordinator：源码映射、接口设计与测试方案
 
-本轮基线为 `2339050429dbec819f685b6c903091eab5ea1220`（`Unify block entity execution authorization and lifecycle`）。**本阶段完成源码调查与设计交付，不实施生产修改或新准入。** 下文的新 Coordinator、协议、测试名称与迁移阶段均是方案，不是已存在或已通过验证的功能。
+C0 设计基线为 `2339050429dbec819f685b6c903091eab5ea1220`。第1–8节保留该基线的源码映射、接口草案与阶段计划；实际实现范围和本轮验证以“最新实施状态”及链接的逐片实施记录为准，不把后续未实现的Generic／Create协议当成当前功能。
 
-上一片 [Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，但 Native 与 Furnace 仍各自选择顺序、分组、回退及提交。本方案在现有 Ticket、Permit、RegionGuard 上增加一个服务器线程 Coordinator，先统一输入顺序和 Fence，再逐片接入原执行桥。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
+在C0基线，[Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，Native 与 Furnace 仍分别选择顺序、分组、回退及提交。后续实施复用原 Ticket、Permit、RegionGuard 与执行桥，先统一输入顺序和Fence，再合并受保护炉子。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C3-C Native phase Coordinator 已接入
+## 最新实施状态：C4 Native／Furnace 同一phase Coordinator 已接入
+
+[C4实现与验证](CANONICAL-BLOCK-ENTITY-C4-UNIFIED-FURNACE.md)让正常Level入口在Furnace Waves OFF/ON下都使用同一phase active batch/kernel/Ticket集合及canonical cursor。Native／Furnace不同prefix不混用coarse/fine权限；只提交连续安全prefix，physical join／必要commit先于完整Serial Fence，之后重新证明后缀。炉子原recipe/inventory/component、whole-phase alias、dependency、全部validator／reservation、完整原ticker与原序通知保留，资源预算不按wave重置。Mailbox在原lease下由server完整执行，再fresh；真正level-end时机／RNG／operation状态机保持。
+
+最终完整core1314及三配置各248项全部通过，0failure/error/skip；原1244项本轮重跑通过，原C1八项目标全绿。真实混合phase中Native／Furnace各自跨Region overlap=2，仅一个observed active batch及原Ticket集合，完整fixture状态与独立serial oracle一致。Native范围为exact冷却/disabled Hopper及原PrimaryLevelData时钟；Furnace范围不扩大旧protected cohort，未知Capability/共享库存/Generic callback完整serial。默认、预算、API不改，C5/Create/MSPT未进入；历史内部explicit/indexed桥留作旧合同，不作为新Level准入证书。
+
+## C3-C Native phase Coordinator 检查点
 
 [C3-C实现与验证](CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md)用同一个phase batch/kernel/Ticket集合及canonical cursor，只提交连续安全prefix，全部fresh／reservation／owner check先于任一body，physical join／必要commit先于完整Serial Fence，再证明后缀。新增参与式server准入边界不授世界权限，原Region lease保留到join/commit，跨Fence同Region RNG流持续。原C1八项目标全部通过；完整core1309及三配置各243项全通过，原1244项本轮实际重跑。下一阶段C4把Furnace接入这一个batch/cursor；C5/Create/MSPT不扩展。
 
@@ -24,9 +30,9 @@ C2 修复 C1 的 5 项 collection／顺序红测；Native 越过 Unknown、v1 �
 
 本轮连续任务采用 **C2 Canonical Collection → C3 Native Coordinator/Fence → C4 Furnace 接入**，覆盖第 8 节原设计表中 C3/C4 的先后。阶段必须逐片达到自己的门槛，Native effect bridge 无法证明安全时停止后续阶段；不会为了完成 C4 将任意 level-end tasks 提前 drain、复用 Fence 前的 v1 prepared 成功或关闭既有功能。
 
-[C3 实际阻塞记录](CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md)通过真实 Native body、原 level-end queue 与 Unknown Fence 重现效果不可见；当时4项目标失败。后续 [C3-A 生产效果 inventory](CANONICAL-BLOCK-ENTITY-C3A-NATIVE-EFFECT-INVENTORY.md)进一步追踪16类效果及原始 Hopper／Capability 生产链：未知 provider 在 Worker 上执行，不同 Region 可同时进入同一 handler，现有 declaration／descriptor／v1 check 缺少 body 前 callback/root 闭包证明。新增6项实际探针5pass/1failure，当前完整core1291项1286pass/5target failure，原1244项再次全部通过，C2五项修复保持。原C1八项仍有三项未转绿。
+[C3 实际阻塞记录](CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md)通过真实 Native body、原 level-end queue 与 Unknown Fence 重现效果不可见；当时4项目标失败。后续 [C3-A 生产效果 inventory](CANONICAL-BLOCK-ENTITY-C3A-NATIVE-EFFECT-INVENTORY.md)进一步追踪16类效果及原始 Hopper／Capability 生产链：未知 provider 在 Worker 上执行，不同 Region 可同时进入同一 handler，现有 declaration／descriptor／v1 check 缺少 body 前 callback/root 闭包证明。新增6项实际探针5pass/1failure，该检查点完整core1291项1286pass/5target failure，原1244项再次全部通过，C2五项修复保持。原C1八项仍有三项未转绿。
 
-按最新 C3-A→C3-B→C3-C 阶段门槛，停在 C3-A，后两阶段均未进入；C4／C5／Create 不在本轮范围。生产代码／准入／默认值／预算未变，没有启用不完整 Coordinator。具体调用点、真实phase-end时机、缺失合同和最小内部原函数／fresh分支证明方案见新报告；不能仅给 Runnable 加ordinal后就宣称解决。下文 reinspectUnstarted／统一batch／cursor等仍为未实现设计。
+在该历史检查点按当时 C3-A→C3-B→C3-C 阶段门槛停在 C3-A，后两阶段未进入；C4／C5／Create 不在当片范围。该片生产代码／准入／默认值／预算未变，没有启用不完整 Coordinator。具体调用点、真实phase-end时机、缺失合同和最小内部原函数／fresh分支证明方案见对应报告；当时不能仅给 Runnable 加ordinal就宣称解决。当时 reinspectUnstarted／统一batch／cursor尚未实现；现有最小实现与保留边界见上方最新状态，后续Generic协议仍属设计。
 
 ## 1. C0 基线源码路径及仍独立的职责
 

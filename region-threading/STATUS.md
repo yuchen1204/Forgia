@@ -4,7 +4,23 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C3-C Native cursor implemented
+## Canonical Block Entity Coordinator — C4 single-phase Native/Furnace integration
+
+[C4 implementation and validation](CANONICAL-BLOCK-ENTITY-C4-UNIFIED-FURNACE.md) routes the actual Level path
+through one phase Coordinator/active batch/kernel/Ticket set/cursor with Furnace Waves OFF or ON. Original
+Native and protected Furnace bodies use separate contiguous prefixes under their original coarse/fine grants;
+Unknown/refusal/binding changes form complete joined/committed Serial Fences followed by fresh suffix checks.
+Original furnace auditing, whole-phase aliases, resource budgets, dependency/validator/all-or-none reservation,
+complete ticker and canonical notifications remain. Per-phase mailbox callbacks run on the server under the
+original lease before fresh proofs; genuine level-end timing, RNG and operation state are preserved.
+Full core1314/1314 and three targeted248/248 runs pass,0failure/error/skip; all1244originals actually rerun,
+all original C1 goals pass. Mixed single-batch tests show actual different-Region Native overlap2 and Furnace
+overlap2, one observed active batch and original Tickets; whole fixture states equal independent serial oracles.
+Unknown capability/shared handler/Generic callbacks stay serial. Native is limited to exact cooling/disabled
+Hoppers with the original PrimaryLevelData clock; Furnace remains its prior protected cohort. Defaults/budgets/
+API unchanged, legacy internal explicit/indexed contract bridges retained; no C5/Create/MSPT expansion.
+
+## Earlier C3-C Native cursor checkpoint
 
 [C3-C Native Coordinator](CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md) owns one phase batch/kernel/Ticket
 set and a canonical cursor. It dispatches only contiguous proven prefixes after all fresh/reservation/v1 owner

@@ -5650,7 +5650,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         if (chunks.isEmpty()) {
             return;
         }
-        if (canonicalSequence && !(this.furnaceWorkWavesEnabled && this.layout.isFixed())) {
+        if (canonicalSequence) {
             this.tickCanonicalBlockEntities(level, chunks, barrier);
             return;
         }
@@ -5810,6 +5810,9 @@ public final class RegionThreadingEngine implements RegionThreading {
     private record NativeInvocation(RegionBlockEntityTickAdmission admission, Inspection inspection,
             NativeBlockEntityPreparation.Candidate proof, RegionState region) implements CanonicalBlockEntityCoordinator.Unit {}
 
+    private record FurnaceInvocation(RegionBlockEntityTickAdmission admission, Inspection inspection,
+            FurnaceWorkPreparation.Candidate candidate, @Nullable BlockEntityResourceOwnership.Claims claims) implements CanonicalBlockEntityCoordinator.Unit {}
+
     private record NativeEntry(int offset, NativeInvocation invocation) {}
 
     private static final class NativePrefixGate {
@@ -5872,9 +5875,16 @@ public final class RegionThreadingEngine implements RegionThreading {
         RegionBlockEntityTickBatch batch = null;
         RegionBlockEntityWorkGraph.Phase graph = null;
         boolean published = false;
+        final boolean furnaces = this.furnaceWorkWavesEnabled && this.layout.isFixed();
+        final long resourcePhaseStart = furnaces && this.blockEntityResourcesEnabled ? System.nanoTime() : 0L;
+        final int[] furnaceCandidates = { 0 };
+        final long[] furnacePreparationNanos = { 0L };
+        final Set<RegionBlockEntityTickAdmission> counted = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         Throwable failure = null;
         try {
-            if (!this.shutdown && !this.regionizer.isLevelClosed(level)) ParallelAdapterRuntime.prepareBlockEntityTicks(level);
+            // Preserve v1 prepare-once on the Native path. The old furnace-only configuration did not
+            // prepare generic adapters; its ADAPTER_GUARDED inputs remain complete Serial Fences.
+            if (!furnaces && !this.shutdown && !this.regionizer.isLevelClosed(level)) ParallelAdapterRuntime.prepareBlockEntityTicks(level);
             batch = new RegionBlockEntityTickBatch(level, this.deferredBlockUpdateBudget, chunks,
                     () -> !this.regionizer.isLevelClosed(level), pos -> this.regionizer.get(this.layout.regionAt(level, pos)));
             batch.canonicalSequence(true);
@@ -5895,11 +5905,38 @@ public final class RegionThreadingEngine implements RegionThreading {
                 ordered.sort(Comparator.comparingLong(RegionBlockEntityTickAdmission::sequence));
                 final var phase = batch;
                 final var sample = graph;
+                // One preparation budget/home table/scratch for the whole canonical phase; a new
+                // prefix never resets logical uses or borrows an earlier successful resource proof.
+                final var resources = furnaces && this.blockEntityResourcesEnabled ? new FurnaceResourcePreparation(level, this.layout) : null;
                 new CanonicalBlockEntityCoordinator(ordered).execute(new CanonicalBlockEntityCoordinator.Driver() {
                     @Override
                     public CanonicalBlockEntityCoordinator.Unit prepare(int index) {
                         final var admission = ordered.get(index);
                         if (!phase.eligibleNow(admission)) return null;
+                        if (furnaces && LevelChunk.furnaceWorkSource(admission.ticker()) != null) {
+                            final long started = System.nanoTime();
+                            final var preparation = new FurnaceWorkPreparation(level, layout, resources != null);
+                            final var candidate = preparation.prepare(admission);
+                            if (candidate == null) furnaceWorkMetrics.refused(preparation.refusal());
+                            if (candidate == null || FurnaceWorkPreparation.aliased(ordered).contains(candidate.source())) {
+                                if (candidate != null) furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.SHARED_INVENTORY);
+                                furnacePreparationNanos[0] += System.nanoTime() - started;
+                                return null;
+                            }
+                            final var claims = resources == null ? null : resources.captureForPlan(candidate);
+                            if (resources != null && (resources.budgetExceeded() || !claims.complete())) {
+                                furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.RESOURCE_PROOF);
+                                furnacePreparationNanos[0] += System.nanoTime() - started;
+                                return null;
+                            }
+                            final var inspection = new Inspection(FURNACE_EXECUTION,
+                                    resources == null ? Resources.FURNACE_LOCAL : Resources.FURNACE_CLAIMS, Outcome.CANDIDATE);
+                            phase.execution().reinspectUnstarted(admission, inspection);
+                            if (counted.add(admission)) ++furnaceCandidates[0];
+                            furnacePreparationNanos[0] += System.nanoTime() - started;
+                            return new FurnaceInvocation(admission, inspection, candidate, claims);
+                        }
+                        if (furnaces && admission.decision() == RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED) return null;
                         final var proof = NativeBlockEntityPreparation.prepare(admission);
                         if (proof == null) return null;
                         final var inspection = inspectNativeBlockEntity(admission);
@@ -5913,6 +5950,13 @@ public final class RegionThreadingEngine implements RegionThreading {
 
                     @Override
                     public boolean mayAppend(List<CanonicalBlockEntityCoordinator.Unit> prefix, CanonicalBlockEntityCoordinator.Unit next) {
+                        if (prefix.getFirst() instanceof FurnaceInvocation) {
+                            if (!(next instanceof FurnaceInvocation)) return false;
+                            final List<CanonicalBlockEntityCoordinator.Unit> proposed = new ArrayList<>(prefix);
+                            proposed.add(next);
+                            return furnacePrefixIndependent(level, proposed, resources);
+                        }
+                        if (!(next instanceof NativeInvocation)) return false;
                         final Set<RegionState> regions = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
                         for (final var unit : prefix) {
                             final var nativeUnit = (NativeInvocation) unit;
@@ -5927,6 +5971,8 @@ public final class RegionThreadingEngine implements RegionThreading {
 
                     @Override
                     public int executePrefix(List<CanonicalBlockEntityCoordinator.Unit> prefix) {
+                        if (prefix.getFirst() instanceof FurnaceInvocation)
+                            return executeCanonicalFurnacePrefix(phase, ordered, prefix, sample, barrier, resources);
                         return executeCanonicalNativePrefix(phase, prefix, sample, barrier);
                     }
 
@@ -5934,8 +5980,11 @@ public final class RegionThreadingEngine implements RegionThreading {
                     public void serial(int index) {
                         final var admission = ordered.get(index);
                         phase.execution().reinspectUnstarted(admission, Inspection.serialFence());
-                        fallbackBlockEntityTicks.incrementAndGet();
-                        tickBlockEntitySerial(phase, admission, sample);
+                        if (furnaces) tickFurnaceSerial(phase, admission, sample);
+                        else {
+                            fallbackBlockEntityTicks.incrementAndGet();
+                            tickBlockEntitySerial(phase, admission, sample);
+                        }
                     }
                 });
             }
@@ -5959,9 +6008,76 @@ public final class RegionThreadingEngine implements RegionThreading {
                 this.activeTickBatches.remove(batch);
                 batch.clearExecutingOnCurrentThread();
             }
+            if (furnaces) this.furnaceWorkMetrics.prepared(furnaceCandidates[0], furnacePreparationNanos[0]);
+            if (resourcePhaseStart != 0L) {
+                this.blockEntityResourceMetrics.prepared(furnaceCandidates[0], furnacePreparationNanos[0]);
+                this.blockEntityResourceMetrics.finished(System.nanoTime() - resourcePhaseStart);
+            }
             this.regionWorkAdmission.exit();
         }
         if (failure != null) throwUnchecked(failure);
+    }
+
+    private boolean furnacePrefixIndependent(ServerLevel level, List<CanonicalBlockEntityCoordinator.Unit> units,
+            @Nullable FurnaceResourcePreparation resources) {
+        final BlockEntityWorkPlanner.ExecutionPlan plan;
+        if (resources == null) {
+            final List<BlockEntityWorkPlanner.Unit> footprints = new ArrayList<>();
+            for (final var unit : units) {
+                final var admission = unit.admission();
+                footprints.add(new BlockEntityWorkPlanner.Unit(
+                        Set.of(new BlockEntityWorkPlanner.Resource(level, BlockEntityWorkPlanner.Kind.CHUNK, ChunkPos.asLong(admission.position()))),
+                        Set.of(new BlockEntityWorkPlanner.Resource(level, BlockEntityWorkPlanner.Kind.BLOCK_ENTITY, admission.position().asLong())), false));
+            }
+            plan = BlockEntityWorkPlanner.planExecution(footprints);
+        } else {
+            final var claims = units.stream().map(unit -> ((FurnaceInvocation) unit).claims()).toList();
+            final var proof = resources.plan(claims);
+            if (proof.claims().stream().anyMatch(claim -> !claim.complete())) return false;
+            plan = proof.dependencies();
+        }
+        // A directed plan may legally have holes; a canonical cursor may not. Cut before the first
+        // dependent member instead of executing a later independent member around it.
+        return plan.waves().size() == 1 && plan.waves().getFirst().size() == units.size();
+    }
+
+    private int executeCanonicalFurnacePrefix(RegionBlockEntityTickBatch batch, List<RegionBlockEntityTickAdmission> ordered,
+            List<CanonicalBlockEntityCoordinator.Unit> units, @Nullable RegionBlockEntityWorkGraph.Phase graph,
+            RegionTickBarrier barrier, @Nullable FurnaceResourcePreparation resources) {
+        if (units.size() < 2 || !this.furnacePrefixIndependent(batch.level(), units, resources)) {
+            this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.SINGLE_UNIT);
+            return 0;
+        }
+        final List<FurnaceWorkPreparation.Candidate> candidates = new ArrayList<>(java.util.Collections.nCopies(ordered.size(), null));
+        final List<BlockEntityResourceOwnership.Claims> claims = resources == null ? List.of() : new ArrayList<>();
+        if (resources != null) for (final var admission : ordered) claims.add(resources.fence(admission));
+        final List<Integer> wave = new ArrayList<>();
+        for (final var unit : units) {
+            final var furnace = (FurnaceInvocation) unit;
+            int index = 0;
+            while (index < ordered.size() && ordered.get(index) != furnace.admission()) ++index;
+            if (index == ordered.size()) throw new IllegalStateException("Foreign furnace invocation in canonical prefix");
+            candidates.set(index, furnace.candidate());
+            if (resources != null) claims.set(index, furnace.claims());
+            wave.add(index);
+        }
+        final List<FurnaceWorkResult> results = new ArrayList<>();
+        batch.externalWaveActive(true);
+        this.beginRegionPhase(batch.level());
+        try {
+            // The existing bridge still performs a whole-wave fresh audit, alias pass, every validator
+            // and all-or-none reservation before any original body. It uses this phase's same kernel.
+            this.executeFurnaceWave(batch, ordered, candidates, wave, results, graph, barrier, resources, claims);
+            batch.reportTickFailures();
+            if (results.isEmpty()) {
+                this.furnaceWorkMetrics.refused(FurnaceWorkMetrics.Refusal.REVALIDATION);
+                return 0;
+            }
+            return units.size();
+        } finally {
+            this.levelTickPhaseState(batch.level()).endRegionPhase();
+            batch.externalWaveActive(false);
+        }
     }
 
     private int executeCanonicalNativePrefix(RegionBlockEntityTickBatch batch, List<CanonicalBlockEntityCoordinator.Unit> units,
@@ -5985,6 +6101,12 @@ public final class RegionThreadingEngine implements RegionThreading {
                 batch.holdCoordinatorRegion(region);
             }
             if (leasedAll) {
+                batch.externalWaveActive(true);
+                this.beginRegionPhase(batch.level());
+                workPhase = true;
+                for (final var region : RegionLeasePack.canonicalOrder(groups.keySet())) {
+                    this.deliverCanonicalMailbox(batch, region);
+                }
                 final RegionTaskBatch work = new RegionTaskBatch();
                 for (final var entry : groups.entrySet()) {
                     final var region = entry.getKey();
@@ -5992,9 +6114,6 @@ public final class RegionThreadingEngine implements RegionThreading {
                     work.add("canonical native BE prefix", batch.groupWork(() -> this.runCanonicalNativeGroup(batch, region,
                             random, entry.getValue(), gate, graph)));
                 }
-                batch.externalWaveActive(true);
-                this.beginRegionPhase(batch.level());
-                workPhase = true;
                 final var joined = work.submit(this.workerPool);
                 batch.activeCanonicalBarrier(joined);
                 try {
@@ -6024,6 +6143,19 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
         if (failure != null) throwUnchecked(failure);
         return gate.admitted.get();
+    }
+
+    private void deliverCanonicalMailbox(RegionBlockEntityTickBatch batch, RegionState region) {
+        if (!batch.firstCanonicalMailboxDelivery(region)) return;
+        region.beginOwnership();
+        try {
+            // Unknown message callbacks run entirely on the server before the whole-prefix fresh
+            // checks. They never inherit a Native Permit or run concurrently with a body.
+            this.runWithContext(new BasicRegionThreadingContext(RegionThreadingContext.Kind.REGION,
+                    batch.level(), region.coordinate(), region, null), this.withRegionMailboxDelivery(batch.level(), region, () -> {}));
+        } finally {
+            region.endOwnership();
+        }
     }
 
     private void runCanonicalNativeGroup(RegionBlockEntityTickBatch batch, RegionState region, RandomSource random,
@@ -6257,7 +6389,7 @@ public final class RegionThreadingEngine implements RegionThreading {
     }
 
     /** Outer region exclusion spans preparation, actual bodies and canonical notification commits. */
-    private void executeFurnaceWave(FurnaceWorkBatch batch, List<RegionBlockEntityTickAdmission> ordered,
+    private void executeFurnaceWave(BlockEntityExecutionBatch batch, List<RegionBlockEntityTickAdmission> ordered,
             List<FurnaceWorkPreparation.Candidate> candidates, List<Integer> wave, List<FurnaceWorkResult> results,
             @Nullable RegionBlockEntityWorkGraph.Phase sample, RegionTickBarrier barrier,
             @Nullable FurnaceResourcePreparation resources, List<BlockEntityResourceOwnership.Claims> claims) {
@@ -6277,12 +6409,15 @@ public final class RegionThreadingEngine implements RegionThreading {
             for (final var region : RegionLeasePack.canonicalOrder(regions)) {
                 if (!this.acquireRegionLease(region, barrier)) throw new IllegalStateException("Furnace work region retired during leasing");
                 leased.add(region);
-                region.beginOwnership();
-                try {
-                    this.runWithContext(new BasicRegionThreadingContext(RegionThreadingContext.Kind.REGION, level,
-                            region.coordinate(), region, null), this.withRegionMailboxDelivery(level, region, () -> {}));
-                } finally {
-                    region.endOwnership();
+                if (batch instanceof RegionBlockEntityTickBatch canonical) this.deliverCanonicalMailbox(canonical, region);
+                else {
+                    region.beginOwnership();
+                    try {
+                        this.runWithContext(new BasicRegionThreadingContext(RegionThreadingContext.Kind.REGION, level,
+                                region.coordinate(), region, null), this.withRegionMailboxDelivery(level, region, () -> {}));
+                    } finally {
+                        region.endOwnership();
+                    }
                 }
                 executionRegions.put(region, batch.execution().subordinate(region,
                         resources == null ? region : resources.home(region.coordinate())));
@@ -6347,7 +6482,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         if (failure != null) throwUnchecked(failure);
     }
 
-    private void submitFurnaceWave(FurnaceWorkBatch batch, List<FurnaceWorkResult> results,
+    private void submitFurnaceWave(BlockEntityExecutionBatch batch, List<FurnaceWorkResult> results,
             @Nullable RegionBlockEntityWorkGraph.Phase sample, RegionTickBarrier barrier) {
         final RegionTaskBatch work = new RegionTaskBatch();
         final int lanes = Math.min(results.size(), this.workerPool.threadCount());
@@ -6423,7 +6558,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         if (failure != null) throwUnchecked(failure);
     }
 
-    private void tickFurnaceSerial(FurnaceWorkBatch batch, RegionBlockEntityTickAdmission admission, @Nullable RegionBlockEntityWorkGraph.Phase graph) {
+    private void tickFurnaceSerial(BlockEntityExecutionBatch batch, RegionBlockEntityTickAdmission admission, @Nullable RegionBlockEntityWorkGraph.Phase graph) {
         this.furnaceWorkMetrics.serial();
         this.fallbackBlockEntityTicks.incrementAndGet();
         this.tickBlockEntitySerial(batch, admission, graph);
@@ -6446,7 +6581,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
     }
 
-    private void runFurnaceWorkBody(FurnaceWorkBatch batch, FurnaceWorkResult result, @Nullable RegionBlockEntityWorkGraph.Phase graph) {
+    private void runFurnaceWorkBody(BlockEntityExecutionBatch batch, FurnaceWorkResult result, @Nullable RegionBlockEntityWorkGraph.Phase graph) {
         final var candidate = result.candidate;
         final var admission = candidate.admission();
         if (!admission.isCurrent() || candidate.source().isRemoved() || !candidate.chunk().isLoaded()) {

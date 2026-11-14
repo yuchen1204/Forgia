@@ -154,30 +154,24 @@ serial fallback and commit order stay in their original drivers; no new Mod BE a
 adapter registration protocol is enabled. Core1244, resource-on181, persistent199, actual unknown Furnace
 Mixin1, independent Create16 and unknown Create Mixin1 pass; full-server performance remains unmeasured.
 
-The [Canonical BE Coordinator design and test plan](region-threading/CANONICAL-BLOCK-ENTITY-COORDINATOR.md)
-maps the remaining independent drivers at `233905042`. It proposes one level-list order, contiguous worker
-prefixes, complete serial fences and fresh audit results after state changes, while retaining the protected
-Furnace execution bridges. That design phase changed documentation only. The subsequent
-[C1 canonical sequence and serial fence tests](region-threading/CANONICAL-BLOCK-ENTITY-C1-TESTS.md) execute
-the original Level serial oracle and both existing drivers. Across fixed/persistent workers and resource
-off/on, each run has23new cases passing and8target-contract failures exposing old order/fence gaps.
-The failures remain visible in the normal JUnit task; no production coordinator or admission change is included.
-The subsequent [C2 canonical collection migration](region-threading/CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md)
-now takes phase ordinals from actual Level membership after pending merge/onLoad, keeps dynamic eligibility,
-and restores global serial-fallback order. Five C1 failures turn green; the remaining three native fence/prefix
-failures stay enabled. Eight added collection cases pass, as do the original safety regressions. Both legacy
-drivers remain; C3 native effects/fences must pass before C4 Furnace integration, with admission/defaults unchanged.
-The [C3 native effect bridge audit](region-threading/CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md) and
-[C3-A inventory](region-threading/CANONICAL-BLOCK-ENTITY-C3A-NATIVE-EFFECT-INVENTORY.md) record the original blockers.
-[C3-A2 minimum Native admission](region-threading/CANONICAL-BLOCK-ENTITY-C3A2-MINIMUM-NATIVE-ADMISSION.md) now
-runs original Hopper cooldown/disabled branches on real Region Workers, with overlap=2 across Regions;
-active unknown capability paths stay fully serial. The [C3-B invocation effect bridge](region-threading/CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md)
-now commits owned continuations in ordinal/effect order after physical join, holding the original Region leases;
-genuine level-end producers retain their timing. The [C3-C Native Coordinator](region-threading/CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md)
-now uses one phase batch/kernel/cursor, contiguous prefixes and complete fresh Serial Fences; all original C1
-targets pass with real different-Region overlap retained. Full core1309 and each targeted configuration243
-pass. Furnace integration into this same cursor is the next C4 stage. Defaults, budgets and original target
-assertions are unchanged.
+The [Canonical BE Coordinator design](region-threading/CANONICAL-BLOCK-ENTITY-COORDINATOR.md) began as a
+documentation-only plan. [C1](region-threading/CANONICAL-BLOCK-ENTITY-C1-TESTS.md) recorded eight enabled
+sequence/fence failures; [C2](region-threading/CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md) fixed five by collecting
+actual Level membership after pending merge/onLoad. The [C3 bridge audit](region-threading/CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md)
+and [production effect inventory](region-threading/CANONICAL-BLOCK-ENTITY-C3A-NATIVE-EFFECT-INVENTORY.md)
+located the remaining admission and effect-timing gaps. Those reports preserve their historical red results.
+
+Production now has [minimum original-Hopper admission](region-threading/CANONICAL-BLOCK-ENTITY-C3A2-MINIMUM-NATIVE-ADMISSION.md),
+[owned invocation commits](region-threading/CANONICAL-BLOCK-ENTITY-C3B-INVOCATION-EFFECT-BRIDGE.md),
+a [canonical Native cursor](region-threading/CANONICAL-BLOCK-ENTITY-C3C-NATIVE-COORDINATOR.md), and
+[Furnace integration into that same phase](region-threading/CANONICAL-BLOCK-ENTITY-C4-UNIFIED-FURNACE.md).
+The actual Level path uses one active batch/kernel/Ticket set and cursor for Native, Furnace and complete
+Serial Fences. Worker prefixes are contiguous, join and commit before Unknown, and re-prove the suffix.
+Original cooling/disabled Hoppers and the existing protected furnace cohort each show real different-Region
+overlap=2 in a mixed single-batch phase; unknown capability/callback/resource paths remain fully serial.
+Genuine level-end effects retain their timing. All original C1 targets pass; full core1314 and each targeted
+worker/resource setting248 pass with zero failures/errors/skips. Defaults, budgets and original expectations
+are unchanged; C5/Create and additional MSPT tuning remain outside this migration.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing
