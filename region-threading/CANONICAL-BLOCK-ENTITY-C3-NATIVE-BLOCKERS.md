@@ -2,6 +2,8 @@
 
 本片基线为 C2 提交 `c277f1e0e780971acd0c39c9e11925ee0b8bd133`。**C2 collection 已完成；C3 未完成，未启用生产 Coordinator，C4 未进入。** C3 在实际效果桥审计中触发了任务要求的架构性停止条件，随后仅补齐测试、复验与文档。没有将生产入口整体串行化、关闭开关、降低 admission 或改动 C1 目标预期来越过门槛。
 
+**后续状态：** 本文4项失败是 `3608b60f5` 的历史检查点。[C3-A 生产效果清单与原始 Hopper 探针](CANONICAL-BLOCK-ENTITY-C3A-NATIVE-EFFECT-INVENTORY.md)在该基线上新增 body 前未知 provider 应完整串行的真实失败；当前5项失败，原1244项本轮再通过。16类效果清单明确区分原 task transport 延迟与真正后续phase语义，按门槛停在C3-A，C3-B/C3-C/C4未进入。本文第4节的数字不代表最新套件总数。
+
 C2 的实现及四配置历史结果见 [C2 collection 报告](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md)。其 5 项修复保持通过。当前新增真实 Native level-end 队列的 Fence 可见性目标后，普通 core JUnit **保留 4 项失败**：原 3 项 Native 调度缺口，加 1 项效果可见性断言。该结果是阻塞证据，不是新 Coordinator 验收通过。
 
 ## 1. 可重复的真实执行证据

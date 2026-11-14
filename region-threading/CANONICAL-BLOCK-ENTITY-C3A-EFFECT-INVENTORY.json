@@ -1,0 +1,718 @@
+{
+  "schema": 1,
+  "baseline": "3608b60f500fa1429bc5023bc247b26d7e3d7542",
+  "stage": "C3-A_NATIVE_EFFECT_INVENTORY",
+  "status": "INVENTORY_COMPLETE_PREBODY_PROOF_GATE_BLOCKED",
+  "scope": "All in-tree Native BE effect transports, direct production Hopper/furnace roots, cooperative hooks and external callback boundaries; excludes certifying unknown Mod/ASM/reflection/async writes.",
+  "productionCodeChanged": false,
+  "invocationBridgeImplemented": false,
+  "nativeCoordinatorImplemented": false,
+  "C3BEntered": false,
+  "C3CEntered": false,
+  "C4Entered": false,
+  "effects": [
+    {
+      "id": "native-local-state",
+      "classification": "INVOCATION_IMMEDIATE",
+      "productionReachability": "Original Hopper pushItemsTick/tryMoveItems and original furnace serverTick mutate their source. Hopper also calls adjacent Container/handler methods; furnace reaches recipe and Item callbacks.",
+      "currentOwnerAndStorage": "Live source/target ItemStacks, cooldown/burn/cook counters, recipe-use maps and block/chunk state. Region owner covers location; it does not prove identity-root disjointness or callback purity.",
+      "currentExecutionBoundary": "Inside body, before any delayed-effect queue is consulted.",
+      "currentOrdering": "Program order inside one invocation; no whole-level canonical order between concurrent Region groups.",
+      "observability": "Later callbacks can immediately observe partial inventory/world mutations. Queued commit cannot roll them back.",
+      "requiredPreBodyProofOrDisposition": "Exact original function/runtime, attached source, known branch, every direct mutable root and callback closure; unknown provider/Container/recipe/Item/attachments remain serial before body.",
+      "callpoints": [
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java",
+          "line": 95,
+          "symbol": "public static void pushItemsTick("
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java",
+          "line": 104,
+          "symbol": "private static boolean tryMoveItems("
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java",
+          "line": 293,
+          "symbol": "public static void serverTick("
+        }
+      ]
+    },
+    {
+      "id": "block-publication",
+      "classification": "INVOCATION_DEFERRED_UNOWNED",
+      "productionReachability": "LevelChunk.setBlockState defers light section/check; Level.markAndNotifyBlock reaches ServerLevel.sendBlockUpdated. Furnace lit transition and any callback block write can reach these hooks.",
+      "currentOwnerAndStorage": "RegionDeferredBlockUpdates typed Update queue belongs to RegionTickBatch, not a Ticket; source mutation is already immediate.",
+      "currentExecutionBoundary": "Native batch finally: after runRegionBatch/fixpoint/global messages, before removals/operations/fallback.",
+      "currentOrdering": "ConcurrentLinkedQueue enqueue order; same-thread section -> light -> publication retained; no source ordinal/index.",
+      "observability": "ChunkHolder dirty state, light work, path-type invalidation and navigation callbacks change server-owned state.",
+      "requiredPreBodyProofOrDisposition": "Typed effect can be attributed prospectively under an exact invocation, but early commit requires audited source callbacks and canonical cross-kind order. Preserve remaining entries on failure; no body replay.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionDeferredBlockUpdates.java",
+          "line": 87,
+          "symbol": "sealed interface Update"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 3844,
+          "symbol": "public boolean deferBlockUpdate("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 7689,
+          "symbol": "private void applyDeferredBlockUpdates("
+        },
+        {
+          "path": "patches/net/minecraft/world/level/chunk/LevelChunk.java.patch",
+          "line": 156,
+          "symbol": "+                        if (!net.neoforged.neoforge.server.threading.RegionThreadingHooks.deferLightCheck("
+        }
+      ]
+    },
+    {
+      "id": "neighbor-cascades-and-borders",
+      "classification": "INVOCATION_DEFERRED_UNOWNED",
+      "productionReachability": "BlockEntity.setChanged -> Level.updateNeighbourForOutputSignal; Level.markAndNotifyBlock -> neighbor/shape callbacks. Cross-Region targets are captured; missing loaded target transfers the remaining collector stack.",
+      "currentOwnerAndStorage": "RegionCollectingNeighborUpdater local stack; level-wide RegionBorderUpdates queue; continuation later enters workerServerTasks.",
+      "currentExecutionBoundary": "Local callback inline; border fixpoint after full Worker batch with propagation batches; missing-chunk continuation at level end outside entity batch.",
+      "currentOrdering": "Local stack/direction/chained limit; border records preserve enqueue order per target grouping, not invocation ordinal. Fixpoint may repeat propagation, never original BE body.",
+      "observability": "May invoke arbitrary neighbor code, write blocks, queue future ticks/events, create entities and read/write other state.",
+      "requiredPreBodyProofOrDisposition": "Finite audited notification closure, loaded neighborhood and effect causality. Cannot move whole border fixpoint into a new wave using another active batch/lease system or claim ownership from a local position.",
+      "callpoints": [
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/BlockEntity.java",
+          "line": 197,
+          "symbol": "protected static void setChanged("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionCollectingNeighborUpdater.java",
+          "line": 92,
+          "symbol": "private void runUpdates("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBorderUpdates.java",
+          "line": 175,
+          "symbol": "sealed interface BorderUpdate"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 1959,
+          "symbol": "private void runBorderUpdateFixpoint("
+        }
+      ]
+    },
+    {
+      "id": "scheduled-block-fluid-storage",
+      "classification": "INVOCATION_DEFERRED_UNOWNED",
+      "productionReachability": "LevelTicks addContainer, removeContainer, schedule, clearArea, copyAreaFrom enqueue through one shared mutation queue on Native Worker; comparators/diodes reachable from setChanged schedule ticks.",
+      "currentOwnerAndStorage": "Native batch Queue<Runnable> shared by block/fluid schedulers and deferred block-event registration.",
+      "currentExecutionBoundary": "Before an accepted BE operation when queue nonempty; otherwise after fallback in final Native handoff.",
+      "currentOrdering": "Queue order, no ordinal. ScheduledTick payload/subTickOrder allocated before enqueue; AtomicLong nextSubTickCount is unique but inter-Worker order is arrival order.",
+      "observability": "hasScheduledTick observes live scheduler, not pending mutation queue. clear/copy affect multiple positions and queued ticks.",
+      "requiredPreBodyProofOrDisposition": "Must attribute original scheduling call, retain scheduler semantics/priority/counter allocation and exact ordering relative to other effects; sorting Runnables after keys were allocated is insufficient.",
+      "callpoints": [
+        {
+          "path": "patches/net/minecraft/world/ticks/LevelTicks.java.patch",
+          "line": 50,
+          "symbol": "     public void schedule(ScheduledTick<T> p_193252_) {"
+        },
+        {
+          "path": "patches/net/minecraft/world/ticks/LevelTicks.java.patch",
+          "line": 209,
+          "symbol": "     public void clearArea(BoundingBox p_193235_) {"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 7033,
+          "symbol": "private void applyRegionTickMutations("
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/LevelAccessor.java",
+          "line": 41,
+          "symbol": "return new ScheduledTick<>(p_186484_"
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/Level.java",
+          "line": 1455,
+          "symbol": "public long nextSubTickCount("
+        }
+      ]
+    },
+    {
+      "id": "block-event-registration-vs-body",
+      "classification": "LATER_PHASE_SEMANTIC",
+      "productionReachability": "ServerLevel.blockEvent -> deferBlockEvent records addition to blockEvents set via Native mutation queue. Event body belongs to ServerLevel.runBlockEvents.",
+      "currentOwnerAndStorage": "Queue<Runnable> registration then insertion-ordered/deduplicating level blockEvents set.",
+      "currentExecutionBoundary": "Registration at Native handoff. Actual normal ServerLevel runBlockEvents precedes entities/BE: events added by BE normally wait for next eligible block-event phase, not the current Fence.",
+      "currentOrdering": "Registration enqueue order and set dedup semantics; body obeys later event phase ordered drain/rescheduling.",
+      "observability": "Event set membership and event body/packets are different observations; early body execution changes piston/note behavior.",
+      "requiredPreBodyProofOrDisposition": "Fence may publish an audited registration but must not execute the event body or drain unrelated blockEvents. Preserve pending/rescheduled events and original time.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 4149,
+          "symbol": "public boolean deferBlockEvent("
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/server/level/ServerLevel.java",
+          "line": 1302,
+          "symbol": "private void runBlockEvents("
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/server/level/ServerLevel.java",
+          "line": 403,
+          "symbol": "            this.runBlockEvents();"
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/server/level/ServerLevel.java",
+          "line": 462,
+          "symbol": "            this.tickBlockEntities();"
+        }
+      ]
+    },
+    {
+      "id": "entity-owned-write-and-removal",
+      "classification": "INVOCATION_DEFERRED_UNOWNED",
+      "productionReachability": "Hopper suckInItems -> addItem(Container, ItemEntity) -> item setItem/discard -> Entity.setRemoved -> ownership-scope deferred level callback.",
+      "currentOwnerAndStorage": "Entity own fields immediate; RegionDeferredEntityRemovals IdentityHashMap keyed by entity; duplicate remove is counted once.",
+      "currentExecutionBoundary": "Storage callback after full Native Worker physical join, after block publications and before operations/fallback.",
+      "currentOrdering": "Identity dedup, first callback retained; IdentityHashMap.values drain has no canonical iteration order or invocation index.",
+      "observability": "isRemoved visible in body; lookup/section/tracker/listener changes later. Callback identity and current level are revalidated; exceptions are accumulated without replay.",
+      "requiredPreBodyProofOrDisposition": "Exact owned entity and effects closure, ordinal of first logical removal plus order; preserve dedup and lifecycle. Native Group does not permit movement/portal/section publication.",
+      "callpoints": [
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java",
+          "line": 266,
+          "symbol": "public static boolean addItem(Container p_59332_, ItemEntity"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionEntityOwnershipScope.java",
+          "line": 589,
+          "symbol": "public static boolean deferEntityRemoval("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionDeferredEntityRemovals.java",
+          "line": 34,
+          "symbol": "record DeferredRemoval("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 8995,
+          "symbol": "private void applyDeferredBlockEntityRemovals("
+        }
+      ]
+    },
+    {
+      "id": "entity-addition-handoff",
+      "classification": "MIXED_PHASE_TRANSPORT",
+      "productionReachability": "ServerLevel.addEntity first tries typed spawn/entity additions; Native Group.deferAddition returns false, so handOffEntityAddition can put a Runnable in workerServerTasks.",
+      "currentOwnerAndStorage": "Captured live Entity/level; no Native invocation ordinal or explicit effect-kind in queue.",
+      "currentExecutionBoundary": "Native caller gets accepted-for-tick; non-entity-batch path executes at endLevelTick after LevelTickEvent.Post.",
+      "currentOrdering": "Shared level FIFO arrival order across producers/phases. At application require same level and not removed; no body replay.",
+      "observability": "Entity is not published to storage during body. Any direct callback that depends on immediate publication is outside existing handoff contract.",
+      "requiredPreBodyProofOrDisposition": "Original built-in Hopper/furnace normally do not add entities; unknown callbacks may. They cannot become proven merely because the core offers a fallback handoff.",
+      "callpoints": [
+        {
+          "path": "patches/net/minecraft/server/level/ServerLevel.java.patch",
+          "line": 395,
+          "symbol": "+        if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.handOffEntityAddition(this"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/RegionThreadingHooks.java",
+          "line": 389,
+          "symbol": "public static boolean handOffEntityAddition("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBlockEntityTickBatch.java",
+          "line": 390,
+          "symbol": "public boolean deferAddition("
+        }
+      ]
+    },
+    {
+      "id": "blocking-main-thread-computation",
+      "classification": "UNPROVEN_CALLBACK",
+      "productionReachability": "runOnServerThread / runMapStorageOperation and legacy entity queries can submit Supplier to current RegionTickBatch while the Worker waits.",
+      "currentOwnerAndStorage": "Batch pendingMainThreadWork set, per-request completion/exception; not MinecraftServer task queue.",
+      "currentExecutionBoundary": "Inside managed barrier before Worker physical return; pending items fail on close.",
+      "currentOrdering": "Request arrival/removal order, no invocation ordinal. Computation can complete while other Workers still run.",
+      "observability": "Worker depends on returned result. Moving it to after join deadlocks; arbitrary callbacks on server thread are not automatically quiescent.",
+      "requiredPreBodyProofOrDisposition": "Prove whole computation and resources before body or serialize complete source. It is not a deferred commit callback that can simply be sorted at a Fence.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/RegionThreadingHooks.java",
+          "line": 718,
+          "symbol": "public static <T> T runMapStorageOperation("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/RegionThreadingHooks.java",
+          "line": 736,
+          "symbol": "public static <T> T runOnServerThread("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickBatch.java",
+          "line": 366,
+          "symbol": "final <T> T runOnServerThread("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickBatch.java",
+          "line": 390,
+          "symbol": "private void runPendingMainThreadWork("
+        }
+      ]
+    },
+    {
+      "id": "whole-be-operation-requests",
+      "classification": "INVOCATION_DEFERRED_UNOWNED",
+      "productionReachability": "Exported ParallelApi.blockEntities reference/submit/transfer -> BlockEntityOperationRuntime -> current exact Native source -> queueOperation. No vanilla tick callsite or in-tree production adapter submitting one was found; external API consumers remain possible.",
+      "currentOwnerAndStorage": "One batch List<OperationEntry>, MAX_OPERATIONS=4096; opaque weak refs, lifecycle supplier and Task state machine.",
+      "currentExecutionBoundary": "After removals, drainOperations closes queue; pending schedule mutations applied before operation bodies. Source/target/lifecycle revalidated per Request.",
+      "currentOrdering": "List acceptance order, no invocation ordinal. cancel/retire only QUEUED; execute claims RUNNING, clears refs, terminates COMPLETED/SKIPPED/FAILED once; later requests run past failure.",
+      "observability": "Accepted Task can be QUEUED after source body returned. Target arbitrary Operation runs on quiescent server; no rollback for partial callback effects.",
+      "requiredPreBodyProofOrDisposition": "Keep same Request/state/cancellation/ref/lifecycle checks, split take-prefix from close-phase, retain later requests. Do not drain+close once per wave or recreate tasks/batches.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/BlockEntityOperationRuntime.java",
+          "line": 69,
+          "symbol": "public <R> Task<R> submit("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBlockEntityTickBatch.java",
+          "line": 115,
+          "symbol": "List<OperationEntry> drainOperations("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 2994,
+          "symbol": "private void applyBlockEntityOperations("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/BlockEntityOperationRuntime.java",
+          "line": 276,
+          "symbol": "public Throwable execute("
+        }
+      ]
+    },
+    {
+      "id": "untyped-level-end-runnables",
+      "classification": "MIXED_PHASE_TRANSPORT",
+      "productionReachability": "Known in-tree producers: handOffNeighborUpdateCascade and handOffEntityAddition. queueServerTaskInCurrentBatch is public @Internal and accepts arbitrary Runnable; caller semantics absent.",
+      "currentOwnerAndStorage": "Map<ServerLevel, ConcurrentLinkedQueue<Runnable>> shared by spawning/chunk/BE non-entity phases. Native invocation scope is not recorded.",
+      "currentExecutionBoundary": "EventHooks.fireLevelTickPost posts LevelTickEvent.Post, then endLevelTick drains. Failed tasks counted/accumulated, later tasks drained; unload/shutdown drops queue only after lifecycle waits.",
+      "currentOrdering": "FIFO global arrival order. No producer kind, source ordinal, generation or per-invocation sequence.",
+      "observability": "Prior C3 test shows final state equality after drain cannot repair Unknown observation made before effect. Moving all tasks earlier also changes Post-event observations and unrelated phase timing.",
+      "requiredPreBodyProofOrDisposition": "Classify at each producer with a fixed audited commit boundary; unknown Runnables have no Fence permission. Preserve genuine later-boundary work and partial-failure semantics.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 3015,
+          "symbol": "public boolean queueServerTaskInCurrentBatch("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 1724,
+          "symbol": "private void drainWorkerServerTasks("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/event/EventHooks.java",
+          "line": 1009,
+          "symbol": "public static void fireLevelTickPost("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 1760,
+          "symbol": "public boolean handOffNeighborUpdateCascade("
+        }
+      ]
+    },
+    {
+      "id": "raw-server-eventloop-and-poi-tasks",
+      "classification": "LATER_PHASE_SEMANTIC",
+      "productionReachability": "Level.markAndNotifyBlock -> ServerLevel.onBlockStateChange -> MinecraftServer.execute for POI remove/add and debug packets. Arbitrary callback code can submit unrelated eventloop work.",
+      "currentOwnerAndStorage": "MinecraftServer eventloop outside batch queues; captures immutable BlockPos and POI type, not Native Ticket.",
+      "currentExecutionBoundary": "Vanilla server eventloop scheduling; RegionTickBatch explicitly does not pump that queue in its managed wait. Not an endLevelTick queue either.",
+      "currentOrdering": "Normal eventloop insertion/eligibility semantics; no BE ordinal.",
+      "observability": "POI storage and packets change when task runs. No universal Fence-visible commit requirement can be inferred from task origin alone.",
+      "requiredPreBodyProofOrDisposition": "Furnace lit flip has same POI type (no task in audited normal branch). Unknown block changes/callbacks require serial unless exact behavior proven. Do not steal or early-drain server executor.",
+      "callpoints": [
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/server/level/ServerLevel.java",
+          "line": 1578,
+          "symbol": "public void onBlockStateChange("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickBatch.java",
+          "line": 361,
+          "symbol": "     * chunk source barrier does not pump it,"
+        }
+      ]
+    },
+    {
+      "id": "region-mailbox-and-scheduled-tasks",
+      "classification": "LATER_PHASE_SEMANTIC",
+      "productionReachability": "RegionMailbox.post/postGlobal, scheduler/enqueueRegionTask and cross-Region runInBlockRegion from arbitrary callback. Mailbox delivery wraps group start.",
+      "currentOwnerAndStorage": "Region instance-tagged bounded mailbox queues; scheduler due/cancel/retire state belongs to engine.",
+      "currentExecutionBoundary": "Region message at next target group, global message at beginLevelTick or outer endRegionPhase; drain bounded by count at start. Task due times are separate.",
+      "currentOrdering": "Per-channel posting order, not invocation effect order. Global messages may run before Native finally; region delivery invalidates any older safety proof.",
+      "observability": "Runnable may mutate arbitrary state. Delivery failures logged/counted under original policy, different from effect rethrow policy.",
+      "requiredPreBodyProofOrDisposition": "Preserve original delivery boundary/identity/cancel policy; audit suffix after actual delivery. Do not drain mailboxes as invocation effects or reopen phases per prefix.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionMailbox.java",
+          "line": 197,
+          "symbol": "void drainGlobal("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 2576,
+          "symbol": "void deliverRegionMessages("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 8023,
+          "symbol": "public void runInBlockRegion("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 1804,
+          "symbol": "public void endRegionPhase("
+        }
+      ]
+    },
+    {
+      "id": "cross-region-gameevent-delivery",
+      "classification": "INVOCATION_DEFERRED_UNOWNED",
+      "productionReachability": "Unknown neighbor/provider or declared BE can call ServerLevel.gameEvent -> patched GameEventDispatcher -> captureCrossRegionGameEvent; local listeners inline.",
+      "currentOwnerAndStorage": "Level-wide RegionBorderGameEvents.SectionColumn holds event/source/context/target column; no originating invocation ordinal.",
+      "currentExecutionBoundary": "runRegionBatch finally after border fixpoint, before global phase/end handoff; listener bodies may cause further border writes/events.",
+      "currentOrdering": "Queue/target dispatch order; finite capacity refusal counted, no next-tick replay. Distance/listener ordering also belongs to dispatcher.",
+      "observability": "Listener mutates live BE/entity/world state; target callback is not pure because event payload is typed.",
+      "requiredPreBodyProofOrDisposition": "Closed listener/effect proof or serial source, preserve listener/capacity timing; existing delivery creates propagation batches and cannot be blindly reused inside single active Coordinator.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 3994,
+          "symbol": "public boolean captureCrossRegionGameEvent("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBorderGameEvents.java",
+          "line": 140,
+          "symbol": "record SectionColumn("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 2413,
+          "symbol": "private void runCrossRegionGameEvents("
+        },
+        {
+          "path": "patches/net/minecraft/world/level/gameevent/GameEventDispatcher.java.patch",
+          "line": 26,
+          "symbol": "if (net.neoforged.neoforge.server.threading.RegionThreadingHooks.captureCrossRegionGameEvent"
+        }
+      ]
+    },
+    {
+      "id": "poi-region-snapshot-publication",
+      "classification": "LATER_PHASE_SEMANTIC",
+      "productionReachability": "RegionPoiStorages writes from regionized POI paths; endRegionPhase publishes immutable read views after outer Worker phase.",
+      "currentOwnerAndStorage": "Regionized POI sections/storage snapshot, not Native effect queue.",
+      "currentExecutionBoundary": "Outermost endRegionPhase only; retained lifecycle/IO paths are separate.",
+      "currentOrdering": "Storage version/publication contract; not one publication per invocation.",
+      "observability": "Other phases read published views; splitting/reopening phase can expose intermediate snapshots.",
+      "requiredPreBodyProofOrDisposition": "Keep outer phase semantics; cannot call endRegionPhase per prefix merely to reuse old runRegionBatch. Unknown POI writes need audited source.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+          "line": 1811,
+          "symbol": "            RegionPoiStorages.publishLevel(level);"
+        }
+      ]
+    },
+    {
+      "id": "random-streams",
+      "classification": "INVOCATION_IMMEDIATE",
+      "productionReachability": "Native Group RandomSource installed once for whole region loop; RegionAwareRandomSource redirects level.random. Hopper entity Container selection calls level.random.nextInt; capability entity selection also calls Collections.shuffle(list).",
+      "currentOwnerAndStorage": "Group RNG instance derived world seed/gameTime/dimension/Region; vanilla level RNG otherwise. Collections default shuffle uses its separate JDK RNG; loot RNG/Item callbacks are other streams.",
+      "currentExecutionBoundary": "Draw executes synchronously in caller; server-side deferred callbacks use server/default stream unless explicitly scoped. XP Math.random in furnace award routine is outside serverTick, not counted as body draw.",
+      "currentOrdering": "Within group invocation/draw order; distinct Region streams intentionally differ from global Vanilla sequence. Recreating Group with same seed restarts stream.",
+      "observability": "Choice of handler/container/items and all future random draws can change. Assigning effect ordinal does not preserve consumed random numbers.",
+      "requiredPreBodyProofOrDisposition": "One persistent per-Region phase stream across prefixes, same draw order; unknown callback/shuffle/loot path cannot be assumed routed. Prove/exclude before source body.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBlockEntityTickBatch.java",
+          "line": 321,
+          "symbol": "Group(RegionBlockEntityTickBatch batch,"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/RegionAwareRandomSource.java",
+          "line": 37,
+          "symbol": "private RandomSource current("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickBatch.java",
+          "line": 202,
+          "symbol": "static long regionRandomSeed("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/items/VanillaInventoryCodeHooks.java",
+          "line": 231,
+          "symbol": "            Collections.shuffle(list);"
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java",
+          "line": 414,
+          "symbol": "return !list.isEmpty() ? (Container)list.get("
+        }
+      ]
+    },
+    {
+      "id": "open-callback-closure",
+      "classification": "UNPROVEN_CALLBACK",
+      "productionReachability": "Hopper calls real BlockCapability providers, IItemHandler simulation/actual methods, WorldlyContainerHolder/Container and lazy loot. Native furnace invokes RecipeManager.matches/assemble/getCookingTime, Item methods and burn-time EventHooks; local notifications call arbitrary blocks. Pack declarations/v1 can admit other code.",
+      "currentOwnerAndStorage": "Any externally reachable mutable root, thread, raw reference or callback. Scope/Lease are cooperative authority, not JVM sandbox.",
+      "currentExecutionBoundary": "May execute effects before first queue insertion and launch unparticipating work. No complete enumeration of external Mod/ASM/reflection behavior is possible from this repository.",
+      "currentOrdering": "Arbitrary; neither simulate=true nor vanilla namespace, stable network, prior success or no recorded effects supplies a proof.",
+      "observability": "New original-Hopper probe reproduces provider on Worker and shared handler reachable concurrently from two different Regions without racy handler writes.",
+      "requiredPreBodyProofOrDisposition": "Existing Native admission is declaration/identity candidate, not complete body/effect certificate. Only exact audited internal closed branches can qualify; unknown entire source must stay server serial before entry.",
+      "callpoints": [
+        {
+          "path": "src/main/java/net/neoforged/neoforge/capabilities/BlockCapability.java",
+          "line": 198,
+          "symbol": "    public T getCapability(Level level,"
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/items/VanillaInventoryCodeHooks.java",
+          "line": 98,
+          "symbol": "    public static boolean insertHook("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/items/VanillaInventoryCodeHooks.java",
+          "line": 40,
+          "symbol": "    public static Boolean extractHook("
+        },
+        {
+          "path": "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/RandomizableContainerBlockEntity.java",
+          "line": 55,
+          "symbol": "    public ItemStack getItem("
+        },
+        {
+          "path": "src/main/java/net/neoforged/neoforge/common/extensions/IItemStackExtension.java",
+          "line": 86,
+          "symbol": "    default int getBurnTime("
+        }
+      ]
+    }
+  ],
+  "sources": {
+    "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java": {
+      "sha256": "3ecf1cd3c9c8563f66bfa10ace876d146abde1c7a4ad61f0110284b432f3444b",
+      "bytes": 18142,
+      "tracked": false
+    },
+    "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java": {
+      "sha256": "320a026a5dc74113bd86b402ca867ff9ad8ad7d5a00babb59f1edfda7b2f3993",
+      "bytes": 23105,
+      "tracked": false
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionDeferredBlockUpdates.java": {
+      "sha256": "38a3fb4a943b1bc791ebd66ffb990430699fc43babfb49b976c17cc416ed754a",
+      "bytes": 9402,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java": {
+      "sha256": "cbbc440d1661b4db8065ed6bf8139bb6ea7b0ecf40661adcd9eb6e17f1148cc1",
+      "bytes": 574783,
+      "tracked": true
+    },
+    "patches/net/minecraft/world/level/chunk/LevelChunk.java.patch": {
+      "sha256": "4d45177373a07859f1588c5bab09184a141e3d5232c3316189546c3bb0561a3c",
+      "bytes": 42000,
+      "tracked": true
+    },
+    "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/BlockEntity.java": {
+      "sha256": "d86347bfe124a9f2b3d1502faddbac7c3035abf11f98ff3e86a4703d7a981d5a",
+      "bytes": 14662,
+      "tracked": false
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionCollectingNeighborUpdater.java": {
+      "sha256": "c722f58a38063cd73119a5d6f6fa33575b95095997436a24727acc8e091018a7",
+      "bytes": 11800,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBorderUpdates.java": {
+      "sha256": "bfc4bbb2cb05211bb7c01da7eaf94aa1eed08d60378411a2ad1d899265cf3332",
+      "bytes": 12659,
+      "tracked": true
+    },
+    "patches/net/minecraft/world/ticks/LevelTicks.java.patch": {
+      "sha256": "33d1177301b6ede103f1e390dd6f5931d40dcfe56467c0422d1dd13a1ddefb44",
+      "bytes": 12386,
+      "tracked": true
+    },
+    "projects/neoforge/src/main/java/net/minecraft/world/level/LevelAccessor.java": {
+      "sha256": "4a2ada6c8ea9418595e5ef32c35aaffdeb44b8602b6f1b2c2cee89e0e7809287",
+      "bytes": 5304,
+      "tracked": false
+    },
+    "projects/neoforge/src/main/java/net/minecraft/world/level/Level.java": {
+      "sha256": "88124fc101d63655f0714fc77ea7002179cfd486e65599edaecc713f792636a3",
+      "bytes": 65766,
+      "tracked": false
+    },
+    "projects/neoforge/src/main/java/net/minecraft/server/level/ServerLevel.java": {
+      "sha256": "34d6b9073c6b6a3b74a281f546905615bfaeacf8be40bd848a5b39711089c626",
+      "bytes": 94241,
+      "tracked": false
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionEntityOwnershipScope.java": {
+      "sha256": "2e9f15b9e2a6f5147d14918441673e10819b9c961dcbb6420e6aa2dbbd314457",
+      "bytes": 39857,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionDeferredEntityRemovals.java": {
+      "sha256": "a1e3691d3d28c6b30352039f18fc195c549eaa52908e9801930b324ec0462ec3",
+      "bytes": 4661,
+      "tracked": true
+    },
+    "patches/net/minecraft/server/level/ServerLevel.java.patch": {
+      "sha256": "ada281ea62cedd78456382db584298d4523790ff444f631a9ec1faaf30f1e141",
+      "bytes": 44986,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/RegionThreadingHooks.java": {
+      "sha256": "7d2ede26dd341604032294f4fbbb7fd9f3adbdab353d220793f8109ac4a526ba",
+      "bytes": 103851,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBlockEntityTickBatch.java": {
+      "sha256": "2212f59d47031e3608c36c8f52dc7ceb61411dbccdcf224b8cea22439df5e6d7",
+      "bytes": 17335,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickBatch.java": {
+      "sha256": "9f3c3ea1c160a148247d74ec7d4b74cc689d0561aa7a14ed75482950650d704d",
+      "bytes": 30682,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/BlockEntityOperationRuntime.java": {
+      "sha256": "5747cc3a16cb4f518aa77ca16fddc60d2de58b34d4930b6bf89baaafe4812848",
+      "bytes": 18042,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/event/EventHooks.java": {
+      "sha256": "87f41383c2212237c173153a494223df7e7128d9d77bf642919e55e1ecd71efa",
+      "bytes": 60415,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionMailbox.java": {
+      "sha256": "f8562ce0f69c5d83d9a6a80c1e44ea0740a9b4a8e250da33b534c7fa163e5434",
+      "bytes": 12617,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionBorderGameEvents.java": {
+      "sha256": "e18f53d59937087c5b5316c80ba6e5e785aace342d59a32337708e11be3f324b",
+      "bytes": 6772,
+      "tracked": true
+    },
+    "patches/net/minecraft/world/level/gameevent/GameEventDispatcher.java.patch": {
+      "sha256": "3705f0a39f91f9f694a02f49f8e6023f2c62c236c8c2f3c29cb142c07b440f78",
+      "bytes": 4804,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/RegionAwareRandomSource.java": {
+      "sha256": "6ec09a3aef8f9dbf497556d4306089d3efd992805faba4a3b3a3d733cb7ee41e",
+      "bytes": 3127,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/items/VanillaInventoryCodeHooks.java": {
+      "sha256": "45186cd2d7c51c8b7e96b9fa2425c11172d790aa9dda06a7f0e0718db0c53036",
+      "bytes": 11273,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/capabilities/BlockCapability.java": {
+      "sha256": "bd32f64faa54fae54d600aff9fd7f740d6a9e317d74a3930f4228e17c4b23f3d",
+      "bytes": 9494,
+      "tracked": true
+    },
+    "projects/neoforge/src/main/java/net/minecraft/world/level/block/entity/RandomizableContainerBlockEntity.java": {
+      "sha256": "14ba5bab80c7ceb57c58919952d84595f2251cfc1c457370689356ee7d261f91",
+      "bytes": 3815,
+      "tracked": false
+    },
+    "src/main/java/net/neoforged/neoforge/common/extensions/IItemStackExtension.java": {
+      "sha256": "a10a653804d14f37b42c95fdcfb28d43c75d75fc8e5283e852387847908bc7ec",
+      "bytes": 21633,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickCompatibility.java": {
+      "sha256": "b45c31fa2e74b41855e8b95deab625659cac879f04e4165bac2e8d36e9ed03c6",
+      "bytes": 14198,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/api/BlockEntityTickAdapter.java": {
+      "sha256": "980eeb030ce093ccd6bd358fa81b7b2e0877619767c7054e3682c533eb530477",
+      "bytes": 2895,
+      "tracked": true
+    },
+    "src/main/java/net/neoforged/neoforge/server/threading/region/FurnaceWorkPreparation.java": {
+      "sha256": "e812944f7dfdf2f69e31433156fd32f8fca5aa0c53c59d34eac36f2b10a388f0",
+      "bytes": 17522,
+      "tracked": true
+    }
+  },
+  "admissionContractCallpoints": [
+    {
+      "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionTickCompatibility.java",
+      "line": 213,
+      "symbol": "    public static RegionBlockEntityTickAdmission.Decision decideBlockEntityTick(ServerLevel level,"
+    },
+    {
+      "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+      "line": 6357,
+      "symbol": "    private static Inspection inspectNativeBlockEntity("
+    },
+    {
+      "path": "src/main/java/net/neoforged/neoforge/server/threading/api/BlockEntityTickAdapter.java",
+      "line": 41,
+      "symbol": "    Decision check("
+    },
+    {
+      "path": "src/main/java/net/neoforged/neoforge/server/threading/region/FurnaceWorkPreparation.java",
+      "line": 109,
+      "symbol": "    Candidate prepare("
+    },
+    {
+      "path": "src/main/java/net/neoforged/neoforge/server/threading/region/RegionThreadingEngine.java",
+      "line": 6537,
+      "symbol": "                    if (ownerStarted) region.endOwnership();"
+    }
+  ],
+  "preBodyCohorts": [
+    {
+      "cohort": "unknown/Foreign/unregistered or stale binding",
+      "disposition": "COMPLETE_SERIAL_BEFORE_BODY",
+      "proof": "No worker authority from ordinal or type claim."
+    },
+    {
+      "cohort": "pack-declared and v1 generic",
+      "disposition": "UNPROVEN_FOR_NEW_COORDINATOR",
+      "proof": "Author contract; no closed effects certificate or post-Fence fresh contract. Preserve legacy API, do not move check/prepare."
+    },
+    {
+      "cohort": "active original Hopper reaching arbitrary providers/Container/loot/items/notifications",
+      "disposition": "UNPROVEN_FOR_NEW_COORDINATOR",
+      "proof": "Exact original function alone does not close transitive callbacks/shared roots."
+    },
+    {
+      "cohort": "exact original Hopper cooldownTime > 1, or original disabled branch",
+      "disposition": "SOURCE_LEVEL_CANDIDATE_ONLY_NO_ISSUED_PROOF",
+      "proof": "Finite body branch may avoid callbacks, but exact function/runtime transformation verification, bound wrapper/TimeTracker and fresh branch guard are not implemented; type string/current binding does not certify it."
+    },
+    {
+      "cohort": "FurnaceWorkPreparation exact supported family with all existing audits/fresh/alias/budgets/reservations",
+      "disposition": "ALREADY_PROVEN_ONLY_UNDER_EXISTING_PROTECTED_DRIVER",
+      "proof": "Existing fine driver remains enabled/unchanged. Native name-based candidate does not inherit its proof; no C4 integration or new audit bypass."
+    }
+  ]
+}

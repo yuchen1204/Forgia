@@ -4,7 +4,7 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C2 collection migration
+## Canonical Block Entity Coordinator — C3-A inventory, proof gate blocked
 
 The [C2 implementation and validation record](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md) captures the actual
 Level ticker list after pending merge and fresh onLoad, copies only references under the membership lock,
@@ -14,12 +14,18 @@ fresh server eligibility checks. Five of the eight C1 failures are fixed; three 
 remain enabled. Eight new collection cases pass. Original Native/Furnace/Adapter/kernel/resource/lifecycle
 regressions are rerun across real fixed/persistent × resources off/on, with the full core result in the report.
 No unified Coordinator yet; both execution drivers and their old indexed/explicit helper bridges remain.
-Admission, switches and budgets stay unchanged. C3 Native migration precedes C4 Furnace integration in the
-current authorized plan; unsafe effect bridges stop further migration. The [C3 native effect bridge audit](CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md)
-now reproduces a real level-end task whose effect is invisible to the next Unknown Fence. C3 is blocked,
-C4 has not started, and no production Coordinator is enabled. A new visibility target remains red while the
-retained explicit bridge's level-end timing/exactly-once protection passes; current core has four target
-failures, with the original safety regressions passing. No performance or installed-server claim.
+Admission, switches and budgets stay unchanged. The [C3 native effect bridge audit](CANONICAL-BLOCK-ENTITY-C3-NATIVE-BLOCKERS.md)
+reproduced the level-end visibility gap. The subsequent [C3-A production inventory](CANONICAL-BLOCK-ENTITY-C3A-NATIVE-EFFECT-INVENTORY.md)
+traces16effect classes/31source files, separates invocation effects from later phase timing, and tests the
+original Hopper ticker through real capability dispatch. An unaudited provider executes on the native Worker;
+a nonmutating shared-handler probe confirms two different Regions overlap on the same root. A complete
+pre-body callback/root proof is missing. Stop at C3-A; C3-B/C3-C, C4 and C5 are not entered.
+Six new invocations yield5pass/1failure; full core reruns1291=1286pass/5target failures,0errors/skips, with all
+1244original cases passing. The same5failures reproduce in fixed/persistent × resource off/on; original C1
+assertions remain unchanged, with5of8fixed by C2 and3still red. Four new retained-bridge protections cover
+real cross-Region Hopper overlap, task failure/exactly-once/level-end order, scheduled mutation/event timing,
+and Region RNG continuity. No production code, defaults, budgets or admission changed; no new bridge or
+Coordinator is implemented. No compatibility, performance or installed-server claim.
 
 ## Canonical Block Entity Coordinator — C1 behavior tests (historical baseline)
 
