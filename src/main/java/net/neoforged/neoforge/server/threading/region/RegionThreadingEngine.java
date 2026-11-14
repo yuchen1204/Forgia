@@ -9069,7 +9069,7 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     @ApiStatus.Internal
     public void clearLevelRegionTasks(ServerLevel level) {
-        this.rejectLifecycleWaitFromWorker("clear region tasks for a level");
+        this.rejectLifecycleSelfWait("clear region tasks for a level", level);
         synchronized (this) {
             final Lock lifecycleWriteLock = this.lifecycleGate.writeLock();
             lifecycleWriteLock.lock();
@@ -10608,10 +10608,9 @@ public final class RegionThreadingEngine implements RegionThreading {
      */
     @ApiStatus.Internal
     public void shutdown() {
-        this.blockEntityWorkGraph.stop();
-        // The worker check must run before this method can block on the engine monitor: a shutdown that
-        // already waits for a worker must not deadlock against that worker calling shutdown itself.
-        this.rejectLifecycleWaitFromWorker("shut down region threading");
+        // Reject a Worker or an active server callback before taking the engine monitor: another
+        // cleanup may already hold it while waiting for this invocation/phase to finish.
+        this.rejectLifecycleSelfWait("shut down region threading", null);
         synchronized (this) {
             if (this.shutdown) {
                 return;
@@ -10631,6 +10630,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                     if (this.shutdown) {
                         return;
                     }
+                    this.blockEntityWorkGraph.stop();
                     this.shutdown = true;
                     this.entityTransferJournal.clear();
                     this.pendingDeferredEntityMoves.clear();
@@ -10759,9 +10759,18 @@ public final class RegionThreadingEngine implements RegionThreading {
         }
     }
 
-    private void rejectLifecycleWaitFromWorker(String action) {
+    private void rejectLifecycleSelfWait(String action, @Nullable ServerLevel level) {
         if (this.workerPool.isWorkerThread(Thread.currentThread())) {
             throw new IllegalStateException("Cannot " + action + " from a region worker thread");
+        }
+        if (this.regionWorkAdmission.isOwner()) {
+            throw new IllegalStateException("Cannot " + action + " from its canonical phase coordinator");
+        }
+        for (final var active : this.activeTickBatches) {
+            if ((level == null || active.level() == level || active.holdsServerAdmissionFence())
+                    && active.isExecutingOnCurrentThread()) {
+                throw new IllegalStateException("Cannot " + action + " from its active region tick batch");
+            }
         }
     }
 
