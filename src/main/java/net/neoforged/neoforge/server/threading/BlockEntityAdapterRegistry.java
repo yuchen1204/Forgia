@@ -64,24 +64,29 @@ public final class BlockEntityAdapterRegistry {
             throw new IllegalStateException("Block-entity adapter lifecycle requires its live server coordinator");
     }
 
-    public synchronized BlockEntityAdapters.Registration register(int protocol, BlockEntityAdapters.Descriptor descriptor, BlockEntityAdapter adapter) {
-        this.requireCoordinator();
-        if (this.frozen) throw new IllegalStateException("Block-entity adapter registration is frozen");
-        Objects.requireNonNull(descriptor);
-        Objects.requireNonNull(adapter);
-        if (protocol != BlockEntityAdapters.PROTOCOL_VERSION || this.entries.containsKey(descriptor.id())
-                || descriptor.types().stream().anyMatch(this.types::containsKey))
-            throw new IllegalArgumentException("Invalid/duplicate block-entity adapter protocol, id or types");
+    public BlockEntityAdapters.Registration register(int protocol, BlockEntityAdapters.Descriptor descriptor, BlockEntityAdapter adapter) {
+        synchronized (this) {
+            this.requireCoordinator();
+            if (this.frozen) throw new IllegalStateException("Block-entity adapter registration is frozen");
+            Objects.requireNonNull(descriptor);
+            Objects.requireNonNull(adapter);
+            if (protocol != BlockEntityAdapters.PROTOCOL_VERSION || this.entries.containsKey(descriptor.id())
+                    || descriptor.types().stream().anyMatch(this.types::containsKey))
+                throw new IllegalArgumentException("Invalid/duplicate block-entity adapter protocol, id or types");
+        }
+        // External code must run without the registry monitor: lifecycle close acquires SERVERS then
+        // this monitor, while audit may query ParallelApi (SERVERS). Holding it would invert that order.
         final var audit = adapter instanceof DedicatedBlockEntityAdapter dedicated ? Objects.requireNonNull(dedicated.audit()) : null;
-        // audit() is external code: it can reenter the startup transaction or close the service. Do not
-        // publish over an identity/type it registered while the outer descriptor was still unbound.
-        this.requireCoordinator();
-        if (this.entries.containsKey(descriptor.id()) || descriptor.types().stream().anyMatch(this.types::containsKey))
-            throw new IllegalArgumentException("Reentrant block-entity adapter registration conflicts");
-        final var entry = new Entry(descriptor, adapter, audit);
-        this.entries.put(descriptor.id(), entry);
-        descriptor.types().forEach(type -> this.types.put(type, entry));
-        return entry;
+        synchronized (this) {
+            // The callback can reenter registration or close the service. Recheck before publishing.
+            this.requireCoordinator();
+            if (this.entries.containsKey(descriptor.id()) || descriptor.types().stream().anyMatch(this.types::containsKey))
+                throw new IllegalArgumentException("Reentrant block-entity adapter registration conflicts");
+            final var entry = new Entry(descriptor, adapter, audit);
+            this.entries.put(descriptor.id(), entry);
+            descriptor.types().forEach(type -> this.types.put(type, entry));
+            return entry;
+        }
     }
 
     public synchronized void freeze() {

@@ -8,6 +8,7 @@ package net.neoforged.neoforge.unittest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -252,6 +253,64 @@ class GeneralBlockEntityAdapterRegistrationTest {
                     @Override
                     public Audit audit() {
                         for (int i = 0; i < 128; ++i) registrar.register(1, new ParallelApi.DataKey<>(ResourceLocation.parse("test:spawn_" + i), String.class), unit -> new ParallelApi.Ready<>("x"));
+                        return new Audit("test/audit", "1");
+                    }
+
+                    @Override
+                    public BlockEntityAdapters.Request inspect(BlockEntityAdapters.Invocation invocation) {
+                        return BlockEntityAdapters.Request.serial();
+                    }
+                })));
+        assertTrue(ParallelApi.forServer(this.server).isEmpty());
+    }
+
+    @Test
+    void dedicatedAuditRunsOutsideTheRegistryMonitorToAvoidLifecycleLockInversion() {
+        ParallelAdapterRuntime.initialize(this.server, registrar -> registrar.registerBlockEntityAdapter(1,
+                descriptor("test:a", "test:a"), new DedicatedBlockEntityAdapter() {
+                    @Override
+                    public Audit audit() {
+                        final Object registry = CanonicalBlockEntityTestSupport.get(registrar.getClass(), registrar, "blockEntityAdapters");
+                        assertFalse(Thread.holdsLock(registry), "user audit code must not hold the registry monitor while lifecycle close can acquire SERVERS then registry");
+                        return new Audit("test/audit", "1");
+                    }
+
+                    @Override
+                    public BlockEntityAdapters.Request inspect(BlockEntityAdapters.Invocation invocation) {
+                        return BlockEntityAdapters.Request.serial();
+                    }
+                }));
+        assertEquals(1, ParallelApi.forServer(this.server).orElseThrow().blockEntityAdapters().size());
+    }
+
+    @Test
+    void concurrentServerCloseCanFinishWhileDedicatedAuditIsStillExecuting() {
+        final var finished = new java.util.concurrent.CountDownLatch(1);
+        final var problem = new AtomicReference<Throwable>();
+        assertThrows(IllegalStateException.class, () -> ParallelAdapterRuntime.initialize(this.server,
+                registrar -> registrar.registerBlockEntityAdapter(1, descriptor("test:a", "test:a"), new DedicatedBlockEntityAdapter() {
+                    @Override
+                    public Audit audit() {
+                        final var closer = new Thread(() -> {
+                            try {
+                                ParallelAdapterRuntime.close(server);
+                            } catch (Throwable failure) {
+                                problem.set(failure);
+                            } finally {
+                                finished.countDown();
+                            }
+                        }, "C5-close-during-audit");
+                        closer.start();
+                        CanonicalBlockEntityTestSupport.await(finished);
+                        assertNull(problem.get());
+                        assertTrue(ParallelApi.forServer(server).isEmpty());
+                        try {
+                            closer.join(10000);
+                        } catch (InterruptedException failure) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(failure);
+                        }
+                        assertFalse(closer.isAlive());
                         return new Audit("test/audit", "1");
                     }
 
