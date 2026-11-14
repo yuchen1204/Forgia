@@ -10769,7 +10769,9 @@ public final class RegionThreadingEngine implements RegionThreading {
         for (final var active : this.activeTickBatches) {
             if ((level == null || active.level() == level || active.holdsServerAdmissionFence())
                     && active.isExecutingOnCurrentThread()) {
-                throw new IllegalStateException("Cannot " + action + " from its active region tick batch");
+                throw new IllegalStateException(level == null
+                        ? "Cannot shut down region threading from its region tick batch"
+                        : "Cannot retire region state while its region tick batch is running on the current thread");
             }
         }
     }
