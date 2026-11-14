@@ -4,7 +4,36 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C4.2 required GameTest gate green
+## General Mod Adapter — C5 conservative request foundation
+
+[C5 architecture and validation](GENERAL-MOD-ADAPTER-ARCHITECTURE.md) adds a platform-neutral request API,
+server-owned registration/lifecycle management and one short-lived request session attached to the original
+published canonical batch. `BlockEntityAdapter`, `BlockEntityAdapters` and `DedicatedBlockEntityAdapter`
+describe exact target ids, execution requests, resources, current dependencies and audit provenance. New
+optional methods/capability preserve v1 API major1 and share the original128registration bound and id/type
+transaction. No concrete Dedicated Adapter, pool, scheduler, Ticket, Permit, Lease or effect queue is added.
+
+**C5 registered targets remain full Serial Fences: there is no generic Worker proof backend.** Inspection
+runs at the actual cursor inside the existing serial Permit after physical join/necessary commit, followed by
+the complete original ticker once. Unknown resources/providers are not probed; declarations/CURRENT/audit
+metadata never become Claims or permission. Existing identity planning is diagnostic only. Callbacks and
+all temporary subject/resource references retire on failure, invalidation, unregister and phase close; cleanup
+failures remain visible and do not skip other cleanup. Dedicated audit runs outside registry locks, with live/
+identity/shared-budget validation repeated after the callback. The lifecycle lock-order correction is an
+independent production commit with red/green evidence. Unregistered Native Hopper/Furnace paths retain
+all original proofs, admission, physical joins and commit behavior. Final full core1375/1375 and three
+related394/394 configurations pass, including all1328C4.2 cases/original1244 and84original canonical per
+configuration. Two unfiltered full parallel GameTests each pass177/177required with exit0/noCrash; framework
+XML231entries/179uniqueIDs/4NotProcessed remains explicit. Real Mod startup registration keeps unknown
+shared callbacks serial while Native overlap2 persists; mixed JUnit Native/Furnace overlap2/2 uses one batch.
+Legacy Create16+unknown1, MobSpawnController25+unknown1 and unknown Furnace1 also pass. All failed
+prototypes, a real probe crash and a sparse random-sampling fixture failure remain; the final full games
+use a complete isolated section while preserving every original worker/ownership assertion. Pure C5 API
+20classes compile without Minecraft;60class facade bytes match compiled output and contain no runtime.
+No admission/default/budget change, Bootstrap rewrite, C6/Create integration or MSPT optimization. C5 stops
+here; see the report for commands/raw evidence and manual/framework/installed-server coverage limits.
+
+## Earlier C4.2 required GameTest gate checkpoint
 
 [C4.2 compatibility and regression](CANONICAL-BLOCK-ENTITY-C42-GAMETEST-COMPATIBILITY.md) resolves the four
 C4.1 required failures and the all-slice plant crash through actual contract/fixture validation. Both full

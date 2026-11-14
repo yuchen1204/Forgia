@@ -73,9 +73,10 @@ An [experimental MobSpawnController adapter](adapters/mobspawncontroller/README.
 verified admission for 1.2.3. The ordered nearby/chance experiment is **opt-in and off by default**:
 local pack validation found truncated work and no proven speedup. Default natural spawning stays serial;
 unsupported world filters, multipliers and unverified native hooks also retain the complete serial plan.
-An [experimental Create 6.0.10 adapter](adapters/create/README.md) runs audited steady transmission,
-water-wheel and millstone ticks on native workers after whole-network preflight; topology changes and
-processing callbacks keep their complete serial ticks. It requires the new block-entity admission capability.
+The legacy [experimental Create 6.0.10 adapter](adapters/create/README.md) contains whole-network preflight
+and original v1 transmission/water-wheel/millstone integration. The current canonical Level path also requires
+an independent core body-closure proof; the old v1 ADMITTED decision cannot certify unknown Mod machines.
+Those legacy bridge checks do not expand the current Native/Furnace cohort.
 
 ## Configuration
 
@@ -147,11 +148,11 @@ improving in only1/4build pairs and regressing in the10-minute ON/OFF check. Thi
 not a validated server-latency improvement or broader BE admission.
 
 The next stage began with the [Modded Block Entity adaptation architecture investigation](region-threading/MODDED-BLOCK-ENTITY-ADAPTATION-ARCHITECTURE.md).
-Additional Resource Ownership MSPT tuning is frozen. The [first execution-contract migration](region-threading/BLOCK-ENTITY-EXECUTION-CONTRACT.md)
-now gives native adapter ticks and protected Furnace Waves a shared internal ticket/permit lifecycle and
-explicit exclusion between a Region owner and subordinate resource work. Existing auditing, switches,
-serial fallback and commit order stay in their original drivers; no new Mod BE admission or generic
-adapter registration protocol is enabled. Core1244, resource-on181, persistent199, actual unknown Furnace
+Additional Resource Ownership MSPT tuning is frozen. The earlier [first execution-contract migration](region-threading/BLOCK-ENTITY-EXECUTION-CONTRACT.md)
+gave native adapter ticks and protected Furnace Waves a shared internal ticket/permit lifecycle and
+explicit exclusion between a Region owner and subordinate resource work. At that checkpoint, auditing,
+switches, serial fallback and commit remained in their original drivers, with no new Mod BE admission or
+generic adapter registration protocol. Core1244, resource-on181, persistent199, actual unknown Furnace
 Mixin1, independent Create16 and unknown Create Mixin1 pass; full-server performance remains unmeasured.
 
 The [Canonical BE Coordinator design](region-threading/CANONICAL-BLOCK-ENTITY-COORDINATOR.md) began as a
@@ -195,8 +196,26 @@ POI and feature-flag tests observe actual Worker/pack behavior. An asynchronous 
 POI JUnit fixture is fixed by joining both IO futures before comparing the files. Full core1328 and three
 related329 runs pass, with original canonical assertions retained. Framework XML still lists4Not Processed
 entries, separately documented; the report keeps all failed attempts and legacy test-Mod diagnostic errors.
-Production source/patches/admission/defaults/budgets/API are unchanged. C4.2 stops here; no C5/Create protocol
-work, performance tuning or repeated long installed soak.
+Production source/patches/admission/defaults/budgets/API are unchanged. That C4.2 checkpoint stopped before
+C5/Create protocol work, performance tuning or repeated long installed soak.
+
+[C5 General Mod Adapter architecture](region-threading/GENERAL-MOD-ADAPTER-ARCHITECTURE.md) now adds a
+Java-only request API, server-scoped registration/retirement and one short-lived session attached to the
+original canonical phase. Execution/resource/dependency/lifecycle descriptions and Dedicated audit metadata
+use the existing registration transaction and total128bound; v1 API major and signatures stay compatible.
+C5 has no generic Worker proof backend, so every C5 target remains a complete Serial Fence. Inspection runs
+inside its original serial Permit at the actual cursor after physical join/necessary commit, then the full
+original ticker runs once; declarations never mint Claims/Lease/Permit or choose pools/commit. Cleanup and
+callback failures retain exactly-once semantics and clear borrowed subjects and temporary resources. Existing
+Native Hopper/Furnace proofs and grants are preserved. No concrete Create/Mekanism/AE2 adapter, broader
+Modded BE Worker admission, default/budget change, Bootstrap rewrite or MSPT optimization is included.
+The report records current-source tests: full core1375/1375, three related394/394 configurations and two
+unfiltered full parallel GameTest profiles with177/177required passed, exit0/noCrash. Real registered Mod
+requests keep unknown shared callbacks serial while Native overlap2 persists; mixed Native/Furnace overlap
+is2/2 in one batch. All1328C4.2 and original1244JUnit cases rerun/pass. The four framework Not Processed
+entries and retained failed probes remain explicit, alongside existing adapter/Mixin compatibility checks.
+The new20class API package compiles with only JDK/annotations; the60class facade excludes runtime authority.
+C5 stops at this foundation; no installed-server or whole-tick performance claim is added.
 
 Diagnostics: `/neoforge regionthreading status` prints the per-region MSPT/TPS, every slice's worker and
 fallback counters, the border-update and foreign-read counters, and the reason each refusal happened. Nothing

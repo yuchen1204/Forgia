@@ -745,4 +745,94 @@ class GeneralBlockEntityAdapterIntegrationTest {
             noSessionReferences(f);
         }
     }
+
+    @Test
+    void stoppingTheApiDuringInspectionRetainsCallbacksUntilTheOriginalPhaseCloses() {
+        try (var f = new CanonicalBlockEntityTestSupport()) {
+            final var closed = new AtomicInteger();
+            final var handle = new AtomicReference<BlockEntityAdapters.Registration>();
+            unknown(f, "A", A, false, () -> assertSerialInvocation(f));
+            unknown(f, "B", B, true, () -> assertSerialInvocation(f));
+            ParallelAdapterRuntime.initialize(f.server, registrar -> {
+                handle.set(registrar.registerBlockEntityAdapter(1, descriptor("test:a", "minecraft:chest"), new BlockEntityAdapter() {
+                    @Override
+                    public BlockEntityAdapters.Request inspect(BlockEntityAdapters.Invocation i) {
+                        ParallelAdapterRuntime.close(f.server);
+                        return request(i.subject());
+                    }
+
+                    @Override
+                    public void phaseClosed(BlockEntityAdapters.Phase phase, boolean successful) {
+                        assertTrue(successful);
+                        closed.incrementAndGet();
+                    }
+                }));
+                registrar.registerBlockEntityAdapter(1, descriptor("test:b", "minecraft:beacon"), i -> {
+                    throw new AssertionError("closed service cannot inspect a later body");
+                });
+            });
+            final var retained = api(f);
+            final var registry = get(retained.getClass(), retained, "blockEntityAdapters");
+            f.enable(false);
+            f.levelPhase();
+            assertEquals(1, closed.get());
+            assertEquals(Map.of("A", "1", "B", "1"), f.state());
+            assertTrue(ParallelApi.forServer(f.server).isEmpty());
+            assertThrows(IllegalStateException.class, retained::blockEntityAdapters);
+            assertEquals(BlockEntityAdapters.State.CLOSED, handle.get().state());
+            assertEquals(0, get(registry.getClass(), registry, "sessions"));
+            assertNull(get(registry.getClass(), registry, "coordinator"));
+            for (final var entry : ((Map<?, ?>) get(registry.getClass(), registry, "entries")).values())
+                assertNull(get(entry.getClass(), entry, "adapter"));
+            f.clean();
+            f.probes();
+        }
+    }
+
+    @Test
+    void inspectionAndMultipleCleanupFailuresArePreservedWhileEveryReferenceIsRetired() {
+        try (var f = new CanonicalBlockEntityTestSupport()) {
+            final var primary = new IllegalStateException("primary inspection failure");
+            final var cleanupA = new IllegalStateException("cleanup A");
+            final var cleanupB = new IllegalStateException("cleanup B");
+            final var cleanupCalls = new AtomicInteger();
+            unknown(f, "A", A, false, () -> assertSerialInvocation(f));
+            unknown(f, "B", B, true, () -> assertSerialInvocation(f));
+            unknown(f, "C", U, false, () -> {});
+            register(f, new BlockEntityAdapter() {
+                @Override
+                public BlockEntityAdapters.Request inspect(BlockEntityAdapters.Invocation i) {
+                    if (((Probe) i.subject()).id.equals("C")) throw primary;
+                    return request(i.subject());
+                }
+
+                @Override
+                public void phaseClosed(BlockEntityAdapters.Phase phase, boolean successful) {
+                    assertFalse(successful);
+                    cleanupCalls.incrementAndGet();
+                    throw cleanupA;
+                }
+            }, new BlockEntityAdapter() {
+                @Override
+                public BlockEntityAdapters.Request inspect(BlockEntityAdapters.Invocation i) {
+                    return request(i.subject());
+                }
+
+                @Override
+                public void phaseClosed(BlockEntityAdapters.Phase phase, boolean successful) {
+                    assertFalse(successful);
+                    cleanupCalls.incrementAndGet();
+                    throw cleanupB;
+                }
+            });
+            f.enable(false);
+            assertSame(primary, assertThrows(IllegalStateException.class, f::levelPhase));
+            assertEquals(2, cleanupCalls.get());
+            assertEquals(List.of(cleanupA), List.of(primary.getSuppressed()));
+            assertEquals(List.of(cleanupB), List.of(cleanupA.getSuppressed()));
+            assertEquals(Map.of("A", "1", "B", "1", "C", "0"), f.state());
+            noSessionReferences(f);
+            f.probes();
+        }
+    }
 }

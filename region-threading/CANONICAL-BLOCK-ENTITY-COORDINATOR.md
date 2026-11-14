@@ -4,7 +4,17 @@ C0 设计基线为 `2339050429dbec819f685b6c903091eab5ea1220`。第1–8节保�
 
 在C0基线，[Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，Native 与 Furnace 仍分别选择顺序、分组、回退及提交。后续实施复用原 Ticket、Permit、RegionGuard 与执行桥，先统一输入顺序和Fence，再合并受保护炉子。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C4.2 required GameTest gate转绿，旧诊断边界保留
+## 最新实施状态：C5 General Mod Adapter保守基础架构
+
+[C5架构与验证](GENERAL-MOD-ADAPTER-ARCHITECTURE.md)复用当前Canonical Coordinator、原batch/kernel/Ticket/Permit和Effect Bridge，追加Java-only的申请/资源/依赖/生命周期接口与服务器事务注册。通过原ParallelApi事件和可选capability接入，API major1不变，Dedicated audit metadata不认证任何body。注册与旧v1/spawn共享id/type检查和128总上限；支持invalidate/unregister/server-close、有界tombstone和全出口引用清理。
+
+C5没有通用Worker证明后端，注册目标在原cursor形成完整Serial Fence，inspect/validators只在其原Serial Permit内执行，随后完整原ticker一次；不在lookahead提前调用未知Adapter。资源声明只使用现有identity planner作诊断，不转成Claims/Lease或执行plan。未知provider不探测，CURRENT、Mod/类名或Dedicated声明不授权限。物理join/必要commit先于检查，原Native/Furnace准入/函数/资源/通知审计保持。cleanup在同一个活跃batch里、物理工作/必要提交后执行，异常仍清理其它注册及Core。新增独立锁顺序修正令外部audit callback离开registry monitor，并重新验证回调后的事务状态。
+
+正式最终验证完整core1375/1375、三定向各394/394；原C4.2全部1328及原1244逐case重跑相等，原84canonical每配置全过。两未过滤完整并行GameTest各177/177 required、exit0/noCrash；XML231group记录/179uniqueID/4NotProcessed仍单列。真实Mod注册事件测试shared callback完整serial且Native overlap2，混合JUnit Native/Furnace overlap2/2且同batch；旧Create16+unknown1、MSC25+unknown1、unknownFurnace1通过。原随机tick稀疏采样夹具失败与探针崩溃均保留，最终加强全截面夹具而保留原Worker/ownership断言。公开facade60class一致，新包20class仅JDK/注解可编译。
+
+没有新增Modded BE Worker准入、具体模组Dedicated Adapter、第二套scheduler/Worker Pool/authority或通用effects接口。详细真实执行、注册事件、exactly-once/overlap、失败与最终配置矩阵见C5报告；不把旧C4.2结果冒充新实现验证。本阶段在C5基础架构停止，不进入Create/Mekanism/AE2专用实现、MSPT优化或大规模Bootstrap迁移。
+
+## 历史C4.2 required GameTest gate转绿检查点
 
 [C4.2报告](CANONICAL-BLOCK-ENTITY-C42-GAMETEST-COMPATIBILITY.md)从`2a22661b5f57d39d0ecde03f11dd62ad1d4c7cf9`逐项调查C4.1失败。两个完整unfiltered并行配置Persistent/Resource ON与Fixed/OFF均176/176 required、真实Gradle exit0、无Crash Report；Framework XML各230条group记录/0failure/4Not Processed，不能把它们当230个独立全执行测试。原C4.1 XML/log/crash和本轮所有失败均保留原始证据。
 

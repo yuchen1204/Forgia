@@ -2,6 +2,30 @@
 
 状态：Experimental，API major = 1。本页说明当前已实现的接口；全部公开类型、方法签名、调度器和配置入口见 [API 接口总览](API-REFERENCE.md)，完整规划见 [RFC](MOD-PARALLEL-API-RFC.md)。不保证未冻结 API 的二进制兼容性。
 
+## C5：通用 Block Entity Adapter 申请协议
+
+[General Mod Adapter 架构与验证](GENERAL-MOD-ADAPTER-ARCHITECTURE.md)提供新的可选
+`GENERAL_BLOCK_ENTITY_ADAPTERS` capability。`Registrar.registerBlockEntityAdapter(1, descriptor, adapter)`
+在原注册事件内使用，C5 protocol=1、ParallelApi major仍为1。新增`api.adapter`包不引用Minecraft类型；
+`BlockEntityAdapter`、`BlockEntityAdapters`及`DedicatedBlockEntityAdapter`共同描述exact类型、原ticker执行
+申请、资源READ/WRITE、依赖/生命周期验证和拒绝。Dedicated audit reference/revision只提供审查出处。
+
+**C5没有通用Worker证明后端，全部C5注册目标完整串行。** 注册回调、CURRENT、自称local、Dedicated标记
+或Mod/类名不认证body closure。检查在唯一canonical cursor对应的原Serial Permit里执行，前prefix已真实
+join/必要commit，随后完整原ticker最多一次；异常传播、未开始suffix停止，不将已产生效果的body重放。
+未注册C5的原Native Hopper/Furnace proof与Worker路径保持。没有worker/执行/commit回调或调度器接口。
+
+新协议共享v1/spawn的128总注册上限和id空间，与v1类型交集也使整次事务失败。注册冻结；Registration
+可在服务器协调线程invalidate/close，保留有界tombstone且不复活旧身份；服务停止后旧句柄终态CLOSED，
+新启服创建独立服务。资源声明永不转换成Claims/Lease。UNKNOWN资源不探测provider；依赖失效或缺Core
+审计均明确serial。纯只读validator每次重新调用，累计预算不按Fence重置。`phaseClosed`清理在同一原batch
+仍活跃且物理工作/必要提交完成后执行，异常不会阻止其它清理和Core finally。
+
+通过`Server.blockEntityAdapters()`查询只含元数据/计数/拒绝的状态，通过
+`Server.lastBlockEntityAdapterPhase()`查询最近关闭会话的声明依赖诊断；这些waves省略其它ticker，不能作为
+Level执行plan。现有`compat`命令仍显示既有spawn/v1栏目，C5诊断使用上述API。当前没有热重注册、任意
+Capability/共享handler、多home或通用effect协议，也未实现Create/Mekanism/AE2 Dedicated Adapter。
+
 ## 已经可以使用的能力
 
 - 服务器实例级注册事件 `RegisterParallelAdaptersEvent`，在 `NeoForge.EVENT_BUS` 上订阅。
@@ -15,7 +39,8 @@
 
 - `BLOCK_ENTITY_OPERATIONS`：不透明实例引用、完整双 owner 操作、带方向/槽位规则的 Container 搬运，以及取消、失效、失败与至多执行一次句柄。
 - `SCHEDULED_TICK_DIAGNOSTICS`：通过 `Server.scheduledTicks()` 查询有界的阶段准入、实际完成、回退原因和耗时分布。
-- `BLOCK_ENTITY_TICK_ADMISSION`：通过 `Registrar.registerBlockEntityTicks` 注册原生机器 tick 的逐实例准入器；在 owner lease 内、每次调用原 ticker 前重新检查，拒绝则完整主线程回退。类型候选可缓存，实例许可不缓存，不能解除显式串行声明或 chunk 内部规则。`Server.blockEntityTickAdapters()` 提供实际检查、拒绝和原生 worker 完成统计。[Create 6.0.10 独立适配器](../adapters/create/README.md) 使用这一协议处理稳定传动与磨石倒计时。
+- `GENERAL_BLOCK_ENTITY_ADAPTERS`：上述C5保守申请/生命周期协议，C5注册类型完整Serial Fence，无新增Modded BE Worker准入。
+- `BLOCK_ENTITY_TICK_ADMISSION`：通过 `Registrar.registerBlockEntityTicks` 注册原生机器 tick 的逐实例准入器；在 owner lease 内、每次调用原 ticker 前重新检查，拒绝则完整主线程回退。类型候选可缓存，实例许可不缓存，不能解除显式串行声明或 chunk 内部规则。`Server.blockEntityTickAdapters()` 提供实际检查、拒绝和原生 worker 完成统计。[Create 6.0.10 独立适配器](../adapters/create/README.md)保留旧v1协议实现和legacy桥验证；当前canonical Level还要求独立核心函数/closure证明，v1 ADMITTED不能认证Create或其它未知机器。
 
 跨 region 接入示例、线程与生命周期合同、scheduled tick 生产准入见 [完整操作指南](CROSS-REGION-OPERATIONS.md)。跨区操作在静止的服务器完成阶段执行，调用不自动放行模组机器 tick。
 

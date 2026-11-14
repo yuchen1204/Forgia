@@ -1,6 +1,6 @@
 # Forgia API 接口总览
 
-本文是 Forgia 自己提供的模组接入接口目录，覆盖 `21.1.250.55-beta` 的公开 Java 类型、方法、数据类型、注册事件、兼容性声明和诊断入口。上游 NeoForge 原有的完整事件、capability、注册表等 API 不在本目录重复列举。本文只描述已实现接口；RFC 中尚未实现的方法不作为可调用 API。
+本文是 Forgia 自己提供的模组接入接口目录，初版覆盖 `21.1.250.55-beta`，现已补充当前C5的保守Adapter申请协议。目录包含公开 Java 类型、方法、数据类型、注册事件、兼容性声明和诊断入口。上游 NeoForge 原有的完整事件、capability、注册表等 API 不在本目录重复列举。本文只描述已实现接口；RFC 中尚未实现的方法不作为可调用 API。
 
 当前并行门面 **API major = 1，状态 Experimental**。公开类型不等于稳定 ABI；模组应按能力协商，不按 Forgia 构建号猜测行为。标记 `@ApiStatus.Internal` 的运行时、Hooks、Engine、lease、batch 和测试开关不属于模组支持合同，见[内部边界](#12-内部边界与未提供的能力)。
 
@@ -28,6 +28,7 @@
 | 注册自然刷怪数据准备／适配声明 | `RegisterParallelAdaptersEvent.registrar()` | `ParallelApi.Registrar` | 仍触发注册，原生串行路径不自动执行准备 |
 | 读取当前刷怪调用的准备快照 | `ParallelApi.prepared(key)` | `DataKey<S>`、`SpawnUnit` | 通常为空 |
 | 注册受审计的逐次 BE tick 准入 | `RegisterParallelAdaptersEvent.registrar()` | `BlockEntityTickAdapter` | 原生串行；注册不启用 slice |
+| 通用BE执行申请、资源/依赖与生命周期声明 | 同一注册事件 → `registerBlockEntityAdapter` | `api.adapter.BlockEntityAdapter`／`BlockEntityAdapters` | 原生完整串行；C5即使有引擎也不新增Mod Worker |
 | 完整双 BE 操作、容器槽位搬运 | `api.blockEntities()` | `BlockEntityOperations` | 静止服务器线程立即执行；其他上下文拒绝 |
 | scheduled tick 计数与耗时 | `api.scheduledTicks()` | `ScheduledTickStatus` | 返回空列表 |
 | 在位置所属 region 安排任务 | `RegionThreadingManager.get()` → `regionScheduler()` | `RegionScheduler` | Manager 返回空，无自动替代调度器 |
@@ -100,6 +101,8 @@ boolean regionThreadingInstalled();
 ParallelApi.Phase currentPhase();
 List<ParallelApi.AdapterStatus> adapters();
 List<BlockEntityTickAdapter.Status> blockEntityTickAdapters();
+List<BlockEntityAdapters.Status> blockEntityAdapters();
+Optional<BlockEntityAdapters.PhaseSummary> lastBlockEntityAdapterPhase();
 BlockEntityOperations blockEntities();
 List<ScheduledTickStatus> scheduledTicks();
 ```
@@ -112,6 +115,8 @@ List<ScheduledTickStatus> scheduledTicks();
 | `currentPhase()` | 当前调用线程的执行阶段；不能作为所有权通行证 |
 | `adapters()` | 自然刷怪 preparation 注册者及累计结果 |
 | `blockEntityTickAdapters()` | BE 适配器类型集合、准备／检查耗时、逐次拒绝原因和实际 worker 完成数；接口默认实现为空列表 |
+| `blockEntityAdapters()` | C5的不可变描述/状态/检查/串行请求/异常/拒绝诊断，默认空列表；无Worker认证含义 |
+| `lastBlockEntityAdapterPhase()` | 最近关闭的C5会话及纯声明依赖waves，默认Optional.empty；不是完整Level执行plan |
 | `blockEntities()` | 完整 BE 操作服务；先检查对应 capability。接口默认实现可抛 `UnsupportedOperationException` |
 | `scheduledTicks()` | 当前引擎的 block/fluid 阶段快照；无引擎时为空。接口默认实现为空列表 |
 
@@ -126,6 +131,7 @@ List<ScheduledTickStatus> scheduledTicks();
 | `ORDERED_SPAWN_FINALIZATION` | worker 候选选择＋主线程有序原生最终化 |
 | `BLOCK_ENTITY_TICK_ADMISSION` | 受审计 BE 原生 tick 的静止准备和逐次准入检查 |
 | `BLOCK_ENTITY_OPERATIONS` | 完整双 owner BE 操作和容器搬运 |
+| `GENERAL_BLOCK_ENTITY_ADAPTERS` | C5通用/Dedicated保守申请、资源/依赖校验及注册生命周期，当前全serial |
 | `SCHEDULED_TICK_DIAGNOSTICS` | scheduled tick 阶段计数／耗时查询 |
 
 ### 3.4 Phase 全部枚举值
@@ -164,6 +170,8 @@ void claimNaturalSpawning(ParallelApi.DataKey<?> key,
         BooleanSupplier verified);
 void registerBlockEntityTicks(int apiMajorVersion, ResourceLocation id,
         Set<ResourceLocation> types, BlockEntityTickAdapter adapter);
+BlockEntityAdapters.Registration registerBlockEntityAdapter(int protocolVersion,
+        BlockEntityAdapters.Descriptor descriptor, BlockEntityAdapter adapter);
 ```
 
 注册只在事件内、服务器线程有效，结束后冻结。注册期间的 `Registrar.capabilities()` 可用于协商，此时 `forServer` 尚不发布半成品服务。`claimNaturalSpawning` 的接口默认实现可抛 `UnsupportedOperationException`。
@@ -268,6 +276,75 @@ public interface BlockEntityTickAdapter {
 返回 `ADMITTED` 承诺完整继承 tick、behaviour、lazy tick 和第三方变换都满足这次所有权；注册是适配器作者的合同。其他结果在副作用之前选择完整串行 tick；检查异常是失败，不能触发部分正文重跑。`workerCompletions` 只计原生 worker 上成功返回的正文，任务拒绝或服务器串行不计入。
 
 每个 id 最多注册 128 个 type，不能与其他 BE 注册重复。BE 与刷怪适配器共用总数 128 和唯一 id 空间；失败会使整次注册无效。诊断 reason 使用固定枚举，不得按坐标或网络创建无界标签。实例不能被保留作为以后修改的权限。参考 [Create 适配器](../adapters/create/README.md) 和[接口指南](MOD-PARALLEL-API.md#原生方块实体逐次准入)。
+
+### 4.8 C5 General / Dedicated BlockEntity Adapter
+
+包`net.neoforged.neoforge.server.threading.api.adapter`仅引用JDK与注解，不引入Minecraft世界/坐标/类型。
+先协商`GENERAL_BLOCK_ENTITY_ADAPTERS`；C5 protocol=1，ParallelApi major仍为1。新增Server/Registrar方法有
+保守default，旧实现不用增加抽象方法。Descriptor按exact registry id选候选；所有C5目标在原Canonical
+phase形成完整Serial Fence。新协议没有通用Worker证明后端，CURRENT、Dedicated和自称local均不授予权限。
+
+```java
+interface BlockEntityAdapter {
+    BlockEntityAdapters.Request inspect(BlockEntityAdapters.Invocation invocation);
+    default void phaseClosed(BlockEntityAdapters.Phase phase, boolean successful) {}
+}
+interface DedicatedBlockEntityAdapter extends BlockEntityAdapter {
+    Audit audit();
+    record Audit(String reference, String revision) {}
+}
+// Nested in BlockEntityAdapters; records also expose their named components.
+static final int PROTOCOL_VERSION = 1;
+enum Execution { SERIAL, REGION_OWNER, RESOURCE_SCOPED }
+enum Access { READ, WRITE }
+enum Ownership { INSTANCE_LOCAL, SHARED_READ, UNKNOWN }
+enum Validation { CURRENT, INVALID, UNKNOWN }
+enum State { ACTIVE, INVALIDATED, UNREGISTERED, CLOSED }
+enum Refusal {
+    ADAPTER_SERIAL, CORE_AUDIT_UNAVAILABLE, INVALID_BINDING, INVALIDATED,
+    UNKNOWN_RESOURCE, INVALID_RESOURCE, INVALID_DEPENDENCY, UNKNOWN_DEPENDENCY,
+    BUDGET_EXCEEDED, CALLBACK_FAILED
+}
+record Descriptor(String id, Set<String> types, Set<Execution> executions) {}
+record Phase(long sequence, String dimension, long gameTime) {}
+interface Invocation {
+    Phase phase();
+    long ordinal();
+    String type();
+    int x();
+    int y();
+    int z();
+    Object subject();
+}
+interface Validator { Validation validate(); }
+record Resource(Object identity, Access access, Ownership ownership, Validator current) {}
+record Dependency(Validator current) {}
+record Request(Execution execution, List<Resource> resources, List<Dependency> dependencies) {
+    static Request serial();
+}
+interface Registration extends AutoCloseable {
+    State state();
+    void invalidate();
+    void close();
+}
+record Status(Descriptor descriptor, State state, Optional<DedicatedBlockEntityAdapter.Audit> audit,
+        long inspections, long serialRequests, long failures, Map<Refusal, Long> refusals) {}
+record PhaseSummary(Phase phase, List<List<Long>> declaredWaves, long inspections, boolean successful) {}
+```
+
+注册复用原事件及128总数/id空间，与v1类型交集也拒绝；重复/版本/超限使整次事务失败。Dedicated audit
+回调在registry锁外，回调后重验live/identity/全局限额。注册冻结，invalidate/unregister只收窄；tombstone
+在当前server session不复活同id/type，服务关闭清空callback，新启服独立。Invocation.subject是精确绑定
+source的短时借用，inspect返回后或其它线程访问均抛异常，不可保留；Core清空该引用。Phase/Status不含
+world、source或authority。serialRequests统计串行申请尝试，异常也可能令对应ticker正文未开始。
+
+inspect/validator在实际cursor的原Serial Permit内、物理join/必要提交后运行，不在lookahead抢跑未知
+callback。读只限owned字段/不可变元数据，禁止Capability/provider/RNG/加载/调度/修改。UNKNOWN资源及
+shared-read WRITE不探测；所有可接受声明仍以CORE_AUDIT_UNAVAILABLE完整serial，绝不转Claims/Lease。
+引用identity冲突用原planner诊断，512/unit、131072/phase累计声明上限不按Fence重置；诊断waves省略
+其它ticker，不可当执行plan。异常传播、不重放当前或已开始body，未开始suffix停止；phaseClosed按id
+顺序对进入过inspect的Adapter各清理一次，失败仍清理其它Adapter及Core。完整实现、真实执行测试及
+未来后端门槛见[C5架构](GENERAL-MOD-ADAPTER-ARCHITECTURE.md)。
 
 ## 5. BlockEntityOperations：完整跨区方块实体操作
 
@@ -749,6 +826,7 @@ worker dispatch 行新增 `dispatchBatches`、`batchedTasks`、`batchRunners`、
 |---|---|
 | `RegionThreadingHooks` | public patch 桥接入口；改用公开调度器／ParallelApi，不直接调用 guard、handoff、mutation queue |
 | `ParallelAdapterRuntime` | 注册、准备快照、服务生命周期实现；改用 `RegisterParallelAdaptersEvent` 和 `ParallelApi` |
+| `BlockEntityAdapterRegistry`／`BlockEntityAdapterPhase` | C5内部注册/短会话/Minecraft绑定边界，不提供实际proof或执行authority |
 | `BlockEntityOperationRuntime` | Reference／Request／容器操作实现；改用 `BlockEntityOperations` |
 | `RegionThreadingDeclarations` | 文件解析／应用实现；使用声明文件格式 |
 | `RegionThreadingConflicts`／`RegionThreadingCompatReport` | 核心兼容策略和诊断实现；使用 compat 命令与公开状态服务 |
@@ -772,6 +850,9 @@ worker dispatch 行新增 `dispatchBatches`、`batchedTasks`、`batchRunners`、
 |---|---|
 | ParallelApi | [ParallelApi.java](../src/main/java/net/neoforged/neoforge/server/threading/api/ParallelApi.java) |
 | BlockEntityTickAdapter | [BlockEntityTickAdapter.java](../src/main/java/net/neoforged/neoforge/server/threading/api/BlockEntityTickAdapter.java) |
+| BlockEntityAdapter | [BlockEntityAdapter.java](../src/main/java/net/neoforged/neoforge/server/threading/api/adapter/BlockEntityAdapter.java) |
+| BlockEntityAdapters | [BlockEntityAdapters.java](../src/main/java/net/neoforged/neoforge/server/threading/api/adapter/BlockEntityAdapters.java) |
+| DedicatedBlockEntityAdapter | [DedicatedBlockEntityAdapter.java](../src/main/java/net/neoforged/neoforge/server/threading/api/adapter/DedicatedBlockEntityAdapter.java) |
 | BlockEntityOperations | [BlockEntityOperations.java](../src/main/java/net/neoforged/neoforge/server/threading/api/BlockEntityOperations.java) |
 | ScheduledTickStatus | [ScheduledTickStatus.java](../src/main/java/net/neoforged/neoforge/server/threading/api/ScheduledTickStatus.java) |
 | RegisterParallelAdaptersEvent | [RegisterParallelAdaptersEvent.java](../src/main/java/net/neoforged/neoforge/event/server/RegisterParallelAdaptersEvent.java) |

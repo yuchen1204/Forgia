@@ -771,8 +771,8 @@ public class RegionThreadingGameTests {
                         helper.assertTrue(
                                 level.getBlockState(blockPos).is(queryBlock.get()),
                                 "the custom random tick block was not placed; state=" + level.getBlockState(blockPos));
-                        // 4096 random positions per section per tick is every position of a 16x16x16 section, so the
-                        // ice melts on the first tick that ticks this section instead of depending on the distribution.
+                        // Random sampling can repeat positions. This larger speed/window gives the small
+                        // query fixture many opportunities; its actual callback/query assertions stay below.
                         randomTickSpeed.set(4096, level.getServer());
                     })
                     .thenIdle(400)
@@ -865,12 +865,9 @@ public class RegionThreadingGameTests {
     @EmptyTemplate(value = "15x10x15", floor = true)
     @TestHolder(description = "Runs the random tick of a real block on the evidence chunk, on the region worker when the slice is effective")
     static void randomTickMeltsIce(final DynamicTest test, final RegistrationHelper reg) {
-        // This test used to melt ice. Ice only melts above block light 11, and in about one run in three the
-        // light engine had not settled for the freshly placed ice even though the chunk was block-ticking, the
-        // section was randomly ticking and block light at the ice read 14 - so the test measured the light
-        // engine's timing rather than the chunk tick slice. A block whose random tick records that it ran keeps
-        // the property the test is about (this chunk's random ticks are executed, and on a worker when the slice
-        // is effective) and is deterministic.
+        // Cover the complete isolated section: random position sampling is not an exhaustive walk.
+        // Nine cells on a single y-plane can be missed even while the chunk and section are ticking.
+        // With all 4096 cells instrumented, every actual random sample exercises this original callback.
         final AtomicInteger randomTicks = new AtomicInteger();
         final AtomicReference<String> randomTickThread = new AtomicReference<>();
         final var tickBlock = reg.blocks().register("region_random_tick_block", () -> new Block(BlockBehaviour.Properties.of().randomTicks()) {
@@ -894,9 +891,10 @@ public class RegionThreadingGameTests {
             final ServerLevel level = helper.getLevel();
             final BlockPos centre = evidenceBlockPos(helper, diagnostics.map(RegionThreadingDiagnostics::regionPolicy).orElse(RegionPolicy.FIXED_3X3), diagnostics.map(RegionThreadingDiagnostics::regionChunkSize).orElse(RegionLayout.FIXED_3X3_REGION_CHUNK_SIZE), 2);
             final java.util.List<BlockPos> positions = new java.util.ArrayList<>();
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    positions.add(centre.offset(dx, 0, dz));
+            final var section = new BlockPos(centre.getX() & -16, centre.getY() & -16, centre.getZ() & -16);
+            for (int dx = 0; dx < 16; dx++) {
+                for (int dy = 0; dy < 16; dy++) {
+                    for (int dz = 0; dz < 16; dz++) positions.add(section.offset(dx, dy, dz));
                 }
             }
             helper.addEndListener(passed -> {
@@ -911,11 +909,14 @@ public class RegionThreadingGameTests {
             randomTickSpeed.set(200, level.getServer());
 
             helper.startSequence()
+                    .thenExecute(() -> forceChunk(level, centre))
+                    .thenWaitUntil(() -> helper.assertTrue(level.shouldTickBlocksAt(ChunkPos.asLong(centre))
+                            && level.areEntitiesLoaded(ChunkPos.asLong(centre)), "the actual evidence chunk must become ticking before sampling"))
                     .thenExecute(() -> {
-                        forceChunk(level, centre);
                         for (final BlockPos pos : positions) {
                             level.setBlock(pos, tickBlock.get().defaultBlockState(), 3);
                         }
+                        helper.assertTrue(positions.stream().allMatch(pos -> level.getBlockState(pos).is(tickBlock.get())), "every random sample in the complete section must reach the original callback");
                     })
                     .thenIdle(60)
                     .thenExecute(() -> {
