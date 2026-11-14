@@ -78,8 +78,9 @@ public final class BlockEntityAdapterRegistry {
         // this monitor, while audit may query ParallelApi (SERVERS). Holding it would invert that order.
         final var audit = adapter instanceof DedicatedBlockEntityAdapter dedicated ? Objects.requireNonNull(dedicated.audit()) : null;
         synchronized (this) {
-            // The callback can reenter registration or close the service. Recheck before publishing.
+            // The callback can reenter registration, freeze or close the service. Recheck before publishing.
             this.requireCoordinator();
+            if (this.frozen) throw new IllegalStateException("Block-entity adapter registration is frozen");
             if (this.entries.containsKey(descriptor.id()) || descriptor.types().stream().anyMatch(this.types::containsKey))
                 throw new IllegalArgumentException("Reentrant block-entity adapter registration conflicts");
             final var entry = new Entry(descriptor, adapter, audit);

@@ -109,9 +109,34 @@ public class GeneralBlockEntityAdapterGameTests {
         }
 
         void tick() {
+            if (RegionThreadingManager.currentOrNull() != null) requireCoreRefusal();
             ++this.bodies;
             this.serverOnly &= this.level.getServer().isSameThread() && !RegionThreadingHooks.isNativeRegionWorkerThread();
             HANDLER.write(); // An unknown shared callback is part of the FULL original ticker.
+        }
+    }
+
+    /** Observe the original production Permit/Ticket; this never issues or substitutes authority. */
+    private static void requireCoreRefusal() {
+        try {
+            final var kernel = Class.forName("net.neoforged.neoforge.server.threading.region.BlockEntityExecutionEngine");
+            final var current = kernel.getDeclaredField("CURRENT");
+            current.setAccessible(true);
+            final var permit = ((ThreadLocal<?>) current.get(null)).get();
+            if (permit == null) throw new AssertionError("registered Mod body bypassed the canonical kernel");
+            final var ticketField = permit.getClass().getDeclaredField("ticket");
+            ticketField.setAccessible(true);
+            final var ticket = ticketField.get(permit);
+            final var proof = ticket.getClass().getDeclaredField("adapterProof");
+            proof.setAccessible(true);
+            if (!proof.get(ticket).toString().equals("SERIAL_ONLY"))
+                throw new AssertionError("registered Mod body bypassed the Core proof refusal gate");
+            final var guard = permit.getClass().getDeclaredField("guard");
+            guard.setAccessible(true);
+            if (guard.get(permit) != null || net.neoforged.neoforge.server.threading.region.BlockEntityResourceOwnership.Scope.active())
+                throw new AssertionError("unproven Mod body acquired Worker/resource authority");
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(failure);
         }
     }
 
