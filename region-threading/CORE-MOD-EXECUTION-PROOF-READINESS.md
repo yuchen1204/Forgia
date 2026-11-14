@@ -36,7 +36,8 @@ Original Ticket remains the sole authority. An additional Core-only diagnostic a
 ## Stage ledger
 
 - C5.1: source audit and refusal-backend design complete; independent commit records this checkpoint.
-- C5.2–C5.5: pending implementation and actual verification; no success implied by this plan.
+- C5.2: original kernel Ticket now carries the Core-only assessment; exact active serial Permit required, duplicate/foreign checks rejected, pending/failed assessment cannot succeed, refused work cannot enter worker authority, kernel close retires it. No resource/validator/source retained in the assessment. Actual kernel plus existing real Level/registry regressions: **62/62**, exit0, no failure/error/skip (`c52-kernel`). This checkpoint does not yet attach the gate to C5 invocation inspection.
+- C5.3–C5.5: pending implementation and actual verification.
 
 ## Readiness boundaries
 
