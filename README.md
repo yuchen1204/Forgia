@@ -199,10 +199,14 @@ entries, separately documented; the report keeps all failed attempts and legacy 
 Production source/patches/admission/defaults/budgets/API are unchanged. That C4.2 checkpoint stopped before
 C5/Create protocol work, performance tuning or repeated long installed soak.
 
-[C6 first-Mod closure investigation](region-threading/FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) is blocked
-before trusted Mod authorization: runtime function/writer provenance is not established. An original
-furniture Mod ticker runs completely serial in an actual two-Region GameTest (87bodies/counter increments,
-workers0). C6.3–C6.5 remain unimplemented, and the exploratory bytecode observer is not shipped.
+[C6 closure and writer-boundary investigation](region-threading/MOD-CLOSURE-LINKAGE-AND-WRITER-BOUNDARY.md)
+continues from the published [first target audit](region-threading/FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md).
+A private JVM linkage experiment observes the actual original furniture ticker in its real LevelChunk
+binding. A controlled external writer still updates the original source while a canonical Serial Permit
+is paused. Core writer exclusion, Closure Verifier, trusted Manifest and Mod Claims remain unimplemented;
+**zero Mod Worker authority**, C6.3–C6.5 incomplete. New Core1400/1400 and two private observer+original-Mod
+full profiles179/179required each pass, retaining4NotProcessed. The normal shipped test suite is unchanged;
+the two added audit tests and optional observer/bootstrap bridge remain local and are not shipped.
 
 [C5.1–C5.5 Core execution proof readiness](region-threading/CORE-MOD-EXECUTION-PROOF-READINESS.md) adds
 an independent binding/lifecycle refusal gate on the original kernel Ticket. It rechecks the exact source

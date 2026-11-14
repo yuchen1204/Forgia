@@ -6,22 +6,32 @@ disabled, which is the vanilla code path.
 
 ## First trusted Mod closure — C6 blocked before authorization
 
-[C6 target, runtime investigation and results](FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) records
-original piq_fc_arcade0.31.0-alpha.61 furniture ticker candidate selection, a real-JVM hidden-function
-provenance counterexample and alternate-target investigation. Actual original Mod GameTest executes
-two sources across Regions through periodic maintenance, **87complete serial bodies/counter increments,
-workers0**,1/1required/exit0/noCrash. This is serial observation, not Mod Worker authorization.
-C6.1 source investigation is delivered. C6.2 is **blocked before trusted verifier/manifest**; C6.3 Claims
-conversion, C6.4 Mod Workers and C6.5 first-Mod architecture validation are **not completed**. All positive
-Mod Worker permissions remain absent. The exploratory definition-observer prototype is archived locally,
-not shipped; actual source/build/patch/admission/default/budget/test bytes remain the C5.5 baseline.
-The report explicitly separates existing baseline regressions from unexecuted C6 positive/fault scenarios.
-Current unchanged-baseline regression: Core1400/1400, three related419/419 configurations, existing
-Create16+unknown1/MSC25+unknown1/unknownFurnace1, and two full unfiltered GameTest profiles177/177required
-each pass, exit0/noCrash. Each full XML retains231grouped entries/179uniqueIDs/4NotProcessed. All1400
-and three419case multisets match prior actual XML;84canonicalperconfiguration and Native/Furnace2/2
-remain. These results do not complete C6.4/C6.5 or grant a Mod Worker permission.
-No installed-server verification, second Adapter/C7 or MSPT result is claimed.
+[The C6.2 continuation](MOD-CLOSURE-LINKAGE-AND-WRITER-BOUNDARY.md) develops a private original-JVM-factory
+linkage experiment and observes the exact hidden ticker inside real LevelChunk bindings. The original
+piq_fc_arcade0.31.0-alpha.61 pair remains completely serial; final full profiles observe84/84/84 and82/82/82
+body/counter/linkage totals, workers0. Runtime writer method snapshots match the audited original before
+a controlled negative actor executes. While the original canonical Serial Permit is paused, that separate
+test actor has no Permit,Scope or Worker identity yet invokes the public original method once; the following
+canonical body adds one more update,total2. This establishes a missing writer-participation prerequisite,
+not a reserved-Lease failure or a production Worker grant. It does not claim an upstream asynchronous writer.
+
+C6.1 original source investigation is delivered. C6.2 **still lacks a production Core Closure Verifier,
+Trusted Manifest and complete independent writer exclusion**. C6.3 Claims conversion,C6.4 Mod Workers and
+C6.5 first-Mod architecture validation are not completed. A descriptive function-origin record, runtime
+snapshot or Dedicated assertion does not authorize execution. All Canonical Mod tickers remain serial;
+the intentional test-only foreign method call is explicitly outside Core authority.
+
+New actual regression: Core1400/1400, all1400case outcomes/multiplicity match prior XML;84canonical and
+Native/Furnace overlap2/2 preserved. Two full unfiltered private observer+original-Mod GameTest profiles
+pass179/179required each,exit0/noCrash. Their233grouped entries/181uniqueIDs retain4NotProcessed; all231old
+framework rows match the prior177required baseline after removing the two new private audit IDs. Standard
+shipped tests stay unchanged. Earlier three419configuration/legacy adapter results are retained historical
+unchanged-baseline evidence, not new continuation runs. Final default compilation removes private classes.
+
+[The first target audit](FIRST-TRUSTED-MOD-EXECUTION-CLOSURE.md) preserves the earlier hidden-definition
+counterexample, alternate candidates and initial serial/regression results. The new agent/JDK bootstrap
+bridge, audit tests, jars and raw evidence remain local; no production API/build/patch/admission/default/
+budget or existing-test bytes changed. No installed-server verification,second Adapter/C7 or MSPT claim.
 
 ## Core-controlled Mod execution proof — C5.1–C5.5
 

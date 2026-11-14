@@ -4,6 +4,8 @@ Baseline: `835ca1408e7eb4f49e4441963bb283a65d32812f`.
 
 C6.1 selects and investigates a real upstream ticker. **No Mod Worker authorization exists.** C6.2 investigation subsequently reproduced an actual runtime-function evidence gap and stopped before a trusted verifier could be implemented. C6.3–C6.5 are not completed. The final results below are refusal/serial observations and unchanged-baseline regressions, not a first Mod Worker milestone.
 
+This document freezes the initial investigation published through `1767cf81`. The [C6.2 continuation](MOD-CLOSURE-LINKAGE-AND-WRITER-BOUNDARY.md) adds a local natural-factory linkage experiment, actual runtime writer snapshot and a real external-writer boundary witness. Its fresh Core1400 and private observer+original-Mod full179required profiles do not grant a Mod Worker. The original evidence summary remains unchanged as a historical record; current incomplete-stage status and new evidence are in the continuation report.
+
 ## C6.1 selection
 
 The local inventory contains 198 distinct mod jar names; 90 have BlockEntity/TileEntity-named classes. Names are a discovery heuristic, not a complete BE census or an admission rule. Four original artifacts were indexed with ASM, including fields, method descriptors, calls, invokedynamic handles and field writers. This inventory describes original jar bytes only; it is neither runtime evidence nor Proof.
