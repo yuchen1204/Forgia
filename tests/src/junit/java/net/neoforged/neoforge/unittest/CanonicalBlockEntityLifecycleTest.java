@@ -30,6 +30,58 @@ class CanonicalBlockEntityLifecycleTest {
     private static final BlockPos B = new BlockPos(68, 64, 20);
     private static final BlockPos U = new BlockPos(116, 64, 20);
 
+    @ParameterizedTest(name = "prepare is inside published lifetime, shutdown={0}")
+    @ValueSource(booleans = { false, true })
+    void canonicalPreparationCannotRunOutsideThePublishedPhaseLifetime(boolean shutdown) throws InterruptedException {
+        try (var f = new CanonicalBlockEntityTestSupport()) {
+            f.generic("A", A, () -> {});
+            f.generic("B", B, () -> {});
+            f.enable(false);
+            final var preparing = new CountDownLatch(1);
+            final var returned = new AtomicBoolean();
+            final var failure = new AtomicReference<Throwable>();
+            f.register(new net.neoforged.neoforge.server.threading.api.BlockEntityTickAdapter() {
+                @Override
+                public void prepare(net.minecraft.server.level.ServerLevel level) {
+                    preparing.countDown();
+                    await(f.lifecycleWriteHeld);
+                    assertEquals(1, ((java.util.Set<?>) CanonicalBlockEntityTestSupport.get(f.engine.getClass(), f.engine, "activeTickBatches")).size(),
+                            "the existing single phase must be published before arbitrary prepare callbacks");
+                    assertFalse(returned.get(), "unload/shutdown must await prepare and the complete published phase");
+                }
+
+                @Override
+                public Decision check(net.minecraft.world.level.block.entity.BlockEntity source) {
+                    return Decision.ADMITTED;
+                }
+            });
+            final var cleanup = new Thread(() -> {
+                try {
+                    await(preparing);
+                    if (shutdown) f.engine.shutdown();
+                    else f.engine.clearLevelRegionTasks(f.level);
+                    returned.set(true);
+                } catch (Throwable error) {
+                    failure.set(error);
+                }
+            }, "canonical-prepare-lifecycle");
+            cleanup.start();
+            try {
+                f.levelPhase();
+                cleanup.join(10_000);
+                assertFalse(cleanup.isAlive());
+                assertNull(failure.get());
+                assertTrue(returned.get());
+                assertEquals(1, f.cells.get("A").get());
+                assertEquals(1, f.cells.get("B").get());
+                f.clean();
+                if (!shutdown) f.probes();
+            } finally {
+                cleanup.join(10_000);
+            }
+        }
+    }
+
     @ParameterizedTest(name = "server lifecycle callback rejects before monitor, shutdown={0}")
     @ValueSource(booleans = { false, true })
     void anActiveServerFenceRejectsLifecycleSelfWaitBeforeTheCleanupMonitor(boolean shutdown) throws InterruptedException {

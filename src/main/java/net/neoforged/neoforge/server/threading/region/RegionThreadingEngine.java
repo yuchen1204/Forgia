@@ -5882,9 +5882,6 @@ public final class RegionThreadingEngine implements RegionThreading {
         final Set<RegionBlockEntityTickAdmission> counted = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         Throwable failure = null;
         try {
-            // Preserve v1 prepare-once on the Native path. The old furnace-only configuration did not
-            // prepare generic adapters; its ADAPTER_GUARDED inputs remain complete Serial Fences.
-            if (!furnaces && !this.shutdown && !this.regionizer.isLevelClosed(level)) ParallelAdapterRuntime.prepareBlockEntityTicks(level);
             batch = new RegionBlockEntityTickBatch(level, this.deferredBlockUpdateBudget, chunks,
                     () -> !this.regionizer.isLevelClosed(level), pos -> this.regionizer.get(this.layout.regionAt(level, pos)));
             batch.canonicalSequence(true);
@@ -5898,6 +5895,9 @@ public final class RegionThreadingEngine implements RegionThreading {
             } else {
                 published = true;
                 batch.markExecutingOnCurrentThread();
+                // Publish this same phase before any arbitrary prepare callback: unload/shutdown must
+                // await preparation too. Preserve server prepare-once and the furnace prepare=0 path.
+                if (!furnaces && !this.shutdown && !this.regionizer.isLevelClosed(level)) ParallelAdapterRuntime.prepareBlockEntityTicks(level);
                 graph = this.blockEntityWorkGraph.begin(level, chunks);
                 batch.setWorkGraph(graph);
                 final List<RegionBlockEntityTickAdmission> ordered = new ArrayList<>();
