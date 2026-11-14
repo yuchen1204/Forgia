@@ -5875,6 +5875,7 @@ public final class RegionThreadingEngine implements RegionThreading {
         RegionBlockEntityTickBatch batch = null;
         RegionBlockEntityWorkGraph.Phase graph = null;
         boolean published = false;
+        BlockEntityAdapterPhase adapters = null;
         final boolean furnaces = this.furnaceWorkWavesEnabled && this.layout.isFixed();
         final long resourcePhaseStart = furnaces && this.blockEntityResourcesEnabled ? System.nanoTime() : 0L;
         final int[] furnaceCandidates = { 0 };
@@ -5895,6 +5896,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             } else {
                 published = true;
                 batch.markExecutingOnCurrentThread();
+                adapters = BlockEntityAdapterPhase.open(level);
                 // Publish this same phase before any arbitrary prepare callback: unload/shutdown must
                 // await preparation too. Preserve server prepare-once and the furnace prepare=0 path.
                 if (!furnaces && !this.shutdown && !this.regionizer.isLevelClosed(level)) ParallelAdapterRuntime.prepareBlockEntityTicks(level);
@@ -5905,6 +5907,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                 ordered.sort(Comparator.comparingLong(RegionBlockEntityTickAdmission::sequence));
                 final var phase = batch;
                 final var sample = graph;
+                final var general = adapters;
                 // One preparation budget/home table/scratch for the whole canonical phase; a new
                 // prefix never resets logical uses or borrows an earlier successful resource proof.
                 final var resources = furnaces && this.blockEntityResourcesEnabled ? new FurnaceResourcePreparation(level, this.layout) : null;
@@ -5913,6 +5916,9 @@ public final class RegionThreadingEngine implements RegionThreading {
                     public CanonicalBlockEntityCoordinator.Unit prepare(int index) {
                         final var admission = ordered.get(index);
                         if (!phase.eligibleNow(admission)) return null;
+                        // C5 has no generic proof backend. Do not invoke an unknown adapter during
+                        // lookahead: its whole inspection/original ticker belongs to this Serial Fence.
+                        if (general != null && general.handles(admission)) return null;
                         if (furnaces && LevelChunk.furnaceWorkSource(admission.ticker()) != null) {
                             final long started = System.nanoTime();
                             final var preparation = new FurnaceWorkPreparation(level, layout, resources != null);
@@ -5980,11 +5986,9 @@ public final class RegionThreadingEngine implements RegionThreading {
                     public void serial(int index) {
                         final var admission = ordered.get(index);
                         phase.execution().reinspectUnstarted(admission, Inspection.serialFence());
-                        if (furnaces) tickFurnaceSerial(phase, admission, sample);
-                        else {
-                            fallbackBlockEntityTicks.incrementAndGet();
-                            tickBlockEntitySerial(phase, admission, sample);
-                        }
+                        if (furnaces) furnaceWorkMetrics.serial();
+                        fallbackBlockEntityTicks.incrementAndGet();
+                        tickBlockEntitySerial(phase, admission, sample, general);
                     }
                 });
             }
@@ -6001,6 +6005,11 @@ public final class RegionThreadingEngine implements RegionThreading {
                     failure = runBatchCompletion(failure, () -> RegionPoiStorages.publishLevel(level));
                 }
                 if (graph != null) failure = runBatchCompletion(failure, graph::finish);
+                if (adapters != null) {
+                    final var closingAdapters = adapters;
+                    final boolean successful = failure == null;
+                    failure = runBatchCompletion(failure, () -> closingAdapters.close(successful));
+                }
                 batch.closeOperations(BlockEntityOperations.Reason.BATCH_CLOSED);
                 failure = runBatchCompletion(failure, batch.execution()::close);
                 batch.completeExternalWaves();
@@ -7286,8 +7295,14 @@ public final class RegionThreadingEngine implements RegionThreading {
 
     private void tickBlockEntitySerial(BlockEntityExecutionBatch batch, RegionBlockEntityTickAdmission admission,
             @Nullable RegionBlockEntityWorkGraph.Phase graph) {
+        this.tickBlockEntitySerial(batch, admission, graph, null);
+    }
+
+    private void tickBlockEntitySerial(BlockEntityExecutionBatch batch, RegionBlockEntityTickAdmission admission,
+            @Nullable RegionBlockEntityWorkGraph.Phase graph, @Nullable BlockEntityAdapterPhase adapters) {
         if (!batch.eligibleNow(admission)) return;
         try (final var permit = batch.execution().beginSerial(admission)) {
+            if (adapters != null) adapters.inspect(admission);
             this.tickBlockEntityInline(batch.level(), admission.ticker(), graph);
             permit.succeeded();
         }
