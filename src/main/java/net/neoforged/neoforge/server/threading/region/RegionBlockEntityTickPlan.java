@@ -159,9 +159,10 @@ public final class RegionBlockEntityTickPlan {
                                     this.engine.isInteriorRegionChunk(new ChunkPos(key)), this.engine.borderUpdatesEnabled()),
                             ordinal);
                 }
+                final RegionBlockEntityTickAdmission narrowed = this.engine.narrowCanonicalBlockEntity(admission);
                 // Ineligible entries stay in the phase. They cannot go to a worker using the initial
                 // decision; the complete server call rechecks eligibility at its actual list position.
-                unit.add(admission, (!LevelChunk.isChunkOwnedTicker(ticker) || template != null)
+                unit.add(narrowed, (!LevelChunk.isChunkOwnedTicker(ticker) || template != null)
                         && (unit.cache == null || unit.cache.allAdmitted())
                         && (unit.chunk == null || unit.chunk.isLoaded() && unit.chunk.getFullStatus().isOrAfter(FullChunkStatus.BLOCK_TICKING))
                         && this.level.shouldTickBlocksAt(position) && this.level.areEntitiesLoaded(key));

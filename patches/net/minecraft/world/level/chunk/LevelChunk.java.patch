@@ -512,7 +512,7 @@
          BlockState blockstate = p_156407_.getBlockState();
          BlockEntityTicker<T> blockentityticker = blockstate.getTicker(this.level, (BlockEntityType<T>)p_156407_.getType());
          if (blockentityticker == null) {
-@@ -656,33 +_,199 @@
+@@ -656,33 +_,208 @@
                      }
                  );
          }
@@ -558,6 +558,15 @@
 +        return ticker instanceof LevelChunk.BoundTickingBlockEntity<?> bound
 +            && bound.ticker == net.neoforged.neoforge.server.threading.region.FurnaceWorkScope.ticker()
 +            && bound.blockEntity instanceof net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity furnace ? furnace : null;
++    }
++
++    /** Neo: only the core-issued original Hopper function can prove a closed Native branch. */
++    @Nullable
++    public static net.minecraft.world.level.block.entity.HopperBlockEntity nativeHopperSource(TickingBlockEntity ticker) {
++        if (ticker instanceof LevelChunk.RebindableTickingBlockEntityWrapper wrapper) return nativeHopperSource(wrapper.ticker);
++        return ticker instanceof LevelChunk.BoundTickingBlockEntity<?> bound
++            && bound.ticker == net.neoforged.neoforge.server.threading.region.NativeBlockEntityPreparation.hopperTicker()
++            && bound.blockEntity instanceof net.minecraft.world.level.block.entity.HopperBlockEntity hopper ? hopper : null;
 +    }
 +
 +    /** Neo: a reloaded chunk must not inherit a ticker that is still bound to the old chunk instance. */

@@ -1,0 +1,11 @@
+--- a/net/minecraft/world/level/block/HopperBlock.java
++++ b/net/minecraft/world/level/block/HopperBlock.java
+@@ -112,7 +_,7 @@
+     @Nullable
+     @Override
+     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level p_153378_, BlockState p_153379_, BlockEntityType<T> p_153380_) {
+-        return p_153378_.isClientSide ? null : createTickerHelper(p_153380_, BlockEntityType.HOPPER, HopperBlockEntity::pushItemsTick);
++        return p_153378_.isClientSide ? null : createTickerHelper(p_153380_, BlockEntityType.HOPPER, net.neoforged.neoforge.server.threading.region.NativeBlockEntityPreparation.hopperTicker());
+     }
+ 
+     @Override

@@ -93,6 +93,7 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
     final Map<String, AtomicInteger> cells = new ConcurrentHashMap<>();
     final Map<String, AbstractFurnaceBlockEntity> furnaces = new LinkedHashMap<>();
     final Map<String, TickingBlockEntity> tickers = new LinkedHashMap<>();
+    final Map<TickingBlockEntity, Runnable> nativeObservations = new java.util.IdentityHashMap<>();
     final Map<BlockPos, String> names = new HashMap<>();
     final List<Event> events = new ArrayList<>();
     final CountDownLatch lifecycleWriteHeld = new CountDownLatch(1);
@@ -189,6 +190,7 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
             this.controlled = new ControlledExecutor(executor, this);
             set(pool.getClass(), pool, "executor", this.controlled);
         }
+        this.engine.setBlockEntityBodyObserverForTesting(this::observeNativeBody);
         this.engine.setFurnaceBodyObserverForTesting(source -> {
             final String id = this.names.get(source.getBlockPos());
             // Observe the existing original-body tail; always retain its original metrics callback.
@@ -238,7 +240,40 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
     }
 
     TickingBlockEntity script(String id, BlockPos pos, String type, Runnable action) {
+        if (type.equals("minecraft:hopper")) {
+            // A declared string is not an original-function proof. Exercise the actual closed Hopper
+            // branch; test observations execute only after production admission, just like furnace probes.
+            final var state = Blocks.HOPPER.defaultBlockState();
+            final var source = new net.minecraft.world.level.block.entity.HopperBlockEntity(pos, state);
+            source.setLevel(this.level);
+            source.setCooldown(10000);
+            this.world.blockEntities.put(pos, source);
+            this.world.states.put(pos, state);
+            this.names.put(pos, id);
+            this.cells.put(id, new AtomicInteger());
+            final var wrapper = this.bound(id, source, state.getTicker(this.level, source.getType()));
+            this.nativeObservations.put(wrapper, action);
+            return wrapper;
+        }
         return this.wrap(id, this.chunk(pos), this.recordingTicker(id, pos, type, action));
+    }
+
+    private void observeNativeBody(TickingBlockEntity ticker, Runnable body) {
+        final Runnable action = this.nativeObservations.get(ticker);
+        if (action == null) {
+            body.run();
+            return;
+        }
+        final String id = this.names.get(ticker.getPos());
+        this.start(id);
+        try {
+            this.cells.get(id).incrementAndGet();
+            action.run();
+            body.run();
+        } finally {
+            this.event(id, "body-end");
+            this.currentBody.remove();
+        }
     }
 
     private TickingBlockEntity recordingTicker(String id, BlockPos pos, String type, Runnable action) {
@@ -366,10 +401,14 @@ final class CanonicalBlockEntityTestSupport implements AutoCloseable {
             for (int index = 0; index < list.size(); index++) {
                 final TickingBlockEntity original = list.get(index);
                 final String id = this.names.get(original.getPos());
-                if (!this.furnaces.containsKey(id)) continue;
+                if (!this.furnaces.containsKey(id) && !this.nativeObservations.containsKey(original)) continue;
                 final TickingBlockEntity observer = new TickingBlockEntity() {
                     @Override
                     public void tick() {
+                        if (nativeObservations.containsKey(original)) {
+                            observeNativeBody(original, original::tick);
+                            return;
+                        }
                         start(id);
                         try {
                             original.tick();

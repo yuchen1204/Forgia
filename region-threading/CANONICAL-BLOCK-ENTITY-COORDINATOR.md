@@ -4,7 +4,11 @@
 
 上一片 [Execution Contract](BLOCK-ENTITY-EXECUTION-CONTRACT.md) 已统一调用授权，但 Native 与 Furnace 仍各自选择顺序、分组、回退及提交。本方案在现有 Ticket、Permit、RegionGuard 上增加一个服务器线程 Coordinator，先统一输入顺序和 Fence，再逐片接入原执行桥。Resource Ownership 的 MSPT／微基准优化继续冻结；Create 保持独立模块。
 
-## 最新实施状态：C2 完成，C3-A inventory 证明门槛阻塞
+## 最新实施状态：C3-A2 最小 Native 子集已接入
+
+[C3-A2 生产实现与验证](CANONICAL-BLOCK-ENTITY-C3A2-MINIMUM-NATIVE-ADMISSION.md)通过核心原函数、exact source／runtime、实际chunk/binding和fresh分支检查，让冷却>1或disabled的真实Hopper在不同Region Worker并行（overlap=2），活跃未知Capability路径完整串行。四配置实际回归：完整core1297项1293pass／4项后续目标failure，原1244项全通过。原C1预期不改，脚本Native输入换成真实原函数及准入后的观察钩子。下一阶段为C3-B效果归属／提交，再进入C3-C统一cursor；C4尚未进入。下文历史阻塞不表示本轮继续以文档替代生产实现。
+
+## C3-A inventory 历史检查点：当时证明门槛阻塞
 
 C0 源码映射与下文方案是 `233905042` 时的历史设计。后续 [C1](CANONICAL-BLOCK-ENTITY-C1-TESTS.md) 建立真实红测，[C2 实施记录](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md)在 `f6b48e24` 基线上接入实际 Level membership：pending merge／fresh onLoad 后锁内复制引用，锁外取 getter 与审计；同 phase ordinal 不再来自 chunk creation／explicit 两个数值域。Native canonical fallback 按 ordinal 合并，后项动态 eligibility 不再被起点永久剔除。
 

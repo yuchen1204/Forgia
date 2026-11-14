@@ -1,5 +1,17 @@
 --- a/net/minecraft/world/level/block/entity/HopperBlockEntity.java
 +++ b/net/minecraft/world/level/block/entity/HopperBlockEntity.java
+@@ -92,6 +_,11 @@
+         return Component.translatable("container.hopper");
+     }
+ 
++    /** Neo: fresh branch predicate only; never probes inventory, capabilities, or a callback. */
++    public boolean nativeTickHasNoCallbacks(BlockState state) {
++        return this.cooldownTime > 1 || !state.getValue(HopperBlock.ENABLED);
++    }
++
+     public static void pushItemsTick(Level p_155574_, BlockPos p_155575_, BlockState p_155576_, HopperBlockEntity p_155577_) {
+         p_155577_.cooldownTime--;
+         p_155577_.tickedGameTime = p_155574_.getGameTime();
 @@ -137,6 +_,7 @@
      }
  

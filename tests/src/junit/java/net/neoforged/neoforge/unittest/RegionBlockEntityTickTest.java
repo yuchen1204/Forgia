@@ -790,47 +790,64 @@ class RegionBlockEntityTickTest {
 
     @Test
     void levelTicksBlockEntitiesOnWorkersAndPublishesTickersAddedDuringTheBatch() throws ReflectiveOperationException {
-        this.installEngine(true);
-        final ServerLevel level = mockLevel();
-        final TickingBlockEntity first = mockTicker(new BlockPos(16, 64, 16));
-        final TickingBlockEntity second = mockTicker(new BlockPos(17, 64, 16));
-        final TickingBlockEntity added = mockTicker(new BlockPos(18, 64, 16));
-        final AtomicBoolean addedOnce = new AtomicBoolean();
-        final List<String> tickThreads = new CopyOnWriteArrayList<>();
-        doAnswer(invocation -> {
-            tickThreads.add(Thread.currentThread().getName());
-            if (addedOnce.compareAndSet(false, true)) {
-                level.addBlockEntityTicker(added);
-            }
-            return null;
-        }).when(first).tick();
-        doAnswer(invocation -> {
-            tickThreads.add(Thread.currentThread().getName());
-            return null;
-        }).when(second).tick();
-        doAnswer(invocation -> {
-            tickThreads.add(Thread.currentThread().getName());
-            return null;
-        }).when(added).tick();
-        level.addBlockEntityTicker(first);
-        level.addBlockEntityTicker(second);
+        try (var fixture = new CanonicalBlockEntityTestSupport()) {
+            fixture.enable(false, false);
+            this.engine = fixture.engine;
+            final ServerLevel level = fixture.level;
+            final TickingBlockEntity first = originalIdleTicker(fixture, "first", new BlockPos(16, 64, 16));
+            final TickingBlockEntity second = originalIdleTicker(fixture, "second", new BlockPos(17, 64, 16));
+            final TickingBlockEntity added = originalIdleTicker(fixture, "added", new BlockPos(18, 64, 16));
+            blockEntityTickers(level).clear();
+            final AtomicBoolean addedOnce = new AtomicBoolean();
+            final List<String> tickThreads = new CopyOnWriteArrayList<>();
+            doAnswer(invocation -> {
+                tickThreads.add(Thread.currentThread().getName());
+                if (addedOnce.compareAndSet(false, true)) {
+                    level.addBlockEntityTicker(added);
+                }
+                return invocation.callRealMethod();
+            }).when(first).tick();
+            doAnswer(invocation -> {
+                tickThreads.add(Thread.currentThread().getName());
+                return invocation.callRealMethod();
+            }).when(second).tick();
+            doAnswer(invocation -> {
+                tickThreads.add(Thread.currentThread().getName());
+                return invocation.callRealMethod();
+            }).when(added).tick();
+            level.addBlockEntityTicker(first);
+            level.addBlockEntityTicker(second);
 
-        tickBlockEntities(level);
+            tickBlockEntities(level);
 
-        verify(first, times(1)).tick();
-        verify(second, times(1)).tick();
-        verify(added, never()).tick();
-        assertEquals(2, tickThreads.size());
-        assertTrue(tickThreads.stream().allMatch(name -> name.startsWith("NeoForge Region Worker")), tickThreads.toString());
-        assertEquals(List.of(first, second, added), blockEntityTickers(level));
-        assertTrue(pendingBlockEntityTickers(level).isEmpty(), "a ticker added while ticking must be published at finalization");
-        assertFalse(tickingBlockEntities(level));
+            verify(first, times(1)).tick();
+            verify(second, times(1)).tick();
+            verify(added, never()).tick();
+            assertEquals(2, tickThreads.size());
+            assertTrue(tickThreads.stream().allMatch(name -> name.startsWith("NeoForge Region Worker")), tickThreads.toString());
+            assertEquals(List.of(first, second, added), blockEntityTickers(level));
+            assertTrue(pendingBlockEntityTickers(level).isEmpty(), "a ticker added while ticking must be published at finalization");
+            assertFalse(tickingBlockEntities(level));
 
-        tickBlockEntities(level);
+            tickBlockEntities(level);
 
-        verify(added, times(1)).tick();
-        assertEquals(3, blockEntityTickers(level).size());
-        assertTrue(pendingBlockEntityTickers(level).isEmpty());
+            verify(added, times(1)).tick();
+            assertEquals(3, blockEntityTickers(level).size());
+            assertTrue(pendingBlockEntityTickers(level).isEmpty());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TickingBlockEntity originalIdleTicker(CanonicalBlockEntityTestSupport fixture, String id, BlockPos pos) {
+        final var original = fixture.script(id, pos, "minecraft:hopper", () -> {});
+        final var observed = org.mockito.Mockito.spy(original);
+        fixture.tickers.put(id, observed);
+        fixture.nativeObservations.put(observed, fixture.nativeObservations.remove(original));
+        final var chunk = fixture.chunk(pos);
+        final var map = (java.util.Map<BlockPos, TickingBlockEntity>) CanonicalBlockEntityTestSupport.get(net.minecraft.world.level.chunk.LevelChunk.class, chunk, "tickersInLevel");
+        map.put(pos, observed);
+        chunk.bumpBlockEntityTickerRevision();
+        return observed;
     }
 
     @Test

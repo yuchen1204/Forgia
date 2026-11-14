@@ -611,6 +611,8 @@ public final class RegionThreadingEngine implements RegionThreading {
             && net.neoforged.neoforge.common.ForgiaConfig.SERVER.enableRegionThreadingFurnaceWorkWaves.get();
     @Nullable
     private java.util.function.Consumer<net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity> furnaceBodyObserverForTesting;
+    @Nullable
+    private java.util.function.BiConsumer<TickingBlockEntity, Runnable> blockEntityBodyObserverForTesting;
     private final AtomicLong boundaryBlockEntityTicksOnWorkers = new AtomicLong();
     /** Chunks the plan did not hand over because they are not block-ticking (or the tick rate is frozen). */
     private final AtomicLong nonTickingBlockEntityChunks = new AtomicLong();
@@ -6354,6 +6356,32 @@ public final class RegionThreadingEngine implements RegionThreading {
         return tickers;
     }
 
+    /** Observation only: invoked after production admission, never consulted to grant execution authority. */
+    @org.jetbrains.annotations.VisibleForTesting
+    public void setBlockEntityBodyObserverForTesting(@Nullable java.util.function.BiConsumer<TickingBlockEntity, Runnable> observer) {
+        this.blockEntityBodyObserverForTesting = observer;
+    }
+
+    private void runBlockEntityBody(TickingBlockEntity ticker, @Nullable RegionBlockEntityWorkGraph.Phase graph, boolean worker) {
+        final Runnable body = () -> {
+            if (graph == null) ticker.tick();
+            else graph.run(ticker, worker);
+        };
+        final var observer = this.blockEntityBodyObserverForTesting;
+        if (observer == null) body.run();
+        else observer.accept(ticker, body);
+    }
+
+    /** Narrow the real Level path; legacy explicit declarations do not issue this proof. */
+    RegionBlockEntityTickAdmission narrowCanonicalBlockEntity(RegionBlockEntityTickAdmission admission) {
+        if (!admission.isAdmitted() || admission.decision() == RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
+                || this.furnaceWorkWavesEnabled && LevelChunk.furnaceWorkSource(admission.ticker()) != null
+                || NativeBlockEntityPreparation.prepare(admission) != null)
+            return admission;
+        return new RegionBlockEntityTickAdmission(admission.level(), admission.ticker(), admission.position(), admission.type(),
+                admission.binding(), RegionBlockEntityTickAdmission.Decision.TYPE_NOT_DECLARED, admission.sequence());
+    }
+
     private static Inspection inspectNativeBlockEntity(RegionBlockEntityTickAdmission admission) {
         if (!admission.isAdmitted()) return Inspection.serialFence();
         final var descriptor = admission.decision() == RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
@@ -6418,7 +6446,10 @@ public final class RegionThreadingEngine implements RegionThreading {
                                 }
                                 // Validate before the body: stale admissions are deferred exactly once, never
                                 // recovered by throwing after a ticker could already have produced side effects.
-                                if (admission.level() != level || !admission.isCurrent() || !region.isOwnedByCurrentThread()) {
+                                if (admission.level() != level || !admission.isCurrent() || !region.isOwnedByCurrentThread()
+                                        || group.batch().canonicalSequence()
+                                                && admission.decision() != RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED
+                                                && NativeBlockEntityPreparation.prepare(admission) == null) {
                                     if (tickerTiming) {
                                         RegionBlockEntityTickAttribution.recordTickerAdmission(System.nanoTime() - tickerLoopStart);
                                     }
@@ -6476,8 +6507,7 @@ public final class RegionThreadingEngine implements RegionThreading {
                                                     RegionBlockEntityTickAttribution.recordFallback(RegionBlockEntityTickAttribution.FallbackReason.STALE_ADMISSION, 1);
                                                     continue;
                                                 }
-                                                if (group.batch().workGraph() == null) ticker.tick();
-                                                else group.batch().workGraph().run(ticker, true);
+                                                this.runBlockEntityBody(ticker, group.batch().workGraph(), true);
                                                 if (admission.decision() == RegionBlockEntityTickAdmission.Decision.ADAPTER_GUARDED) {
                                                     ParallelAdapterRuntime.completeBlockEntityTick(admission, ticket.inspection().descriptor());
                                                 }
@@ -6765,8 +6795,7 @@ public final class RegionThreadingEngine implements RegionThreading {
             return;
         }
         if (level.areEntitiesLoaded(ChunkPos.asLong(ticker.getPos()))) {
-            if (graph == null) ticker.tick();
-            else graph.run(ticker, false);
+            this.runBlockEntityBody(ticker, graph, false);
         }
     }
 

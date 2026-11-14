@@ -4,7 +4,18 @@ Measured on a 4-core/8-thread machine, JDK 21, ZGC generational, fixed 3×3-chun
 4 workers, 200 warmup + 600 measured ticks, two repeats. "Off" means the same build with region threading
 disabled, which is the vanilla code path.
 
-## Canonical Block Entity Coordinator — C3-A inventory, proof gate blocked
+## Canonical Block Entity Coordinator — C3-A2 minimum Native subset implemented
+
+[C3-A2 minimum Native admission](CANONICAL-BLOCK-ENTITY-C3A2-MINIMUM-NATIVE-ADMISSION.md) adds production
+original-function/binding/runtime/fresh-branch checks for exact Hopper cooldown>1 or disabled branches.
+Both cohorts execute original bodies with real different-Region Worker overlap=2; active unknown providers,
+shared handlers and replacement functions stay fully serial on the actual Level path. Original C1 assertions
+remain; Native fixtures now use original Hopper tickers and observation after admission. Full core1297:
+1293pass/4later-stage target failures,0error/skip, all1244original cases pass. Fixed/Persistent × Resources OFF/ON
+are actually rerun, including12Native admission/inventory invocations passing. C3-B/C3-C and C4 remain pending;
+no unified cursor or invocation effect bridge yet. Defaults, budgets, API and Create unchanged.
+
+## Earlier C3-A inventory checkpoint — historical blocked proof gate
 
 The [C2 implementation and validation record](CANONICAL-BLOCK-ENTITY-C2-COLLECTION.md) captures the actual
 Level ticker list after pending merge and fresh onLoad, copies only references under the membership lock,
